@@ -1439,7 +1439,7 @@ function WindyMap() {
 
   return (
     <div style={{ padding: '0 20px 40px' }}>
-      <h2 style={{ textAlign: 'center', marginBottom: '8px' }}>7-Day Snow Accumulation Map</h2>
+      <h2 style={{ textAlign: 'center', marginBottom: '8px', marginTop: '40px' }}>7-Day Snow Accumulation Map</h2>
       <p style={{ textAlign: 'center', color: '#555', fontSize: '12px', marginBottom: '16px' }}>
         ECMWF forecast · drag to pan · scroll to zoom · click the map for point detail
       </p>
