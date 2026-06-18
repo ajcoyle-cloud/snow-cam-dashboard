@@ -398,10 +398,10 @@ function SnowfallForecast() {
   const [ecmwfFreezingData, setEcmwfFreezingData] = useState(null)
   const [cloudData, setCloudData] = useState(null)
   const [elevation, setElevation] = useState('summit') // 'summit' or 'base'
-  const [viewMode, setViewMode] = useState('hourly') // 'hourly' or 'fit'
+  const [viewMode, setViewMode] = useState('fit') // 'hourly' or 'fit'
   const [apiMode, setApiMode] = useState('openmeteo') // 'openmeteo' or 'meteoblue'
   const [meteoBlueForecastData, setMeteoBlueForecastData] = useState(null)
-  const [showFreezing, setShowFreezing] = useState({ gfs: true, ecmwf: false })
+  const [showFreezing, setShowFreezing] = useState({ gfs: true, ecmwf: true })
   const [now, setNow] = useState(() => new Date())
   useEffect(() => {
     const t = setInterval(() => setNow(new Date()), 1000)
