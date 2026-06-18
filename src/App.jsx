@@ -1428,6 +1428,40 @@ function SnowfallForecast() {
   )
 }
 
+function WindyMap() {
+  const [resort, setResort] = useState('ruapehu')
+  const locations = {
+    ruapehu: { name: 'Mt Ruapehu', lat: -39.28, lon: 175.57, zoom: 9 },
+    cardrona: { name: 'Cardrona / Wānaka', lat: -44.76, lon: 169.0, zoom: 9 },
+  }
+  const loc = locations[resort]
+  const src = `https://embed.windy.com/embed2.html?lat=${loc.lat}&lon=${loc.lon}&detailLat=${loc.lat}&detailLon=${loc.lon}&zoom=${loc.zoom}&level=surface&overlay=snowAccu&product=ecmwf&marker=true&metricWind=km%2Fh&metricTemp=%C2%B0C`
+
+  return (
+    <div style={{ padding: '0 20px 40px' }}>
+      <h2 style={{ textAlign: 'center', marginBottom: '8px' }}>7-Day Snow Accumulation Map</h2>
+      <p style={{ textAlign: 'center', color: '#555', fontSize: '12px', marginBottom: '16px' }}>
+        ECMWF forecast · drag to pan · scroll to zoom · click the map for point detail
+      </p>
+      <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '16px' }}>
+        <div className="elevation-toggle">
+          {Object.entries(locations).map(([key, l]) => (
+            <button key={key} className={`toggle-btn ${resort === key ? 'active' : ''}`} onClick={() => setResort(key)}>
+              {l.name}
+            </button>
+          ))}
+        </div>
+      </div>
+      <iframe
+        key={src}
+        src={src}
+        style={{ width: '100%', height: '500px', border: 'none', borderRadius: '8px', display: 'block' }}
+        allowFullScreen
+      />
+    </div>
+  )
+}
+
 export default function App() {
   return (
     <div className="app">
@@ -1441,6 +1475,10 @@ export default function App() {
 
       <section className="region-section forecast-section">
         <SnowfallForecast />
+      </section>
+
+      <section className="region-section">
+        <WindyMap />
       </section>
     </div>
   )
