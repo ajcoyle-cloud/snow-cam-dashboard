@@ -1386,7 +1386,7 @@ function SnowfallForecast() {
                 return (
                   <td key={i} style={{ width: `${tableCellWidth}px`, color: '#3b82f6', fontWeight: 'bold', background: hasSnow ? (isDayEven ? 'rgba(37, 99, 235, 0.12)' : 'rgba(37, 99, 235, 0.08)') : (isDayEven ? 'rgba(26, 26, 26, 0.3)' : 'rgba(15, 15, 15, 0.3)'), lineHeight: 1.1, paddingTop: '1px', paddingBottom: '1px' }}>
                     <div>{snowfall < 0.1 ? '' : (snowfall / 10).toFixed(1)}</div>
-                    {prob !== null && prob >= 5 && <div style={{ fontSize: '9px', color: '#5b9bd5', fontWeight: 'normal' }}>{prob}%</div>}
+                    {hasSnow && prob !== null && prob >= 5 && <div style={{ fontSize: '9px', color: '#5b9bd5', fontWeight: 'normal' }}>{prob}%</div>}
                   </td>
                 )
               })}
