@@ -1446,6 +1446,19 @@ function SnowfallForecast() {
               setHoveredIndex(null)
               setHoverLineX(null)
             }}
+            onTouchStart={(e) => {
+              if (!svgRef.current) return
+              const touch = e.touches[0]
+              const svgRect = svgRef.current.getBoundingClientRect()
+              const touchXInSVG = touch.clientX - svgRect.left
+              const touchXInPlot = touchXInSVG - snowPadding.left
+              const index = Math.round((touchXInPlot / snowPlotWidth) * (displayData.length - 1))
+              if (index >= 0 && index < forecastData.length) {
+                setHoveredIndex(index)
+                setMousePos({ x: touchXInSVG, y: touch.clientY - svgRect.top })
+                setHoverLineX(touchXInSVG)
+              }
+            }}
             onTouchMove={(e) => {
               if (!svgRef.current) return
               const touch = e.touches[0]
