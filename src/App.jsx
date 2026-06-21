@@ -60,7 +60,7 @@ const getWindArrow = (degrees) => {
 
 const NORTH_ISLAND = [
   { name: 'RSC Lodge', url: 'https://www.rsc.org.nz/latest.jpg', location: 'Whakapapa' },
-  { name: 'Happy Valley', url: 'https://www.mountainwatch.com/Resort/Whakapapa-happy-valley/LiveStill.jpg', location: 'Whakapapa' },
+  { name: 'Happy Valley', url: 'https://webcams.whakapapa.com/hvfromskywaka/latest.jpg', archiveBase: 'hvfromskywaka', location: 'Whakapapa' },
   { name: 'The Pinnacles', url: 'https://www.mountainwatch.com/Resort/Whakapapa-the-pinnacles/LiveStill.jpg', location: 'Whakapapa' },
   { name: 'Staircase Slopes', url: 'https://www.mountainwatch.com/Resort/Whakapapa-staircase-slpes/LiveStill.jpg', location: 'Whakapapa' },
   { name: 'Te Heuheu Valley', url: 'https://www.mountainwatch.com/Resort/Whakapapa-the-heuheu-valey/LiveStill.jpg', location: 'Whakapapa' },
@@ -182,6 +182,84 @@ function VideoPlayer({ url }) {
   )
 }
 
+// Time-travel viewer for cams whose source keeps a timestamped S3 archive
+// (Whakapapa webcams: <base>/<epoch-ms>.jpg at ~15-min cadence). Lists the
+// archive index via the /cam-archive proxy, then lets you scrub back through
+// the captured frames or snap back to the live image.
+function CameraHistory({ archiveBase, refreshKey }) {
+  const HOURS_BACK = 12
+  const [frames, setFrames] = useState(null) // sorted epoch-ms timestamps
+  const [idx, setIdx] = useState(null)        // null = live
+  const [status, setStatus] = useState('loading') // loading | ready | error
+
+  useEffect(() => {
+    let cancelled = false
+    setStatus('loading'); setFrames(null); setIdx(null)
+    const startAfter = Date.now() - HOURS_BACK * 3600 * 1000
+    const url = `/cam-archive/?list-type=2&prefix=${archiveBase}/&start-after=${archiveBase}/${startAfter}.jpg&max-keys=1000`
+    fetch(url)
+      .then((r) => r.text())
+      .then((xml) => {
+        if (cancelled) return
+        const re = new RegExp(`<Key>${archiveBase}/(\\d+)\\.jpg</Key>`, 'g')
+        const keys = [...xml.matchAll(re)].map((m) => parseInt(m[1], 10)).sort((a, b) => a - b)
+        if (keys.length === 0) { setStatus('error'); return }
+        setFrames(keys)
+        setStatus('ready')
+      })
+      .catch(() => { if (!cancelled) setStatus('error') })
+    return () => { cancelled = true }
+  }, [archiveBase])
+
+  const isLive = idx === null
+  const ts = !isLive && frames ? frames[idx] : null
+  const imgSrc = isLive
+    ? `https://webcams.whakapapa.com/${archiveBase}/latest.jpg?t=${refreshKey}`
+    : `https://webcams.whakapapa.com/${archiveBase}/${ts}.jpg`
+  const tsLabel = isLive
+    ? 'LIVE'
+    : new Date(ts).toLocaleString('en-NZ', { weekday: 'short', hour: '2-digit', minute: '2-digit' })
+
+  return (
+    <>
+      <img src={imgSrc} alt={archiveBase} onError={(e) => { e.target.style.opacity = '0.2' }} />
+      <div
+        onClick={(e) => e.stopPropagation()}
+        style={{
+          position: 'absolute', left: 0, right: 0, bottom: 0,
+          display: 'flex', alignItems: 'center', gap: '12px',
+          padding: '10px 14px', background: 'linear-gradient(transparent, rgba(0,0,0,0.75))',
+        }}
+      >
+        <button
+          onClick={() => setIdx(null)}
+          style={{
+            flexShrink: 0, fontSize: '0.85em', fontWeight: 'bold', cursor: 'pointer',
+            border: 'none', borderRadius: '4px', padding: '5px 10px',
+            color: '#fff', background: isLive ? '#dc2626' : '#444',
+          }}
+        >● LIVE</button>
+        <input
+          type="range"
+          min={0}
+          max={frames ? frames.length - 1 : 0}
+          value={isLive && frames ? frames.length - 1 : (idx ?? 0)}
+          disabled={status !== 'ready'}
+          onChange={(e) => setIdx(Number(e.target.value))}
+          style={{ flex: 1, accentColor: '#a855f7', cursor: status === 'ready' ? 'pointer' : 'default' }}
+        />
+        <span style={{
+          flexShrink: 0, minWidth: '92px', textAlign: 'right',
+          fontSize: '0.85em', fontVariantNumeric: 'tabular-nums',
+          color: isLive ? '#f87171' : '#fff',
+        }}>
+          {status === 'loading' ? 'loading…' : status === 'error' ? 'no archive' : tsLabel}
+        </span>
+      </div>
+    </>
+  )
+}
+
 function CameraCard({ camera, allCameras = [] }) {
   const [fullscreenCam, setFullscreenCam] = useState(null)
   const [cameraIndex, setCameraIndex] = useState(0)
@@ -281,7 +359,7 @@ function CameraCard({ camera, allCameras = [] }) {
           )}
         </div>
         {isMultiCamera && (
-          <div className="camera-badge">{cameraIndex + 1}/{camera.cameras.length}</div>
+          <div className="camera-badge">{safeIndex + 1}/{activeCameras.length}</div>
         )}
       </div>
 
@@ -353,6 +431,8 @@ function CameraCard({ camera, allCameras = [] }) {
                 />
               ) : isVideo ? (
                 <VideoPlayer url={displayUrl} />
+              ) : activeCam.archiveBase && !isMultiCamera ? (
+                <CameraHistory archiveBase={activeCam.archiveBase} refreshKey={refreshKey} />
               ) : (
                 <img
                   src={`${displayUrl}?t=${refreshKey}`}
@@ -364,7 +444,7 @@ function CameraCard({ camera, allCameras = [] }) {
                 <>
                   <button className="nav-btn nav-btn-left" onClick={handlePrevCamera}>‹</button>
                   <button className="nav-btn nav-btn-right" onClick={handleNextCamera}>›</button>
-                  <div className="camera-counter">{cameraIndex + 1}/{camera.cameras.length}</div>
+                  <div className="camera-counter">{safeIndex + 1}/{activeCameras.length}</div>
                 </>
               )}
             </div>
@@ -387,8 +467,77 @@ function CameraGrid({ cameras }) {
 }
 
 const RESORTS = {
-  ruapehu: { name: 'Mt Ruapehu', lat: -39.28, lon: 175.57, summitElev: 2300, baseElev: 1630, timezone: 'Pacific/Auckland' },
-  cardrona: { name: 'Cardrona Alpine Resort', lat: -44.76, lon: 169.0, summitElev: 1860, baseElev: 1640, timezone: 'Pacific/Auckland' },
+  ruapehu: { name: 'Mt Ruapehu', lat: -39.28, lon: 175.57, summitElev: 2300, baseElev: 1630, timezone: 'Pacific/Auckland', metservicePath: 'mountains-and-parks/national-parks/tongariro' },
+  cardrona: { name: 'Cardrona Alpine Resort', lat: -44.76, lon: 169.0, summitElev: 1860, baseElev: 1640, timezone: 'Pacific/Auckland', metservicePath: 'mountains-and-parks/ski-fields/cardrona' },
+}
+
+// --- MetService freezing-level helpers ---------------------------------------
+// MetService publishes a human-written "freezing level" statement per day in its
+// mountain/park forecasts (e.g. "2700 metres, lowering to 2300 metres in the
+// evening."). Parse that into a start value, an optional end value, and the hour
+// of day the transition kicks in so we can draw a stepped daily line.
+function parseFzlStatement(s) {
+  if (!s) return null
+  const nums = [...s.matchAll(/(\d{3,4})\s*met/gi)].map((m) => parseInt(m[1], 10))
+  if (nums.length === 0) return null
+  const start = nums[0]
+  let end = null
+  let transHour = 15
+  if (nums.length > 1 && /(lower|rising|ris(e|ing)|drop|fall)/i.test(s)) {
+    end = nums[1]
+    if (/morning/i.test(s)) transHour = 9
+    else if (/afternoon/i.test(s)) transHour = 14
+    else if (/evening/i.test(s)) transHour = 18
+    else if (/night/i.test(s)) transHour = 21
+  }
+  return { start, end, transHour }
+}
+
+// Walk a MetService webdata payload and pull out { dateKey, start, end, ... } for
+// every day that has a freezing-level statement. Robust to the two different
+// shapes the API uses (national parks vs ski fields) by recursively locating a
+// nested `fzlStatement` within each element of any `days` array.
+function extractMetserviceDays(json) {
+  const out = []
+  const findFzl = (o) => {
+    if (!o || typeof o !== 'object') return null
+    if (typeof o.fzlStatement === 'string' && o.fzlStatement.trim()) return o.fzlStatement
+    for (const k in o) {
+      const r = findFzl(o[k])
+      if (r) return r
+    }
+    return null
+  }
+  const walk = (o) => {
+    if (Array.isArray(o)) {
+      o.forEach(walk)
+      return
+    }
+    if (o && typeof o === 'object') {
+      if (Array.isArray(o.days)) {
+        o.days.forEach((day) => {
+          const statement = findFzl(day)
+          const date = day.dateISO || day.date
+          if (statement && date) out.push({ date, statement })
+        })
+      }
+      for (const k in o) walk(o[k])
+    }
+  }
+  walk(json)
+  const seen = new Set()
+  return out
+    .filter((d) => {
+      const key = d.date.slice(0, 10)
+      if (seen.has(key)) return false
+      seen.add(key)
+      return true
+    })
+    .map((d) => {
+      const parsed = parseFzlStatement(d.statement)
+      return parsed ? { dateKey: d.date.slice(0, 10), statement: d.statement.trim(), ...parsed } : null
+    })
+    .filter(Boolean)
 }
 
 function SnowfallForecast() {
@@ -396,12 +545,13 @@ function SnowfallForecast() {
   const [forecastData, setForecastData] = useState(null)
   const [meteoBlueData, setMeteoBlueData] = useState(null)
   const [ecmwfFreezingData, setEcmwfFreezingData] = useState(null)
+  const [metserviceFzl, setMetserviceFzl] = useState(null)
   const [cloudData, setCloudData] = useState(null)
   const [elevation, setElevation] = useState('summit') // 'summit' or 'base'
   const [viewMode, setViewMode] = useState('fit') // 'hourly' or 'fit'
   const [apiMode, setApiMode] = useState('openmeteo') // 'openmeteo' or 'meteoblue'
   const [meteoBlueForecastData, setMeteoBlueForecastData] = useState(null)
-  const [showFreezing, setShowFreezing] = useState({ gfs: true, ecmwf: true })
+  const [showFreezing, setShowFreezing] = useState({ gfs: true, ecmwf: true, metservice: true })
   const [now, setNow] = useState(() => new Date())
   useEffect(() => {
     const t = setInterval(() => setNow(new Date()), 1000)
@@ -604,6 +754,22 @@ function SnowfallForecast() {
           })
           setEcmwfFreezingData(ecmwfFreezing)
         }
+
+        // MetService mountain forecast — meteorologist-issued freezing level,
+        // an independent validation reference vs the raw GFS/ECMWF model lines.
+        // Fetched via the Vite dev proxy (/ms-api) to sidestep CORS.
+        try {
+          if (r.metservicePath) {
+            const msRes = await fetch(`/ms-api/${r.metservicePath}`)
+            if (msRes.ok) {
+              const msJson = await msRes.json()
+              const msDays = extractMetserviceDays(msJson)
+              if (msDays.length > 0) setMetserviceFzl(msDays)
+            }
+          }
+        } catch (e) {
+          console.log('MetService fetch skipped:', e.message)
+        }
       } catch (error) {
         console.error('Forecast error:', error)
       }
@@ -612,6 +778,7 @@ function SnowfallForecast() {
     setForecastData(null)
     setMeteoBlueForecastData(null)
     setEcmwfFreezingData(null)
+    setMetserviceFzl(null)
     setCloudData(null)
     fetchForecast()
   }, [resort])
@@ -766,6 +933,20 @@ function SnowfallForecast() {
     return snowPadding.top + snowPlotHeight - (((elevation_m - minElevationChart) / elevRange) * snowPlotHeight)
   }
 
+  // MetService gives one freezing-level value per day (with an optional intraday
+  // step). Map it onto the hourly chart so the purple line aligns with the model
+  // lines. Returns metres for a given datetime, or null if outside MetService's
+  // ~5-day window.
+  const msByDate = {}
+  if (metserviceFzl) metserviceFzl.forEach((m) => { msByDate[m.dateKey] = m })
+  const metserviceValueAt = (dt) => {
+    const key = `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getDate()).padStart(2, '0')}`
+    const m = msByDate[key]
+    if (!m) return null
+    if (m.end == null) return m.start
+    return dt.getHours() < m.transHour ? m.start : m.end
+  }
+
   const snowXScale = (i) => snowPadding.left + (i + 0.5) * cellWidth
   const snowYScale = (val) => snowPadding.top + snowPlotHeight - (val / maxPrecip) * snowPlotHeight
   const barWidth = Math.floor(cellWidth * 0.65)
@@ -881,6 +1062,15 @@ function SnowfallForecast() {
           >
             <span style={{ display: 'inline-block', width: 10, height: 3, background: '#10b981', borderRadius: 2, marginRight: 5, verticalAlign: 'middle' }} />
             ECMWF IFS
+          </button>
+          <button
+            className={`toggle-btn ${showFreezing.metservice ? 'active' : ''}`}
+            onClick={() => setShowFreezing(s => ({ ...s, metservice: !s.metservice }))}
+            disabled={!metserviceFzl || apiMode === 'meteoblue'}
+            style={{ fontSize: '0.8em', opacity: (!metserviceFzl || apiMode === 'meteoblue') ? 0.5 : 1, cursor: (!metserviceFzl || apiMode === 'meteoblue') ? 'not-allowed' : 'pointer' }}
+          >
+            <span style={{ display: 'inline-block', width: 10, height: 3, background: '#a855f7', borderRadius: 2, marginRight: 5, verticalAlign: 'middle' }} />
+            MetService
           </button>
         </div>
       </div>
@@ -1112,6 +1302,29 @@ function SnowfallForecast() {
             ))
           })()}
 
+          {/* MetService meteorologist freezing level — purple stepped daily line */}
+          {showFreezing.metservice && metserviceFzl && (() => {
+            const segments = []
+            let pts = []
+            displayData.forEach((d, i) => {
+              const val = metserviceValueAt(d.datetime)
+              if (val === null) {
+                if (pts.length > 0) { segments.push(pts); pts = [] }
+                return
+              }
+              const y = Math.min(freezingLevelScale(val), snowPadding.top + snowPlotHeight)
+              pts.push(`${snowXScale(i)},${y}`)
+            })
+            if (pts.length > 0) segments.push(pts)
+            return segments.map((p, idx) => (
+              <polyline
+                key={`ms-${idx}`}
+                points={p.join(' ')}
+                style={{ stroke: '#a855f7', strokeWidth: 2.5, fill: 'none', strokeLinecap: 'round', strokeLinejoin: 'round', opacity: 0.95 }}
+              />
+            ))
+          })()}
+
           {/* X-axis */}
           <line x1={snowPadding.left} y1={snowPadding.top + snowPlotHeight} x2={snowChartWidth - snowPadding.right} y2={snowPadding.top + snowPlotHeight} stroke="#555" strokeWidth="1" />
 
@@ -1149,11 +1362,12 @@ function SnowfallForecast() {
           {[0, 0.25, 0.5, 0.75, 1].map((frac, i) => {
             const val = maxPrecip * frac
             const y = snowPadding.top + snowPlotHeight - frac * snowPlotHeight
+            const decimals = maxPrecip < 5 ? 1 : 0
             return (
               <g key={`tick-${i}`}>
                 <line x1={snowPadding.left - 5} y1={y} x2={snowPadding.left} y2={y} stroke="#555" strokeWidth="1" />
                 <text x={snowPadding.left - 10} y={y + 4} style={{ fill: '#666', fontSize: 10, textAnchor: 'end' }}>
-                  {val.toFixed(0)}
+                  {val.toFixed(decimals)}
                 </text>
               </g>
             )
@@ -1285,6 +1499,12 @@ function SnowfallForecast() {
                 <div style={{ color: '#10b981', marginTop: '4px' }}>
                   <span style={{ display: 'inline-block', width: 8, height: 2, background: '#10b981', borderRadius: 1, marginRight: 5, verticalAlign: 'middle' }} />
                   ECMWF: {ecmwfFreezingData[hoveredIndex]}m
+                </div>
+              )}
+              {showFreezing.metservice && metserviceValueAt(d.datetime) != null && (
+                <div style={{ color: '#a855f7', marginTop: '4px' }}>
+                  <span style={{ display: 'inline-block', width: 8, height: 2, background: '#a855f7', borderRadius: 1, marginRight: 5, verticalAlign: 'middle' }} />
+                  MetService: {metserviceValueAt(d.datetime)}m
                 </div>
               )}
               {showCloud && cloudData && (
