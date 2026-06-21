@@ -907,6 +907,8 @@ function SnowfallForecast() {
   const snowPlotWidth = snowChartWidth - snowPadding.left - snowPadding.right
   const snowPlotHeight = snowChartHeight - snowPadding.top - snowPadding.bottom
   const cellWidth = snowPlotWidth / displayData.length
+  // Ensure minimum bar width (1px) so bars are always visible on mobile fit-to-screen
+  const minBarWidth = 1
   // Table columns: in fit mode each column = FIT_GROUP bars wide (aligned); hourly = 1 bar each
   const tableCellWidth = viewMode === 'fit' ? FIT_GROUP * cellWidth : cellWidth
 
@@ -949,7 +951,7 @@ function SnowfallForecast() {
 
   const snowXScale = (i) => snowPadding.left + (i + 0.5) * cellWidth
   const snowYScale = (val) => snowPadding.top + snowPlotHeight - (val / maxPrecip) * snowPlotHeight
-  const barWidth = Math.floor(cellWidth * 0.65)
+  const barWidth = Math.max(minBarWidth, Math.floor(cellWidth * 0.65))
 
   const formatCountdown = (boundaryHours) => {
     const utcH = now.getUTCHours()
