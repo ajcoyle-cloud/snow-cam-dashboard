@@ -1037,7 +1037,9 @@ function SnowfallForecast() {
 
   const snowXScale = (i) => snowPadding.left + (i + 0.5) * cellWidth
   const snowYScale = (val) => snowPadding.top + snowPlotHeight - (val / maxPrecip) * snowPlotHeight
-  const barWidth = Math.max(minBarWidth, Math.floor(cellWidth * 0.65))
+  // For side-by-side bars: each model gets ~30% of cellWidth with small gap
+  const barWidth = Math.max(minBarWidth, Math.floor(cellWidth * 0.3))
+  const barGapWidth = Math.max(1, Math.floor(cellWidth * 0.05))
 
   const formatCountdown = (boundaryHours) => {
     const utcH = now.getUTCHours()
@@ -1264,32 +1266,61 @@ function SnowfallForecast() {
             )
           })}
 
-          {/* Precipitation bars - colored by rain/snow, height based on snowfall when cold */}
+          {/* GFS and ECMWF precipitation bars - side by side */}
           {displayData.map((d, i) => {
-            const temp = elevation === 'summit' ? d.summit.temp : d.base.temp
-            const precipVal = elevation === 'summit' ? d.summit.precipitation : d.base.precipitation
-            const snowfallVal = elevation === 'summit' ? d.summit.snowfall : d.base.snowfall
-            const isSnow = temp < 0
-
-            // Use snowfall amount if snow, otherwise precipitation
-            const displayVal = isSnow ? snowfallVal : precipVal
-
-            // Draw bars for any precipitation > 0
-            if (displayVal <= 0) return null
-
-            const barHeight = Math.max((displayVal / maxPrecip) * snowPlotHeight, 1)
-            const x = snowXScale(i) - barWidth / 2
-            const y = snowPadding.top + snowPlotHeight - barHeight
+            const centerX = snowXScale(i)
+            const gfsLeftX = centerX - barWidth - barGapWidth / 2
+            const ecmwfRightX = centerX + barGapWidth / 2
             const isCurrentHour = Math.abs(new Date() - d.datetime) < 3600000
 
-            return (
-              <path
-                key={`bar-${i}`}
-                d={`M ${x} ${y + barHeight} L ${x} ${y} A ${barWidth / 2} ${barWidth / 2} 0 0 1 ${x + barWidth} ${y} L ${x + barWidth} ${y + barHeight} Z`}
-                fill={isCurrentHour ? '#ffffff' : (isSnow ? '#3b82f6' : '#2563eb')}
-                opacity={isCurrentHour ? '1' : (isSnow ? '1' : '0.5')}
-              />
-            )
+            const bars = []
+
+            // GFS bar (left side)
+            const gfsTemp = elevation === 'summit' ? d.summit.temp : d.base.temp
+            const gfsPrecipVal = elevation === 'summit' ? d.summit.precipitation : d.base.precipitation
+            const gfsSnowfallVal = elevation === 'summit' ? d.summit.snowfall : d.base.snowfall
+            const gfsIsSnow = gfsTemp < 0
+            const gfsDisplayVal = gfsIsSnow ? gfsSnowfallVal : gfsPrecipVal
+
+            if (gfsDisplayVal > 0) {
+              const barHeight = Math.max((gfsDisplayVal / maxPrecip) * snowPlotHeight, 1)
+              const y = snowPadding.top + snowPlotHeight - barHeight
+              bars.push(
+                <path
+                  key={`bar-gfs-${i}`}
+                  d={`M ${gfsLeftX} ${y + barHeight} L ${gfsLeftX} ${y} A ${barWidth / 2} ${barWidth / 2} 0 0 1 ${gfsLeftX + barWidth} ${y} L ${gfsLeftX + barWidth} ${y + barHeight} Z`}
+                  fill={isCurrentHour ? '#ffffff' : (gfsIsSnow ? '#3b82f6' : '#2563eb')}
+                  opacity={isCurrentHour ? '1' : (gfsIsSnow ? '1' : '0.5')}
+                />
+              )
+            }
+
+            // ECMWF bar (right side) - if available
+            if (ecmwfForecastData && ecmwfForecastData[i]) {
+              const ecmwfD = viewMode === 'fit' ? ecmwfTableData[i] : ecmwfForecastData[i]
+              if (ecmwfD) {
+                const ecmwfTemp = elevation === 'summit' ? ecmwfD.summit.temp : ecmwfD.base.temp
+                const ecmwfPrecipVal = elevation === 'summit' ? ecmwfD.summit.precipitation : ecmwfD.base.precipitation
+                const ecmwfSnowfallVal = elevation === 'summit' ? ecmwfD.summit.snowfall : ecmwfD.base.snowfall
+                const ecmwfIsSnow = ecmwfTemp < 0
+                const ecmwfDisplayVal = ecmwfIsSnow ? ecmwfSnowfallVal : ecmwfPrecipVal
+
+                if (ecmwfDisplayVal > 0) {
+                  const barHeight = Math.max((ecmwfDisplayVal / maxPrecip) * snowPlotHeight, 1)
+                  const y = snowPadding.top + snowPlotHeight - barHeight
+                  bars.push(
+                    <path
+                      key={`bar-ecmwf-${i}`}
+                      d={`M ${ecmwfRightX} ${y + barHeight} L ${ecmwfRightX} ${y} A ${barWidth / 2} ${barWidth / 2} 0 0 1 ${ecmwfRightX + barWidth} ${y} L ${ecmwfRightX + barWidth} ${y + barHeight} Z`}
+                      fill={isCurrentHour ? '#ffffff' : (ecmwfIsSnow ? '#10b981' : '#059669')}
+                      opacity={isCurrentHour ? '1' : (ecmwfIsSnow ? '1' : '0.5')}
+                    />
+                  )
+                }
+              }
+            }
+
+            return bars.length > 0 ? bars : null
           })}
 
 
@@ -1576,14 +1607,21 @@ function SnowfallForecast() {
           const temp = data.temp
           const precip = data.precipitation
           const snowfall = data.snowfall
-          const snowFrac = data.snowfraction
           const wind = data.wind
           const windDir = data.windDir
           const isSnow = temp < 0
-          const precipDisplay = precip.toFixed(1)
-          const snowDisplay = snowfall.toFixed(1)
+
+          // ECMWF data if available
+          let ecmwfData = null
+          if (ecmwfForecastData && ecmwfForecastData[hoveredIndex]) {
+            const ecmwfD = viewMode === 'fit' ? ecmwfTableData[hoveredIndex] : ecmwfForecastData[hoveredIndex]
+            if (ecmwfD) {
+              ecmwfData = elevation === 'summit' ? ecmwfD.summit : ecmwfD.base
+            }
+          }
 
           const arrow = getWindArrow(windDir)
+          const ecmwfArrow = ecmwfData ? getWindArrow(ecmwfData.windDir) : null
 
           return (
             <div
@@ -1599,18 +1637,33 @@ function SnowfallForecast() {
                 fontSize: '12px',
                 color: '#fff',
                 zIndex: 10,
-                minWidth: '160px',
+                minWidth: '220px',
                 boxShadow: '0 2px 8px rgba(0,0,0,0.5)',
               }}
             >
               <div style={{ fontWeight: 'bold', marginBottom: '6px', color: '#888' }}>
                 {d.datetime.toLocaleTimeString('en-NZ', { hour: '2-digit', minute: '2-digit', hour12: false })}
               </div>
-              <div style={{ color: '#fff', marginBottom: '6px' }}>
-                {isSnow ? `Snow: ${(snowfall / 10).toFixed(1)}cm ❄️` : `Rain: ${precipDisplay}mm`}
+
+              {/* GFS Data */}
+              <div style={{ color: '#3b82f6', fontWeight: '600', marginBottom: '4px', fontSize: '11px' }}>GFS</div>
+              <div style={{ color: '#fff', marginBottom: '2px', fontSize: '11px' }}>
+                {isSnow ? `Snow: ${(snowfall / 10).toFixed(1)}cm ❄️` : `Rain: ${precip.toFixed(1)}mm`}
               </div>
-              <div style={{ marginBottom: '6px' }}>Temp: {temp.toFixed(1)}°C</div>
-              <div style={{ marginBottom: '6px' }}>Wind: {wind.toFixed(1)} km/h {arrow}</div>
+              <div style={{ marginBottom: '2px', fontSize: '11px' }}>Temp: {temp.toFixed(1)}°C</div>
+              <div style={{ marginBottom: '6px', fontSize: '11px' }}>Wind: {wind.toFixed(1)} km/h {arrow}</div>
+
+              {/* ECMWF Data */}
+              {ecmwfData && (
+                <>
+                  <div style={{ color: '#10b981', fontWeight: '600', marginBottom: '4px', fontSize: '11px', borderTop: '1px solid #333', paddingTop: '6px' }}>ECMWF</div>
+                  <div style={{ color: '#fff', marginBottom: '2px', fontSize: '11px' }}>
+                    {ecmwfData.temp < 0 ? `Snow: ${(ecmwfData.snowfall / 10).toFixed(1)}cm ❄️` : `Rain: ${ecmwfData.precipitation.toFixed(1)}mm`}
+                  </div>
+                  <div style={{ marginBottom: '2px', fontSize: '11px' }}>Temp: {ecmwfData.temp.toFixed(1)}°C</div>
+                  <div style={{ marginBottom: '6px', fontSize: '11px' }}>Wind: {ecmwfData.wind.toFixed(1)} km/h {ecmwfArrow}</div>
+                </>
+              )}
               {showFreezing.gfs && d.freezingLevelGFS !== null && (
                 <div style={{ color: '#3b82f6', marginTop: '4px' }}>
                   <span style={{ display: 'inline-block', width: 8, height: 2, background: '#3b82f6', borderRadius: 1, marginRight: 5, verticalAlign: 'middle' }} />
