@@ -81,17 +81,19 @@ const NORTH_ISLAND = [
 ]
 
 const SOUTH_ISLAND = [
-  { name: 'Cardrona - Main Basin', url: 'https://www.mountainwatch.com/Resort/Cardrona-Main-Basin/LiveStill.jpg', location: 'Cardrona' },
-  { name: 'Cardrona - Captain', url: 'https://www.mountainwatch.com/Resort/Cardrona-Captain/LiveStill.jpg', location: 'Cardrona' },
+  { name: 'Cardrona - Main Basin', url: 'https://www.queenstown.com/cams/cardrona.jpg', location: 'Cardrona' },
+  { name: 'Cardrona - Captain', url: 'https://www.queenstown.com/cams/cardrona2.jpg', location: 'Cardrona' },
   { name: 'Treble Cone - Home Basin', url: 'https://www.mountainwatch.com/Resort/Treble-Cone-Home-Basin/LiveStill.jpg', location: 'Treble Cone' },
   { name: 'Treble Cone - Lower Home', url: 'https://www.mountainwatch.com/Resort/Treble-Cone-Lower-Home/LiveStill.jpg', location: 'Treble Cone' },
   { name: 'Treble Cone - Lake Wanaka View', url: 'https://www.mountainwatch.com/Resort/Treble-Cone-Lake-Wanaka-View/LiveStill.jpg', location: 'Treble Cone' },
   { name: 'Treble Cone - Saddle Chair', url: 'https://www.mountainwatch.com/Resort/Treble-Cone-Saddle-Chair/LiveStill.jpg', location: 'Treble Cone' },
-  { name: 'The Remarkables - Base Learners', url: 'https://www.mountainwatch.com/Resort/The-Remarkables-Base-Learners/LiveStill.jpg', location: 'The Remarkables' },
-  { name: 'The Remarkables - Sugar Bowl', url: 'https://www.mountainwatch.com/Resort/The-Remarkables-Sugar-Bowl/LiveStill.jpg', location: 'The Remarkables' },
-  { name: 'The Remarkables - Sugar Bowl from Base', url: 'https://www.mountainwatch.com/Resort/The-Remarkables-Sugar-Bowl-from-Base/LiveStill.jpg', location: 'The Remarkables' },
-  { name: 'Coronet Peak - Coronet Express', url: 'https://www.mountainwatch.com/Resort/Coronet-Peak-Coronet-Express/LiveStill.jpg', location: 'Coronet Peak' },
-  { name: 'Coronet Peak - Meadows Base', url: 'https://www.mountainwatch.com/Resort/Coronet-Peak-Meadows-Base/LiveStill.jpg', location: 'Coronet Peak' },
+  { name: 'The Remarkables - Mountain View', url: 'https://www.queenstown.com/cams/aspen.jpg', location: 'The Remarkables' },
+  { name: 'The Remarkables - Base Learners', url: 'https://www.queenstown.com/cams/remarkables1.jpg', location: 'The Remarkables' },
+  { name: 'The Remarkables - Sugar Bowl from Base', url: 'https://www.queenstown.com/cams/remarkables2.jpg', location: 'The Remarkables' },
+  { name: 'Coronet Peak – Meadow Base', url: 'https://www.queenstown.com/cams/coronetpeak1.jpg', location: 'Coronet Peak' },
+  { name: 'Coronet Peak – Base Area', url: 'https://www.queenstown.com/cams/coronetpeak3.jpg', location: 'Coronet Peak' },
+  { name: 'Coronet Peak – Top Station', url: 'https://www.queenstown.com/cams/coronetpeak2.jpg', location: 'Coronet Peak' },
+  { name: 'Coronet Peak – Coronet Express', url: 'https://www.queenstown.com/cams/coronetpeak4.jpg', location: 'Coronet Peak' },
   { name: 'Coronet Peak - Summit', url: 'https://www.mountainwatch.com/Resort/Coronet-Peak-Coronet-Peak-Summit/LiveStill.jpg', location: 'Coronet Peak' },
 ]
 
