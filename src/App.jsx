@@ -543,6 +543,7 @@ function extractMetserviceDays(json) {
 function SnowfallForecast() {
   const [resort, setResort] = useState('ruapehu')
   const [forecastData, setForecastData] = useState(null)
+  const [ecmwfForecastData, setEcmwfForecastData] = useState(null)
   const [meteoBlueData, setMeteoBlueData] = useState(null)
   const [ecmwfFreezingData, setEcmwfFreezingData] = useState(null)
   const [metserviceFzl, setMetserviceFzl] = useState(null)
@@ -558,6 +559,7 @@ function SnowfallForecast() {
     return () => clearInterval(t)
   }, [])
   const [showCloud, setShowCloud] = useState(true)
+  const [compareModels, setCompareModels] = useState(false)
   const [hoveredIndex, setHoveredIndex] = useState(null)
   const [mousePos, setMousePos] = useState({ x: 0, y: 0 })
   const [hoverLineX, setHoverLineX] = useState(null)
@@ -576,8 +578,8 @@ function SnowfallForecast() {
         // windspeed_700hPa ≈ 3000m (summit), windspeed_850hPa ≈ 1500m (base) — more accurate than surface wind
         const summitUrl = `https://api.open-meteo.com/v1/forecast?latitude=${r.lat}&longitude=${r.lon}&elevation=${r.summitElev}&hourly=temperature_2m,precipitation,precipitation_probability,snowfall,weather_code,windspeed_700hPa,winddirection_700hPa,windspeed_850hPa,winddirection_850hPa,freezinglevel_height,cloud_cover_low,cloud_cover_mid,cloud_cover_high&models=gfs_global&temperature_unit=celsius&wind_speed_unit=kmh&timezone=${r.timezone}&forecast_days=16`
         const baseUrl = `https://api.open-meteo.com/v1/forecast?latitude=${r.lat}&longitude=${r.lon}&elevation=${r.baseElev}&hourly=temperature_2m,precipitation,precipitation_probability,snowfall,weather_code&models=gfs_global&temperature_unit=celsius&timezone=${r.timezone}&forecast_days=16`
-        const ecmwfSummitUrl = `https://api.open-meteo.com/v1/forecast?latitude=${r.lat}&longitude=${r.lon}&elevation=${r.summitElev}&hourly=temperature_2m&models=ecmwf_ifs025&temperature_unit=celsius&timezone=${r.timezone}&forecast_days=16`
-        const ecmwfBaseUrl = `https://api.open-meteo.com/v1/forecast?latitude=${r.lat}&longitude=${r.lon}&elevation=${r.baseElev}&hourly=temperature_2m&models=ecmwf_ifs025&temperature_unit=celsius&timezone=${r.timezone}&forecast_days=16`
+        const ecmwfSummitUrl = `https://api.open-meteo.com/v1/forecast?latitude=${r.lat}&longitude=${r.lon}&elevation=${r.summitElev}&hourly=temperature_2m,precipitation,precipitation_probability,snowfall,weather_code,windspeed_700hPa,winddirection_700hPa,windspeed_850hPa,winddirection_850hPa&models=ecmwf_ifs025&temperature_unit=celsius&wind_speed_unit=kmh&timezone=${r.timezone}&forecast_days=16`
+        const ecmwfBaseUrl = `https://api.open-meteo.com/v1/forecast?latitude=${r.lat}&longitude=${r.lon}&elevation=${r.baseElev}&hourly=temperature_2m,precipitation,precipitation_probability,snowfall,weather_code&models=ecmwf_ifs025&temperature_unit=celsius&timezone=${r.timezone}&forecast_days=16`
 
         const [summitRes, baseRes, ecmwfSummitRes, ecmwfBaseRes] = await Promise.all([fetch(summitUrl), fetch(baseUrl), fetch(ecmwfSummitUrl), fetch(ecmwfBaseUrl)])
 
@@ -753,6 +755,59 @@ function SnowfallForecast() {
             return Math.round(fl / 100) * 100
           })
           setEcmwfFreezingData(ecmwfFreezing)
+
+          // Build full ECMWF forecast data (parallel to GFS)
+          const ecmwfHours = ecmwfSummitData.hourly.time.map((time, i) => {
+            const summitTemp = ecmwfSummitData.hourly.temperature_2m[i]
+            const baseTemp = ecmwfBaseData.hourly.temperature_2m[i]
+            let freezingLevel = r.baseElev
+            if (summitTemp !== baseTemp) {
+              freezingLevel = r.baseElev + (baseTemp * (r.summitElev - r.baseElev)) / (baseTemp - summitTemp)
+            } else if (baseTemp > 0) {
+              freezingLevel = 3600
+            } else {
+              freezingLevel = 0
+            }
+
+            const summitPrecip = ecmwfSummitData.hourly.precipitation[i] || 0
+            let summitSnowfall = (ecmwfSummitData.hourly.snowfall[i] || 0) * 10
+            if (summitTemp < 0 && summitPrecip > 0 && summitSnowfall === 0) {
+              summitSnowfall = summitPrecip * 7
+            }
+
+            const basePrecip = ecmwfBaseData.hourly.precipitation[i] || 0
+            let baseSnowfall = (ecmwfBaseData.hourly.snowfall[i] || 0) * 10
+            if (baseTemp < 0 && basePrecip > 0 && baseSnowfall === 0) {
+              baseSnowfall = basePrecip * 7
+            }
+
+            return {
+              time,
+              datetime: new Date(time),
+              freezingLevel: Math.round(freezingLevel / 100) * 100,
+              summit: {
+                temp: summitTemp,
+                precipitation: summitPrecip,
+                precipProbability: ecmwfSummitData.hourly.precipitation_probability?.[i] ?? null,
+                snowfall: summitSnowfall,
+                snowfraction: summitSnowfall > 0 ? summitSnowfall / Math.max(summitPrecip, 0.1) : 0,
+                wind: ecmwfSummitData.hourly.windspeed_700hPa[i],
+                windDir: ecmwfSummitData.hourly.winddirection_700hPa[i] ?? 0,
+                weatherCode: ecmwfSummitData.hourly.weather_code[i]
+              },
+              base: {
+                temp: baseTemp,
+                precipitation: basePrecip,
+                precipProbability: ecmwfBaseData.hourly.precipitation_probability?.[i] ?? null,
+                snowfall: baseSnowfall,
+                snowfraction: baseSnowfall > 0 ? baseSnowfall / Math.max(basePrecip, 0.1) : 0,
+                wind: ecmwfSummitData.hourly.windspeed_850hPa[i],
+                windDir: ecmwfSummitData.hourly.winddirection_850hPa[i] ?? 0,
+                weatherCode: ecmwfBaseData.hourly.weather_code[i]
+              }
+            }
+          })
+          setEcmwfForecastData(ecmwfHours)
         }
 
         // MetService mountain forecast — meteorologist-issued freezing level,
@@ -776,6 +831,7 @@ function SnowfallForecast() {
     }
 
     setForecastData(null)
+    setEcmwfForecastData(null)
     setMeteoBlueForecastData(null)
     setEcmwfFreezingData(null)
     setMetserviceFzl(null)
@@ -874,6 +930,36 @@ function SnowfallForecast() {
         }
       })
     : activeData.map((d, i) => ({ ...d, freezingLevelECMWF: ecmwfFreezingData?.[i] ?? null }))
+
+  // Build ECMWF table data for comparison mode
+  const ecmwfTableData = ecmwfForecastData ? (viewMode === 'fit'
+    ? Array.from({ length: Math.ceil(ecmwfForecastData.length / FIT_GROUP) }, (_, gi) => {
+        const group = ecmwfForecastData.slice(gi * FIT_GROUP, (gi + 1) * FIT_GROUP)
+        const mid = group[Math.floor(group.length / 2)]
+        return {
+          datetime: group[0].datetime,
+          freezingLevel: Math.round(group.reduce((s, d) => s + d.freezingLevel, 0) / group.length / 100) * 100,
+          summit: {
+            temp: group.reduce((s, d) => s + d.summit.temp, 0) / group.length,
+            precipitation: group.reduce((s, d) => s + d.summit.precipitation, 0),
+            precipProbability: (() => { const vals = group.map(d => d.summit.precipProbability).filter(v => v !== null); return vals.length ? Math.round(vals.reduce((s, v) => s + v, 0) / vals.length) : null })(),
+            snowfall: group.reduce((s, d) => s + d.summit.snowfall, 0),
+            wind: Math.max(...group.map(d => d.summit.wind)),
+            windDir: mid.summit.windDir,
+            weatherCode: mid.summit.weatherCode,
+          },
+          base: {
+            temp: group.reduce((s, d) => s + d.base.temp, 0) / group.length,
+            precipitation: group.reduce((s, d) => s + d.base.precipitation, 0),
+            precipProbability: (() => { const vals = group.map(d => d.base.precipProbability).filter(v => v !== null); return vals.length ? Math.round(vals.reduce((s, v) => s + v, 0) / vals.length) : null })(),
+            snowfall: group.reduce((s, d) => s + d.base.snowfall, 0),
+            wind: Math.max(...group.map(d => d.base.wind)),
+            windDir: mid.base.windDir,
+            weatherCode: mid.base.weatherCode,
+          }
+        }
+      })
+    : ecmwfForecastData.map((d) => d)) : []
 
   // Chart dimensions
   const chartWidth = 900
@@ -1580,10 +1666,10 @@ function SnowfallForecast() {
             </tr>
           </thead>
           <tbody>
+            {/* Temperature rows */}
             <tr style={{ height: '23px' }}>
-              <td style={{ width: `${snowPadding.left}px` }}>Temp (°C)</td>
+              <td style={{ width: `${snowPadding.left}px` }}>Temp {compareModels ? '(GFS)' : '(°C)'}</td>
               {tableData.map((d, i) => {
-                const dayIndex = viewMode === 'fit' ? Math.floor(i * FIT_GROUP / 24) : Math.floor(i / 24)
                 const val = elevation === 'summit' ? d.summit.temp : d.base.temp
                 return (
                   <td key={i} style={{ width: `${tableCellWidth}px`, background: 'rgba(26, 26, 26, 0.15)' }}>
@@ -1592,8 +1678,22 @@ function SnowfallForecast() {
                 )
               })}
             </tr>
+            {compareModels && (
+              <tr style={{ height: '23px' }}>
+                <td style={{ width: `${snowPadding.left}px` }}>Temp (ECMWF) (°C)</td>
+                {ecmwfTableData.map((d, i) => {
+                  const val = elevation === 'summit' ? d.summit.temp : d.base.temp
+                  return (
+                    <td key={i} style={{ width: `${tableCellWidth}px`, background: 'rgba(26, 26, 26, 0.15)', color: '#10b981' }}>
+                      {val.toFixed(1)}
+                    </td>
+                  )
+                })}
+              </tr>
+            )}
+            {/* Condition rows */}
             <tr style={{ height: '23px' }}>
-              <td style={{ width: `${snowPadding.left}px` }}>Condition</td>
+              <td style={{ width: `${snowPadding.left}px` }}>Condition {compareModels ? '(GFS)' : ''}</td>
               {tableData.map((d, i) => {
                 const data = elevation === 'summit' ? d.summit : d.base
                 const icon = data.weatherCode != null
@@ -1606,8 +1706,25 @@ function SnowfallForecast() {
                 )
               })}
             </tr>
+            {compareModels && (
+              <tr style={{ height: '23px' }}>
+                <td style={{ width: `${snowPadding.left}px` }}>Condition (ECMWF)</td>
+                {ecmwfTableData.map((d, i) => {
+                  const data = elevation === 'summit' ? d.summit : d.base
+                  const icon = data.weatherCode != null
+                    ? getWeatherConditionIcon(data.weatherCode)
+                    : getWeatherIcon(data.pictocode)
+                  return (
+                    <td key={i} style={{ width: `${tableCellWidth}px`, fontSize: '14px', textAlign: 'center', background: 'rgba(26, 26, 26, 0.15)', color: '#10b981' }}>
+                      {icon}
+                    </td>
+                  )
+                })}
+              </tr>
+            )}
+            {/* Precip rows */}
             <tr style={{ height: '23px' }}>
-              <td style={{ width: `${snowPadding.left}px` }}>Precip (mm)</td>
+              <td style={{ width: `${snowPadding.left}px` }}>Precip {compareModels ? '(GFS)' : '(mm)'}</td>
               {tableData.map((d, i) => {
                 const data = elevation === 'summit' ? d.summit : d.base
                 const precip = data.precipitation
@@ -1626,8 +1743,31 @@ function SnowfallForecast() {
                 )
               })}
             </tr>
+            {compareModels && (
+              <tr style={{ height: '23px' }}>
+                <td style={{ width: `${snowPadding.left}px` }}>Precip (ECMWF) (mm)</td>
+                {ecmwfTableData.map((d, i) => {
+                  const data = elevation === 'summit' ? d.summit : d.base
+                  const precip = data.precipitation
+                  const snowfall = data.snowfall
+                  const prob = data.precipProbability
+                  const elev = elevation === 'summit' ? 2300 : 1630
+                  const freezingLevel = d.freezingLevel
+                  const isSnow = freezingLevel < elev && snowfall > 0.1
+                  const showBlank = isSnow
+                  const mainVal = showBlank ? '' : (precip < 0.1 ? '' : precip.toFixed(1))
+                  return (
+                    <td key={i} style={{ width: `${tableCellWidth}px`, background: 'rgba(26, 26, 26, 0.15)', lineHeight: 1.1, paddingTop: '1px', paddingBottom: '1px', color: '#10b981' }}>
+                      <div>{mainVal}</div>
+                      {prob !== null && prob >= 5 && <div style={{ fontSize: '9px', color: '#5b9bd5', fontWeight: 'normal' }}>{prob}%</div>}
+                    </td>
+                  )
+                })}
+              </tr>
+            )}
+            {/* Snowfall rows */}
             <tr style={{ height: '23px' }}>
-              <td style={{ width: `${snowPadding.left}px` }}>Snowfall (cm)</td>
+              <td style={{ width: `${snowPadding.left}px` }}>Snowfall {compareModels ? '(GFS)' : '(cm)'}</td>
               {tableData.map((d, i) => {
                 const dayIndex = viewMode === 'fit' ? Math.floor(i * FIT_GROUP / 24) : Math.floor(i / 24)
                 const isDayEven = dayIndex % 2 === 0
@@ -1643,8 +1783,28 @@ function SnowfallForecast() {
                 )
               })}
             </tr>
+            {compareModels && (
+              <tr style={{ height: '23px' }}>
+                <td style={{ width: `${snowPadding.left}px` }}>Snowfall (ECMWF) (cm)</td>
+                {ecmwfTableData.map((d, i) => {
+                  const dayIndex = viewMode === 'fit' ? Math.floor(i * FIT_GROUP / 24) : Math.floor(i / 24)
+                  const isDayEven = dayIndex % 2 === 0
+                  const data = elevation === 'summit' ? d.summit : d.base
+                  const snowfall = data.snowfall
+                  const prob = data.precipProbability
+                  const hasSnow = snowfall >= 0.1
+                  return (
+                    <td key={i} style={{ width: `${tableCellWidth}px`, color: '#10b981', fontWeight: 'bold', background: hasSnow ? (isDayEven ? 'rgba(16, 185, 129, 0.12)' : 'rgba(16, 185, 129, 0.08)') : (isDayEven ? 'rgba(26, 26, 26, 0.3)' : 'rgba(15, 15, 15, 0.3)'), lineHeight: 1.1, paddingTop: '1px', paddingBottom: '1px' }}>
+                      <div>{snowfall < 0.1 ? '' : (snowfall / 10).toFixed(1)}</div>
+                      {hasSnow && prob !== null && prob >= 5 && <div style={{ fontSize: '9px', color: '#5b9bd5', fontWeight: 'normal' }}>{prob}%</div>}
+                    </td>
+                  )
+                })}
+              </tr>
+            )}
+            {/* Wind at summit rows */}
             <tr style={{ height: '23px' }}>
-              <td style={{ width: `${snowPadding.left}px` }}>Wind {RESORTS[resort].summitElev}m</td>
+              <td style={{ width: `${snowPadding.left}px` }}>Wind {RESORTS[resort].summitElev}m {compareModels ? '(GFS)' : ''}</td>
               {tableData.map((d, i) => {
                 const windKmh = Math.round(d.summit.wind)
                 const arrow = getWindArrow(d.summit.windDir)
@@ -1653,8 +1813,21 @@ function SnowfallForecast() {
                 )
               })}
             </tr>
+            {compareModels && (
+              <tr style={{ height: '23px' }}>
+                <td style={{ width: `${snowPadding.left}px` }}>Wind {RESORTS[resort].summitElev}m (ECMWF)</td>
+                {ecmwfTableData.map((d, i) => {
+                  const windKmh = Math.round(d.summit.wind)
+                  const arrow = getWindArrow(d.summit.windDir)
+                  return (
+                    <td key={i} style={{ width: `${tableCellWidth}px`, background: 'rgba(26, 26, 26, 0.15)', color: '#10b981' }}>{windKmh} <span style={{ fontSize: '18px' }}>{arrow}</span></td>
+                  )
+                })}
+              </tr>
+            )}
+            {/* Wind at base rows */}
             <tr style={{ height: '23px' }}>
-              <td style={{ width: `${snowPadding.left}px` }}>Wind {RESORTS[resort].baseElev}m</td>
+              <td style={{ width: `${snowPadding.left}px` }}>Wind {RESORTS[resort].baseElev}m {compareModels ? '(GFS)' : ''}</td>
               {tableData.map((d, i) => {
                 const windKmh = Math.round(d.base.wind)
                 const arrow = getWindArrow(d.base.windDir)
@@ -1663,8 +1836,21 @@ function SnowfallForecast() {
                 )
               })}
             </tr>
+            {compareModels && (
+              <tr style={{ height: '23px' }}>
+                <td style={{ width: `${snowPadding.left}px` }}>Wind {RESORTS[resort].baseElev}m (ECMWF)</td>
+                {ecmwfTableData.map((d, i) => {
+                  const windKmh = Math.round(d.base.wind)
+                  const arrow = getWindArrow(d.base.windDir)
+                  return (
+                    <td key={i} style={{ width: `${tableCellWidth}px`, background: 'rgba(26, 26, 26, 0.15)', color: '#10b981' }}>{windKmh} <span style={{ fontSize: '18px' }}>{arrow}</span></td>
+                  )
+                })}
+              </tr>
+            )}
+            {/* Freezing level rows */}
             <tr style={{ height: '23px' }}>
-              <td style={{ width: `${snowPadding.left}px` }}>Freezing (m)</td>
+              <td style={{ width: `${snowPadding.left}px` }}>Freezing {compareModels ? '(GFS)' : '(m)'}</td>
               {tableData.map((d, i) => {
                 const val = d.freezingLevelGFS ?? d.freezingLevel
                 const isAboveSummit = val > 2300
@@ -1673,9 +1859,41 @@ function SnowfallForecast() {
                 )
               })}
             </tr>
+            {compareModels && (
+              <tr style={{ height: '23px' }}>
+                <td style={{ width: `${snowPadding.left}px` }}>Freezing (ECMWF) (m)</td>
+                {ecmwfTableData.map((d, i) => {
+                  const val = d.freezingLevel
+                  const isAboveSummit = val > 2300
+                  return (
+                    <td key={i} style={{ width: `${tableCellWidth}px`, color: isAboveSummit ? '#ef4444' : '#10b981', background: 'rgba(26, 26, 26, 0.15)' }}>{val || '—'}</td>
+                  )
+                })}
+              </tr>
+            )}
           </tbody>
         </table>
       </div>
+
+      {/* Model comparison toggle */}
+      {ecmwfForecastData && (
+        <div style={{ textAlign: 'center', marginTop: '16px', marginBottom: '20px' }}>
+          <div className="elevation-toggle">
+            <button
+              className={`toggle-btn ${!compareModels ? 'active' : ''}`}
+              onClick={() => setCompareModels(false)}
+            >
+              GFS Only
+            </button>
+            <button
+              className={`toggle-btn ${compareModels ? 'active' : ''}`}
+              onClick={() => setCompareModels(true)}
+            >
+              GFS vs ECMWF
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
