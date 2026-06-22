@@ -1000,7 +1000,13 @@ function SnowfallForecast() {
 
   const maxPrecip = Math.max(
     ...displayData.map(d =>
-      Math.max(d.summit.precipitation, d.base.precipitation)
+      // Include both precipitation and snowfall (converted) in scale calculation
+      Math.max(
+        d.summit.precipitation,
+        d.summit.snowfall,
+        d.base.precipitation,
+        d.base.snowfall
+      )
     ),
     ...(apiMode === 'openmeteo' && meteoBlueData ? displayData.map((d, i) =>
       Math.max(
