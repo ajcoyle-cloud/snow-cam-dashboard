@@ -1463,14 +1463,15 @@ function SnowfallForecast() {
 
           {/* Y-axis tick marks and values */}
           {[0, 0.25, 0.5, 0.75, 1].map((frac, i) => {
-            const val = maxPrecip * frac
+            const valMm = maxPrecip * frac
+            const valCm = valMm / 10
             const y = snowPadding.top + snowPlotHeight - frac * snowPlotHeight
             const decimals = maxPrecip < 5 ? 1 : 0
             return (
               <g key={`tick-${i}`}>
                 <line x1={snowPadding.left - 5} y1={y} x2={snowPadding.left} y2={y} stroke="#555" strokeWidth="1" />
                 <text x={snowPadding.left - 10} y={y + 4} style={{ fill: '#666', fontSize: 10, textAnchor: 'end' }}>
-                  {val.toFixed(decimals)}
+                  {valCm.toFixed(decimals)}
                 </text>
               </g>
             )
