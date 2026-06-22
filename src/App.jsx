@@ -1458,7 +1458,7 @@ function SnowfallForecast() {
 
           {/* Y-axis label */}
           <text x="15" y={snowPadding.top + snowPlotHeight / 2} style={{ fill: '#888', fontSize: 10, textAnchor: 'middle' }} transform={`rotate(-90 15 ${snowPadding.top + snowPlotHeight / 2})`}>
-            Precipitation (mm)
+            Snow (cm)
           </text>
 
           {/* Y-axis tick marks and values */}
