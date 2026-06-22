@@ -1267,7 +1267,7 @@ function SnowfallForecast() {
           })}
 
           {/* GFS and ECMWF precipitation bars - side by side */}
-          {displayData.map((d, i) => {
+          {forecastData && forecastData.map((d, i) => {
             const centerX = snowXScale(i)
             const gfsLeftX = centerX - barWidth - barGapWidth / 2
             const ecmwfRightX = centerX + barGapWidth / 2
@@ -1275,7 +1275,7 @@ function SnowfallForecast() {
 
             const bars = []
 
-            // GFS bar (left side)
+            // GFS bar (left side) - use original forecastData for alignment
             const gfsTemp = elevation === 'summit' ? d.summit.temp : d.base.temp
             const gfsPrecipVal = elevation === 'summit' ? d.summit.precipitation : d.base.precipitation
             const gfsSnowfallVal = elevation === 'summit' ? d.summit.snowfall : d.base.snowfall
@@ -1295,28 +1295,26 @@ function SnowfallForecast() {
               )
             }
 
-            // ECMWF bar (right side) - if available
+            // ECMWF bar (right side) - use hourly ecmwfForecastData for direct alignment
             if (ecmwfForecastData && ecmwfForecastData[i]) {
-              const ecmwfD = viewMode === 'fit' ? ecmwfTableData[i] : ecmwfForecastData[i]
-              if (ecmwfD) {
-                const ecmwfTemp = elevation === 'summit' ? ecmwfD.summit.temp : ecmwfD.base.temp
-                const ecmwfPrecipVal = elevation === 'summit' ? ecmwfD.summit.precipitation : ecmwfD.base.precipitation
-                const ecmwfSnowfallVal = elevation === 'summit' ? ecmwfD.summit.snowfall : ecmwfD.base.snowfall
-                const ecmwfIsSnow = ecmwfTemp < 0
-                const ecmwfDisplayVal = ecmwfIsSnow ? ecmwfSnowfallVal : ecmwfPrecipVal
+              const ecmwfD = ecmwfForecastData[i]
+              const ecmwfTemp = elevation === 'summit' ? ecmwfD.summit.temp : ecmwfD.base.temp
+              const ecmwfPrecipVal = elevation === 'summit' ? ecmwfD.summit.precipitation : ecmwfD.base.precipitation
+              const ecmwfSnowfallVal = elevation === 'summit' ? ecmwfD.summit.snowfall : ecmwfD.base.snowfall
+              const ecmwfIsSnow = ecmwfTemp < 0
+              const ecmwfDisplayVal = ecmwfIsSnow ? ecmwfSnowfallVal : ecmwfPrecipVal
 
-                if (ecmwfDisplayVal > 0) {
-                  const barHeight = Math.max((ecmwfDisplayVal / maxPrecip) * snowPlotHeight, 1)
-                  const y = snowPadding.top + snowPlotHeight - barHeight
-                  bars.push(
-                    <path
-                      key={`bar-ecmwf-${i}`}
-                      d={`M ${ecmwfRightX} ${y + barHeight} L ${ecmwfRightX} ${y} A ${barWidth / 2} ${barWidth / 2} 0 0 1 ${ecmwfRightX + barWidth} ${y} L ${ecmwfRightX + barWidth} ${y + barHeight} Z`}
-                      fill={isCurrentHour ? '#ffffff' : (ecmwfIsSnow ? '#10b981' : '#059669')}
-                      opacity={isCurrentHour ? '1' : (ecmwfIsSnow ? '1' : '0.5')}
-                    />
-                  )
-                }
+              if (ecmwfDisplayVal > 0) {
+                const barHeight = Math.max((ecmwfDisplayVal / maxPrecip) * snowPlotHeight, 1)
+                const y = snowPadding.top + snowPlotHeight - barHeight
+                bars.push(
+                  <path
+                    key={`bar-ecmwf-${i}`}
+                    d={`M ${ecmwfRightX} ${y + barHeight} L ${ecmwfRightX} ${y} A ${barWidth / 2} ${barWidth / 2} 0 0 1 ${ecmwfRightX + barWidth} ${y} L ${ecmwfRightX + barWidth} ${y + barHeight} Z`}
+                    fill={isCurrentHour ? '#ffffff' : (ecmwfIsSnow ? '#10b981' : '#059669')}
+                    opacity={isCurrentHour ? '1' : (ecmwfIsSnow ? '1' : '0.5')}
+                  />
+                )
               }
             }
 
