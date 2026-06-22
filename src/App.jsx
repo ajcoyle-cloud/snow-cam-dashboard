@@ -88,7 +88,6 @@ const SOUTH_ISLAND = [
   { name: 'Treble Cone - Lake Wanaka View', url: 'https://www.mountainwatch.com/Resort/Treble-Cone-Lake-Wanaka-View/LiveStill.jpg', location: 'Treble Cone' },
   { name: 'Treble Cone - Saddle Chair', url: 'https://www.mountainwatch.com/Resort/Treble-Cone-Saddle-Chair/LiveStill.jpg', location: 'Treble Cone' },
   { name: 'The Remarkables - Mountain View', url: 'https://www.queenstown.com/cams/aspen.jpg', location: 'The Remarkables' },
-  { name: 'The Remarkables - Base Learners', url: 'https://www.queenstown.com/cams/remarkables1.jpg', location: 'The Remarkables' },
   { name: 'The Remarkables - Sugar Bowl from Base', url: 'https://www.queenstown.com/cams/remarkables2.jpg', location: 'The Remarkables' },
   { name: 'Coronet Peak – Meadow Base', url: 'https://www.queenstown.com/cams/coronetpeak1.jpg', location: 'Coronet Peak' },
   { name: 'Coronet Peak – Base Area', url: 'https://www.queenstown.com/cams/coronetpeak3.jpg', location: 'Coronet Peak' },
