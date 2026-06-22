@@ -1264,16 +1264,20 @@ function SnowfallForecast() {
             )
           })}
 
-          {/* MeteoBlue precipitation bars - colored by rain/snow */}
+          {/* Precipitation bars - colored by rain/snow, height based on snowfall when cold */}
           {displayData.map((d, i) => {
             const temp = elevation === 'summit' ? d.summit.temp : d.base.temp
             const precipVal = elevation === 'summit' ? d.summit.precipitation : d.base.precipitation
+            const snowfallVal = elevation === 'summit' ? d.summit.snowfall : d.base.snowfall
             const isSnow = temp < 0
 
-            // Draw bars for any precipitation > 0
-            if (precipVal <= 0) return null
+            // Use snowfall amount if snow, otherwise precipitation
+            const displayVal = isSnow ? snowfallVal : precipVal
 
-            const barHeight = Math.max((precipVal / maxPrecip) * snowPlotHeight, 1)
+            // Draw bars for any precipitation > 0
+            if (displayVal <= 0) return null
+
+            const barHeight = Math.max((displayVal / maxPrecip) * snowPlotHeight, 1)
             const x = snowXScale(i) - barWidth / 2
             const y = snowPadding.top + snowPlotHeight - barHeight
             const isCurrentHour = Math.abs(new Date() - d.datetime) < 3600000
