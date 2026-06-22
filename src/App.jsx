@@ -8,6 +8,7 @@ const WEATHER_LOCATIONS = {
   Whakapapa: { lat: -39.2, lon: 175.5, elevation: 2300 },
   Turoa: { lat: -39.2, lon: 175.5, elevation: 2300 },
   Ruapehu: { lat: -39.2, lon: 175.5, elevation: 2797 },
+  'Mt Hutt': { lat: -43.2, lon: 171.5, elevation: 2100 },
   Cardrona: { lat: -44.5, lon: 169.0, elevation: 1860 },
   'Treble Cone': { lat: -44.4, lon: 169.2, elevation: 2088 },
   'The Remarkables': { lat: -44.4, lon: 168.7, elevation: 1960 },
@@ -78,6 +79,8 @@ const NORTH_ISLAND = [
       { name: 'East', url: 'https://images.geonet.org.nz/volcano/cameras/latest/ruapehueast.jpg' },
     ]
   },
+  { name: 'Mt Hutt - Base', url: 'https://www.mthutt.co.nz/weather-report', location: 'Mt Hutt' },
+  { name: 'Mt Hutt - Summit', url: 'https://www.mthutt.co.nz/weather-report', location: 'Mt Hutt' },
 ]
 
 const SOUTH_ISLAND = [
