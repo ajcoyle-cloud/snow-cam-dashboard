@@ -79,8 +79,8 @@ const NORTH_ISLAND = [
       { name: 'East', url: 'https://images.geonet.org.nz/volcano/cameras/latest/ruapehueast.jpg' },
     ]
   },
-  { name: 'Mt Hutt - Base', url: 'https://www.mthutt.co.nz/weather-report', location: 'Mt Hutt' },
-  { name: 'Mt Hutt - Summit', url: 'https://www.mthutt.co.nz/weather-report', location: 'Mt Hutt' },
+  { name: 'Mt Hutt - Base', mtHuttCam: 'BaseCamera', location: 'Mt Hutt' },
+  { name: 'Mt Hutt - Summit', mtHuttCam: 'SummitCamera', location: 'Mt Hutt' },
 ]
 
 const SOUTH_ISLAND = [
@@ -264,6 +264,59 @@ function CameraHistory({ archiveBase, refreshKey }) {
   )
 }
 
+// Mt Hutt publishes webcam frames via a JSON manifest rather than a stable
+// "latest.jpg" URL. Each frame is listed as /Webcams/<Cam>/<Angle>/<ts>.jpg;
+// the served CDN image lives at /webcams-frames/... with a _<width> size
+// suffix before the extension. We fetch the manifest, take the newest frame
+// for the requested camera, and build that CDN URL. A module-level cache
+// (60s TTL) is shared by every Mt Hutt camera/thumbnail so they don't each
+// hammer the manifest endpoint.
+const MTHUTT_HOST = 'https://webcams-awb2e0ceg7cccsba.a02.azurefd.net'
+const MTHUTT_JSON = `${MTHUTT_HOST}/webcams-json/MtHutt.json`
+let mtHuttCache = { data: null, fetchedAt: 0, promise: null }
+
+function fetchMtHuttData() {
+  const now = Date.now()
+  if (mtHuttCache.data && now - mtHuttCache.fetchedAt < 60000) {
+    return Promise.resolve(mtHuttCache.data)
+  }
+  if (mtHuttCache.promise) return mtHuttCache.promise
+  mtHuttCache.promise = fetch(MTHUTT_JSON)
+    .then((r) => r.json())
+    .then((data) => {
+      mtHuttCache = { data, fetchedAt: Date.now(), promise: null }
+      return data
+    })
+    .catch((e) => { mtHuttCache.promise = null; throw e })
+  return mtHuttCache.promise
+}
+
+function mtHuttLatestUrl(data, cameraKey, angle = 'Angle1', width = 1280) {
+  const frames = data?.[cameraKey]?.[angle]
+  if (!Array.isArray(frames) || frames.length === 0) return null
+  const path = frames[frames.length - 1].Url
+  if (!path) return null
+  const cdn = path
+    .replace(/^\/Webcams\//, '/webcams-frames/')
+    .replace(/\.jpg$/i, `_${width}.jpg`)
+  return MTHUTT_HOST + cdn
+}
+
+function MtHuttCamera({ cameraKey, alt, onError, style }) {
+  const [src, setSrc] = useState(null)
+  useEffect(() => {
+    let cancelled = false
+    const load = () => fetchMtHuttData()
+      .then((data) => { if (!cancelled) setSrc(mtHuttLatestUrl(data, cameraKey)) })
+      .catch(() => { if (!cancelled && onError) onError() })
+    load()
+    const t = setInterval(load, 120000) // frames update ~every 10 min; poll every 2
+    return () => { cancelled = true; clearInterval(t) }
+  }, [cameraKey])
+  if (!src) return null
+  return <img src={src} alt={alt} onError={onError} style={style} />
+}
+
 function CameraCard({ camera, allCameras = [] }) {
   const [fullscreenCam, setFullscreenCam] = useState(null)
   const [cameraIndex, setCameraIndex] = useState(0)
@@ -285,6 +338,7 @@ function CameraCard({ camera, allCameras = [] }) {
   const safeIndex = Math.min(cameraIndex, Math.max(activeCameras.length - 1, 0))
   const isYouTube = activeCam.isYouTube || false
   const isVideo = activeCam.isVideo || (isMultiCamera ? activeCameras[safeIndex]?.isVideo : false)
+  const mtHuttCam = activeCam.mtHuttCam || null
   const displayUrl = isMultiCamera ? activeCameras[safeIndex]?.url : activeCam.url
   const displayName = isMultiCamera ? `${activeCam.name} - ${activeCameras[safeIndex]?.name}` : activeCam.name
 
@@ -354,6 +408,13 @@ function CameraCard({ camera, allCameras = [] }) {
             </div>
           ) : isVideo ? (
             <VideoPlayer url={displayUrl} />
+          ) : mtHuttCam ? (
+            <MtHuttCamera
+              cameraKey={mtHuttCam}
+              alt={camera.name}
+              onError={() => setBroken(true)}
+              style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
+            />
           ) : (
             <img
               src={`${displayUrl}?t=${refreshKey}`}
@@ -375,6 +436,13 @@ function CameraCard({ camera, allCameras = [] }) {
                 const thumbUrl = cam.isYouTube
                   ? `https://img.youtube.com/vi/${cam.youtubeId}/mqdefault.jpg`
                   : cam.cameras ? cam.cameras[0].url : cam.url
+                const thumbStyle = {
+                  width: '100%',
+                  height: '112px',
+                  objectFit: 'cover',
+                  objectPosition: 'center',
+                  display: 'block'
+                }
                 return (
                   <div
                     key={cam.name}
@@ -394,18 +462,21 @@ function CameraCard({ camera, allCameras = [] }) {
                       position: 'relative'
                     }}
                   >
-                    <img
-                      src={thumbUrl}
-                      alt={cam.name}
-                      onError={() => setBrokenSidebar(prev => new Set([...prev, cam.name]))}
-                      style={{
-                        width: '100%',
-                        height: '112px',
-                        objectFit: 'cover',
-                        objectPosition: 'center',
-                        display: 'block'
-                      }}
-                    />
+                    {cam.mtHuttCam ? (
+                      <MtHuttCamera
+                        cameraKey={cam.mtHuttCam}
+                        alt={cam.name}
+                        onError={() => setBrokenSidebar(prev => new Set([...prev, cam.name]))}
+                        style={thumbStyle}
+                      />
+                    ) : (
+                      <img
+                        src={thumbUrl}
+                        alt={cam.name}
+                        onError={() => setBrokenSidebar(prev => new Set([...prev, cam.name]))}
+                        style={thumbStyle}
+                      />
+                    )}
                     <span style={{
                       position: 'absolute',
                       top: 4,
@@ -437,6 +508,13 @@ function CameraCard({ camera, allCameras = [] }) {
                 <VideoPlayer url={displayUrl} />
               ) : activeCam.archiveBase && !isMultiCamera ? (
                 <CameraHistory archiveBase={activeCam.archiveBase} refreshKey={refreshKey} />
+              ) : mtHuttCam ? (
+                <MtHuttCamera
+                  cameraKey={mtHuttCam}
+                  alt={displayName}
+                  onError={(e) => { if (e?.target) e.target.style.opacity = '0.2' }}
+                  style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }}
+                />
               ) : (
                 <img
                   src={`${displayUrl}?t=${refreshKey}`}
