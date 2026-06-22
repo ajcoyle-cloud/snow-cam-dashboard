@@ -999,15 +999,18 @@ function SnowfallForecast() {
   const tableCellWidth = viewMode === 'fit' ? FIT_GROUP * cellWidth : cellWidth
 
   const maxPrecip = Math.max(
-    ...displayData.map(d =>
-      // Include both precipitation and snowfall (converted) in scale calculation
-      Math.max(
+    ...displayData.map((d, idx) => {
+      const val = Math.max(
         d.summit.precipitation,
         d.summit.snowfall,
         d.base.precipitation,
         d.base.snowfall
       )
-    ),
+      if (val > 20) {
+        console.log(`High precip at index ${idx} (${d.datetime.toLocaleString()}): summit precip=${d.summit.precipitation}, summit snowfall=${d.summit.snowfall}, base precip=${d.base.precipitation}, base snowfall=${d.base.snowfall}`)
+      }
+      return val
+    }),
     ...(apiMode === 'openmeteo' && meteoBlueData ? displayData.map((d, i) =>
       Math.max(
         (meteoBlueData.summit.data_1h.precipitation[i] || 0) * (meteoBlueData.summit.data_1h.snowfraction?.[i] || 0) * 7,
@@ -1015,6 +1018,8 @@ function SnowfallForecast() {
       )
     ) : [0])
   ) || 1
+
+  console.log(`maxPrecip: ${maxPrecip}mm`)
 
   // Reference elevation for chart baseline
   const refElevation = elevation === 'summit' ? 2100 : 1600
