@@ -478,22 +478,18 @@ function renderDepthLegend(activeBand) {
   `).join('');
 }
 
-// Stack all five depth-band colours evenly between the snow line and the
-// summit as hard-edged bands (not a fade). The color-relief layer only
-// supports 'interpolate' (a plain 'step' expression silently no-ops), so a
-// hard edge is faked with two stops 1m apart at each boundary — the previous
-// band's colour right up until the boundary, then the next band's colour.
-function buildAccumRamp(snowLine) {
-  const n = DEPTH_BANDS.length;
-  const bandWidth = (TOP_ELEV - snowLine) / n;
-  const stops = ['interpolate', ['linear'], ['elevation'], snowLine - 1, 'rgba(255,255,255,0)'];
-  DEPTH_BANDS.forEach((b, i) => {
-    const start = snowLine + bandWidth * i;
-    const end = snowLine + bandWidth * (i + 1);
-    stops.push(i === 0 ? start : start, b.color);
-    stops.push(end - 1, b.color);
-  });
-  return stops;
+// Tint the whole mountain (snow line to summit) a single flat colour — the
+// depth band the actual forecast total falls into. Previously this stacked
+// all 10 depth-band colours evenly regardless of the real total, so a 2cm
+// forecast and a 200cm forecast rendered identically; only the band actually
+// reached should show.
+function buildAccumRamp(snowLine, band) {
+  return [
+    'interpolate', ['linear'], ['elevation'],
+    snowLine - 1, 'rgba(255,255,255,0)',
+    snowLine, band.color,
+    TOP_ELEV, band.color
+  ];
 }
 
 function renderAccumulatedView() {
@@ -513,7 +509,7 @@ function renderAccumulatedView() {
 
   const band = DEPTH_BANDS.find(b => totalCm <= b.max) || DEPTH_BANDS[DEPTH_BANDS.length - 1];
 
-  applyRampWhenReady(buildAccumRamp(snowLine));
+  applyRampWhenReady(buildAccumRamp(snowLine, band));
 
   currentSnowLine = snowLine;
   currentAccumTotalCm = totalCm;
