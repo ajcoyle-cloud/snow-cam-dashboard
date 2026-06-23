@@ -95,6 +95,36 @@
   }
   #map-close:hover { background: rgba(255,255,255,0.25); }
 
+  /* ── Top mode/period switchers ──────────────────────────────────────── */
+  #top-controls {
+    position: absolute; top: 20px; left: 50%; transform: translateX(-50%); z-index: 15;
+    display: flex; gap: 10px;
+  }
+  .pill-group {
+    display: flex; gap: 4px;
+    background: rgba(0,0,0,0.6); backdrop-filter: blur(14px);
+    border-radius: 12px; padding: 5px;
+    box-shadow: 0 4px 24px rgba(0,0,0,0.3);
+  }
+  .pill-btn {
+    background: transparent; color: rgba(255,255,255,0.65); border: none;
+    padding: 8px 16px; border-radius: 8px; font-size: 0.78rem; font-weight: 700;
+    cursor: pointer; transition: all 0.15s; font-family: inherit; white-space: nowrap;
+  }
+  .pill-btn:hover { color: #fff; }
+  .pill-btn.active { background: #2563eb; color: #fff; }
+  #period-switch { display: none; }
+
+  /* ── Accumulated snowfall info + depth legend ───────────────────────── */
+  #info-accum { display: none; }
+  #accum-total { font-size: 1.7rem; font-weight: 800; margin: 2px 0 12px; }
+  .legend-row {
+    display: flex; align-items: center; gap: 9px; font-size: 0.78rem;
+    padding: 4px 0; color: rgba(255,255,255,0.75);
+  }
+  .legend-row.active-band { color: #fff; font-weight: 700; }
+  .legend-swatch { width: 16px; height: 16px; border-radius: 4px; flex-shrink: 0; border: 1px solid rgba(255,255,255,0.35); }
+
 </style>
 </head>
 <body>
@@ -102,13 +132,35 @@
 <div id="map-screen">
   <div id="map"></div>
   <button id="map-close" onclick="closeMapView()">✕</button>
+
+  <div id="top-controls">
+    <div class="pill-group" id="mode-switch">
+      <button class="pill-btn active" data-mode="hourly" onclick="setViewMode('hourly')">Hourly</button>
+      <button class="pill-btn" data-mode="accumulated" onclick="setViewMode('accumulated')">Accumulated</button>
+    </div>
+    <div class="pill-group" id="period-switch">
+      <button class="pill-btn active" data-days="5" onclick="setPeriod(5)">5 Day</button>
+      <button class="pill-btn" data-days="10" onclick="setPeriod(10)">10 Day</button>
+      <button class="pill-btn" data-days="15" onclick="setPeriod(15)">15 Day</button>
+    </div>
+  </div>
+
   <div id="snow-info">
-    <h3>Selected Forecast Hour</h3>
-    <div class="si-row"><span class="l">Time</span><span class="v" id="si-time">—</span></div>
-    <div class="si-row"><span class="l">Summit Temp</span><span class="v" id="si-temp">—</span></div>
-    <div class="si-row"><span class="l">Freezing Level</span><span class="v" id="si-fl">—</span></div>
-    <div class="si-row"><span class="l">Snow Line</span><span class="v" id="si-sl">—</span></div>
-    <div class="si-row"><span class="l">Snowfall (1h)</span><span class="v" id="si-snow">—</span></div>
+    <div id="info-hourly">
+      <h3>Selected Forecast Hour</h3>
+      <div class="si-row"><span class="l">Time</span><span class="v" id="si-time">—</span></div>
+      <div class="si-row"><span class="l">Summit Temp</span><span class="v" id="si-temp">—</span></div>
+      <div class="si-row"><span class="l">Freezing Level</span><span class="v" id="si-fl">—</span></div>
+      <div class="si-row"><span class="l">Snow Line</span><span class="v" id="si-sl">—</span></div>
+      <div class="si-row"><span class="l">Snowfall (1h)</span><span class="v" id="si-snow">—</span></div>
+    </div>
+    <div id="info-accum">
+      <h3 id="accum-period-label">Next 5 Days</h3>
+      <div id="accum-total">—</div>
+      <div class="si-row"><span class="l">Approx. Snow Line</span><span class="v" id="accum-snowline">—</span></div>
+      <hr style="border: none; border-top: 1px solid rgba(255,255,255,0.12); margin: 12px 0 10px;">
+      <div id="depth-legend"></div>
+    </div>
   </div>
   <div id="timeline">
     <button id="tl-play" onclick="togglePlay()">▶</button>
@@ -118,8 +170,9 @@
     <span id="tl-label">—</span>
   </div>
   <div id="speed-select">
-    <button class="speed-btn active" data-speed="1" onclick="setSpeed(1)">1×</button>
+    <button class="speed-btn" data-speed="1" onclick="setSpeed(1)">1×</button>
     <button class="speed-btn" data-speed="2" onclick="setSpeed(2)">2×</button>
+    <button class="speed-btn active" data-speed="3" onclick="setSpeed(3)">3×</button>
     <button class="speed-btn" data-speed="5" onclick="setSpeed(5)">5×</button>
     <button class="speed-btn" data-speed="10" onclick="setSpeed(10)">10×</button>
   </div>
@@ -155,7 +208,7 @@ let forecastHours = [];
 // ── Fetch hourly forecast from Open-Meteo (same API/fields the dashboard uses) ──
 async function loadForecast() {
   try {
-    const url = `https://api.open-meteo.com/v1/forecast?latitude=${LOC.lat}&longitude=${LOC.lon}&elevation=${LOC.summitElev}&hourly=temperature_2m,precipitation,snowfall,freezinglevel_height&models=gfs_global&temperature_unit=celsius&timezone=${LOC.timezone}&forecast_days=7`;
+    const url = `https://api.open-meteo.com/v1/forecast?latitude=${LOC.lat}&longitude=${LOC.lon}&elevation=${LOC.summitElev}&hourly=temperature_2m,precipitation,snowfall,freezinglevel_height&models=gfs_global&temperature_unit=celsius&timezone=${LOC.timezone}&forecast_days=16`;
     const res = await fetch(url);
     if (!res.ok) throw new Error(`Open-Meteo responded ${res.status}`);
     const data = await res.json();
@@ -259,7 +312,7 @@ function buildSnowRamp(hour) {
   const snowLine = hour.freezingLevel - SNOW_OFFSET;
 
   if (hour.snowfallMm < SNOWFALL_THRESHOLD_MM) {
-    const color = 'rgba(40,130,255,0.25)';
+    const color = 'rgba(40,130,255,0.15)';
     return [
       'interpolate', ['linear'], ['elevation'],
       snowLine - 1, 'rgba(255,255,255,0)',
@@ -287,12 +340,12 @@ function buildSnowRamp(hour) {
 // constructed (style/layers attach asynchronously), so poll briefly until it
 // does rather than relying on a single 'load'/'idle' event that may fire too early.
 let applyRampToken = 0;
-function applySnowRampWhenReady(hour) {
+function applyRampWhenReady(rampArray) {
   const token = ++applyRampToken;
   const tryApply = () => {
-    if (token !== applyRampToken) return; // a newer hour was selected — abandon this one
+    if (token !== applyRampToken) return; // a newer selection was made — abandon this one
     if (map.getLayer('snow-relief')) {
-      map.setPaintProperty('snow-relief', 'color-relief-color', buildSnowRamp(hour));
+      map.setPaintProperty('snow-relief', 'color-relief-color', rampArray);
     } else {
       setTimeout(tryApply, 80);
     }
@@ -308,7 +361,7 @@ function openMapView(index) {
 
   initMap();
 
-  applySnowRampWhenReady(hour);
+  applyRampWhenReady(buildSnowRamp(hour));
 
   document.getElementById('si-time').textContent = fmtTime(hour.time);
   document.getElementById('si-temp').textContent = hour.temp.toFixed(1) + '°C';
@@ -334,6 +387,103 @@ function stepHour(delta) {
   openMapView(currentIndex + delta);
 }
 
+// ── Accumulated snowfall view — total depth over the next 5/10/15 days ──────
+// Distinct depth bands so colours are easy to tell apart at a glance: pale
+// blue (light) through to red (extreme), each with good contrast against
+// its neighbours. The mountain is tinted with all five bands stacked by
+// elevation (light blue near the snow line, up through blue/teal/amber to
+// red at the summit) so the colour key is clearly visible across the
+// terrain — the legend highlights which single band the actual forecast
+// total falls into.
+const DEPTH_BANDS = [
+  { max: 10,       label: '0–10 cm',    swatch: '#f0f8ff', color: 'rgba(240,248,255,0.55)' },
+  { max: 25,       label: '10–25 cm',   swatch: '#a8d4f0', color: 'rgba(168,212,240,0.65)' },
+  { max: 50,       label: '25–50 cm',   swatch: '#4a90d9', color: 'rgba(74,144,217,0.72)' },
+  { max: 100,      label: '50–100 cm',  swatch: '#8b5cf6', color: 'rgba(139,92,246,0.78)' },
+  { max: Infinity, label: '100 cm+',    swatch: '#b62941', color: 'rgba(182,41,65,0.82)' }
+];
+
+function renderDepthLegend(activeBand) {
+  const el = document.getElementById('depth-legend');
+  el.innerHTML = DEPTH_BANDS.map(b => `
+    <div class="legend-row${b === activeBand ? ' active-band' : ''}">
+      <div class="legend-swatch" style="background:${b.swatch}"></div>
+      <span>${b.label}</span>
+    </div>
+  `).join('');
+}
+
+// Stack all five depth-band colours evenly between the snow line and the
+// summit as hard-edged bands (not a fade). The color-relief layer only
+// supports 'interpolate' (a plain 'step' expression silently no-ops), so a
+// hard edge is faked with two stops 1m apart at each boundary — the previous
+// band's colour right up until the boundary, then the next band's colour.
+function buildAccumRamp(snowLine) {
+  const n = DEPTH_BANDS.length;
+  const bandWidth = (TOP_ELEV - snowLine) / n;
+  const stops = ['interpolate', ['linear'], ['elevation'], snowLine - 1, 'rgba(255,255,255,0)'];
+  DEPTH_BANDS.forEach((b, i) => {
+    const start = snowLine + bandWidth * i;
+    const end = snowLine + bandWidth * (i + 1);
+    stops.push(i === 0 ? start : start, b.color);
+    stops.push(end - 1, b.color);
+  });
+  return stops;
+}
+
+function renderAccumulatedView() {
+  if (forecastHours.length === 0) return;
+  initMap();
+
+  const nowMs = Date.now();
+  let startIdx = 0, bestDiff = Infinity;
+  forecastHours.forEach((r, i) => {
+    const diff = Math.abs(new Date(r.time).getTime() - nowMs);
+    if (diff < bestDiff) { bestDiff = diff; startIdx = i; }
+  });
+  const window_ = forecastHours.slice(startIdx, startIdx + accumDays * 24);
+  const totalCm = window_.reduce((s, r) => s + r.snowfallMm, 0) / 10;
+  const avgFreezing = window_.reduce((s, r) => s + r.freezingLevel, 0) / window_.length;
+  const snowLine = avgFreezing - SNOW_OFFSET;
+
+  const band = DEPTH_BANDS.find(b => totalCm <= b.max) || DEPTH_BANDS[DEPTH_BANDS.length - 1];
+
+  applyRampWhenReady(buildAccumRamp(snowLine));
+
+  document.getElementById('accum-period-label').textContent = `Next ${accumDays} Days`;
+  document.getElementById('accum-total').textContent = totalCm.toFixed(0) + ' cm';
+  document.getElementById('accum-snowline').textContent = Math.round(snowLine) + ' m';
+  renderDepthLegend(band);
+
+  setTimeout(() => map.resize(), 60);
+}
+
+let viewMode = 'hourly'; // 'hourly' | 'accumulated'
+let accumDays = 5;
+
+function setViewMode(mode) {
+  viewMode = mode;
+  document.querySelectorAll('#mode-switch .pill-btn').forEach(b => b.classList.toggle('active', b.dataset.mode === mode));
+  document.getElementById('period-switch').style.display = mode === 'accumulated' ? 'flex' : 'none';
+  document.getElementById('timeline').style.display = mode === 'hourly' ? 'flex' : 'none';
+  document.getElementById('speed-select').style.display = mode === 'hourly' ? 'flex' : 'none';
+  document.getElementById('info-hourly').style.display = mode === 'hourly' ? 'block' : 'none';
+  document.getElementById('info-accum').style.display = mode === 'accumulated' ? 'block' : 'none';
+
+  if (mode === 'hourly') {
+    stopPlay();
+    openMapView(currentIndex < 0 ? 0 : currentIndex);
+  } else {
+    renderAccumulatedView();
+  }
+}
+
+function setPeriod(days) {
+  accumDays = days;
+  document.querySelectorAll('#period-switch .pill-btn').forEach(b => b.classList.toggle('active', parseInt(b.dataset.days, 10) === days));
+  renderAccumulatedView();
+}
+
 function closeMapView() {
   // This page is normally opened in its own tab from the dashboard's snowfall
   // table — close that tab. If it can't be closed (e.g. opened directly, not
@@ -349,7 +499,7 @@ document.getElementById('tl-slider').addEventListener('input', (e) => {
 });
 
 let playTimer = null;
-let playSpeed = 1;
+let playSpeed = 3;
 const BASE_INTERVAL_MS = 700;
 
 function togglePlay() {
