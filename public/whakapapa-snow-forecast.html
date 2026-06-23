@@ -87,13 +87,17 @@
   .speed-btn:hover { color: #fff; }
   .speed-btn.active { background: #2563eb; color: #fff; }
 
-  #map-close {
-    position: absolute; top: 20px; right: 64px; z-index: 20;
+  #map-enlarge, #map-close {
+    position: absolute; top: 20px; z-index: 20;
     background: rgba(255,255,255,0.12); color: #fff; border: none;
     width: 40px; height: 40px; border-radius: 50%; font-size: 1.1rem; cursor: pointer;
     transition: background 0.15s;
   }
-  #map-close:hover { background: rgba(255,255,255,0.25); }
+  #map-enlarge { left: 20px; }
+  #map-close { right: 64px; display: none; }
+  #map-enlarge:hover, #map-close:hover { background: rgba(255,255,255,0.25); }
+  #map-screen.is-fullscreen #map-enlarge { display: none; }
+  #map-screen.is-fullscreen #map-close { display: block; }
 
   /* ── Click-to-probe popup ──────────────────────────────────────────── */
   .click-popup {
@@ -141,7 +145,8 @@
 
 <div id="map-screen">
   <div id="map"></div>
-  <button id="map-close" onclick="closeMapView()">✕</button>
+  <button id="map-enlarge" onclick="enterFullscreenView()" title="Fullscreen">⤢</button>
+  <button id="map-close" onclick="exitFullscreenView()" title="Close fullscreen">✕</button>
 
   <div id="top-controls">
     <div class="pill-group" id="mode-switch">
@@ -547,13 +552,24 @@ function setPeriod(days) {
   renderAccumulatedView();
 }
 
-function closeMapView() {
-  // This page is normally opened in its own tab from the dashboard's snowfall
-  // table — close that tab. If it can't be closed (e.g. opened directly, not
-  // via script), fall back to browser history.
-  window.close();
-  if (!window.closed && window.history.length > 1) window.history.back();
+function enterFullscreenView() {
+  const el = document.getElementById('map-screen');
+  const req = el.requestFullscreen || el.webkitRequestFullscreen || el.msRequestFullscreen;
+  if (req) req.call(el);
 }
+
+function exitFullscreenView() {
+  const exit = document.exitFullscreen || document.webkitExitFullscreen || document.msExitFullscreen;
+  if (exit) exit.call(document);
+}
+
+function updateFullscreenUI() {
+  const isFs = !!(document.fullscreenElement || document.webkitFullscreenElement || document.msFullscreenElement);
+  document.getElementById('map-screen').classList.toggle('is-fullscreen', isFs);
+}
+['fullscreenchange', 'webkitfullscreenchange', 'msfullscreenchange'].forEach((evt) =>
+  document.addEventListener(evt, updateFullscreenUI)
+);
 
 // ── Timeline scrubber: drag-to-seek + play/pause autoplay ────────────────────
 document.getElementById('tl-slider').addEventListener('input', (e) => {
