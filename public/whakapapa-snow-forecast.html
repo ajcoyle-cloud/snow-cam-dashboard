@@ -95,6 +95,16 @@
   }
   #map-close:hover { background: rgba(255,255,255,0.25); }
 
+  /* ── Click-to-probe popup ──────────────────────────────────────────── */
+  .click-popup {
+    position: absolute; z-index: 30; transform: translate(-50%, -130%);
+    background: rgba(0,0,0,0.88); color: #fff;
+    padding: 8px 16px; border-radius: 999px;
+    font-size: 0.8rem; font-weight: 600; white-space: nowrap;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.4);
+    pointer-events: none;
+  }
+
   /* ── Top mode/period switchers ──────────────────────────────────────── */
   #top-controls {
     position: absolute; top: 20px; left: 50%; transform: translateX(-50%); z-index: 15;
@@ -300,6 +310,43 @@ function initMap() {
   });
 
   map.addControl(new maplibregl.NavigationControl({ visualizePitch: true, showZoom: true, showCompass: true }), 'top-right');
+
+  map.on('click', (e) => {
+    const elev = map.queryTerrainElevation(e.lngLat, { exaggerated: false });
+    if (elev == null || isNaN(elev)) return;
+    const depthCm = getDepthAtElevation(elev);
+    showClickPopup(e.point.x, e.point.y, `${depthCm.toFixed(1)}cm · ${Math.round(elev)}m`);
+  });
+}
+
+// ── Click-to-probe popup — snow depth + elevation at the clicked point ──────
+let currentSnowLine = null;
+let currentHourCm = 0;
+let currentAccumTotalCm = 0;
+
+function getDepthAtElevation(elev) {
+  if (currentSnowLine == null || elev < currentSnowLine) return 0;
+  if (viewMode === 'hourly') return currentHourCm;
+  const frac = Math.min(1, (elev - currentSnowLine) / (TOP_ELEV - currentSnowLine));
+  return currentAccumTotalCm * frac;
+}
+
+let clickPopupEl = null;
+let clickPopupTimer = null;
+
+function showClickPopup(x, y, text) {
+  if (clickPopupEl) clickPopupEl.remove();
+  clickPopupEl = document.createElement('div');
+  clickPopupEl.className = 'click-popup';
+  clickPopupEl.style.left = x + 'px';
+  clickPopupEl.style.top = y + 'px';
+  clickPopupEl.textContent = text;
+  document.getElementById('map-screen').appendChild(clickPopupEl);
+
+  clearTimeout(clickPopupTimer);
+  clickPopupTimer = setTimeout(() => {
+    if (clickPopupEl) { clickPopupEl.remove(); clickPopupEl = null; }
+  }, 4000);
 }
 
 // Build the colour-relief fill for the currently selected forecast hour:
@@ -312,7 +359,7 @@ function buildSnowRamp(hour) {
   const snowLine = hour.freezingLevel - SNOW_OFFSET;
 
   if (hour.snowfallMm < SNOWFALL_THRESHOLD_MM) {
-    const color = 'rgba(40,130,255,0.15)';
+    const color = 'rgba(60,130,255,0.4)';
     return [
       'interpolate', ['linear'], ['elevation'],
       snowLine - 1, 'rgba(255,255,255,0)',
@@ -322,17 +369,17 @@ function buildSnowRamp(hour) {
   }
 
   // Intensity scales the colour/opacity with forecasted snowfall amount (mm).
-  const intensity = Math.max(0.4, Math.min(1, hour.snowfallMm / 14));
-  const a1 = (0.55 * intensity).toFixed(2);
-  const a2 = (0.78 * intensity).toFixed(2);
-  const a3 = (0.95 * intensity).toFixed(2);
+  const intensity = Math.max(0.65, Math.min(1, hour.snowfallMm / 14));
+  const a1 = (0.85 * intensity).toFixed(2);
+  const a2 = (0.97 * intensity).toFixed(2);
+  const a3 = (1 * intensity).toFixed(2);
 
   return [
     'interpolate', ['linear'], ['elevation'],
-    snowLine - 1, 'rgba(80,160,255,0)',
-    snowLine, `rgba(40,130,255,${a1})`,
-    snowLine + 150, `rgba(80,180,255,${a2})`,
-    TOP_ELEV, `rgba(220,245,255,${a3})`
+    snowLine - 1, 'rgba(205,225,255,0)',
+    snowLine, `rgba(205,225,255,${a1})`,
+    snowLine + 100, `rgba(225,240,255,${a2})`,
+    TOP_ELEV, `rgba(248,251,255,${a3})`
   ];
 }
 
@@ -362,6 +409,9 @@ function openMapView(index) {
   initMap();
 
   applyRampWhenReady(buildSnowRamp(hour));
+
+  currentSnowLine = hour.freezingLevel - SNOW_OFFSET;
+  currentHourCm = hour.snowfallMm / 10;
 
   document.getElementById('si-time').textContent = fmtTime(hour.time);
   document.getElementById('si-temp').textContent = hour.temp.toFixed(1) + '°C';
@@ -454,6 +504,9 @@ function renderAccumulatedView() {
   const band = DEPTH_BANDS.find(b => totalCm <= b.max) || DEPTH_BANDS[DEPTH_BANDS.length - 1];
 
   applyRampWhenReady(buildAccumRamp(snowLine));
+
+  currentSnowLine = snowLine;
+  currentAccumTotalCm = totalCm;
 
   document.getElementById('accum-period-label').textContent = `Next ${accumDays} Days`;
   document.getElementById('accum-total').textContent = totalCm.toFixed(0) + ' cm';

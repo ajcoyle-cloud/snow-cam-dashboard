@@ -2008,20 +2008,19 @@ function SnowfallForecast() {
   )
 }
 
-function WindyMap() {
+function ForecastMap3D() {
   const [resort, setResort] = useState('ruapehu')
   const locations = {
-    ruapehu: { name: 'Mt Ruapehu', lat: -39.28, lon: 175.57, zoom: 9 },
-    cardrona: { name: 'Cardrona / Wānaka', lat: -44.76, lon: 169.0, zoom: 9 },
+    ruapehu: { name: 'Mt Ruapehu' },
+    cardrona: { name: 'Cardrona / Wānaka' },
   }
-  const loc = locations[resort]
-  const src = `https://embed.windy.com/embed2.html?lat=${loc.lat}&lon=${loc.lon}&detailLat=${loc.lat}&detailLon=${loc.lon}&zoom=${loc.zoom}&level=surface&overlay=snowAccu&product=ecmwf&marker=true&metricWind=km%2Fh&metricTemp=%C2%B0C`
+  const src = `/whakapapa-snow-forecast.html?resort=${resort}`
 
   return (
     <div style={{ padding: '0 20px 40px' }}>
-      <h2 style={{ textAlign: 'center', marginBottom: '8px', marginTop: '40px' }}>7-Day Snow Accumulation Map</h2>
+      <h2 style={{ textAlign: 'center', marginBottom: '8px', marginTop: '40px' }}>3D Snowfall Elevation Forecast</h2>
       <p style={{ textAlign: 'center', color: '#555', fontSize: '12px', marginBottom: '16px' }}>
-        ECMWF forecast · drag to pan · scroll to zoom · click the map for point detail
+        drag to orbit · scroll to zoom · scrub the timeline below the map
       </p>
       <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '16px' }}>
         <div className="elevation-toggle">
@@ -2058,7 +2057,7 @@ export default function App() {
       </section>
 
       <section className="region-section">
-        <WindyMap />
+        <ForecastMap3D />
       </section>
     </div>
   )
