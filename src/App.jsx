@@ -2065,11 +2065,7 @@ function ForecastMap3D() {
 
   return (
     <div style={{ padding: '0 20px 40px' }}>
-      <h2 style={{ textAlign: 'center', marginBottom: '8px', marginTop: '40px' }}>3D Snowfall Elevation Forecast</h2>
-      <p style={{ textAlign: 'center', color: '#555', fontSize: '12px', marginBottom: '16px' }}>
-        drag to orbit · scroll to zoom · scrub the timeline below the map
-      </p>
-      <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '16px' }}>
+      <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '16px', marginTop: '40px' }}>
         <div className="elevation-toggle">
           {Object.entries(locations).map(([key, l]) => (
             <button key={key} className={`toggle-btn ${resort === key ? 'active' : ''}`} onClick={() => setResort(key)}>
