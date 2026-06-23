@@ -617,6 +617,16 @@ let playTimer = null;
 let playSpeed = 3;
 const BASE_INTERVAL_MS = 700;
 
+// Blend two hours' freezing level/snowfall linearly so the snow-relief ramp
+// (built from whichever blended values come out) animates as a continuous
+// fade between hours instead of jumping in discrete steps during playback.
+function blendHour(a, b, t) {
+  return {
+    freezingLevel: a.freezingLevel + (b.freezingLevel - a.freezingLevel) * t,
+    snowfallMm: a.snowfallMm + (b.snowfallMm - a.snowfallMm) * t
+  };
+}
+
 function togglePlay() {
   if (playTimer) stopPlay();
   else startPlay();
@@ -626,15 +636,30 @@ function startPlay() {
   if (currentIndex < 0) return;
   if (currentIndex >= forecastHours.length - 1) openMapView(0); // restart from the beginning
   document.getElementById('tl-play').textContent = '⏸';
-  if (playTimer) clearInterval(playTimer);
-  playTimer = setInterval(() => {
+  if (playTimer) cancelAnimationFrame(playTimer);
+
+  const tickMs = BASE_INTERVAL_MS / playSpeed;
+  let tickStart = performance.now();
+
+  const frame = (now) => {
     if (currentIndex >= forecastHours.length - 1) { stopPlay(); return; }
-    openMapView(currentIndex + 1);
-  }, BASE_INTERVAL_MS / playSpeed);
+    const t = Math.min(1, (now - tickStart) / tickMs);
+    const from = forecastHours[currentIndex];
+    const to = forecastHours[currentIndex + 1];
+    applyRampWhenReady(buildSnowRamp(blendHour(from, to, t)));
+
+    if (t >= 1) {
+      openMapView(currentIndex + 1);
+      tickStart = now;
+      if (currentIndex >= forecastHours.length - 1) return; // stopPlay() already ran inside openMapView
+    }
+    playTimer = requestAnimationFrame(frame);
+  };
+  playTimer = requestAnimationFrame(frame);
 }
 
 function stopPlay() {
-  if (playTimer) { clearInterval(playTimer); playTimer = null; }
+  if (playTimer) { cancelAnimationFrame(playTimer); playTimer = null; }
   document.getElementById('tl-play').textContent = '▶';
 }
 
