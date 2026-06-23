@@ -224,11 +224,16 @@ async function loadForecast() {
     const data = await res.json();
     const h = data.hourly;
 
+    // GFS occasionally spits out a spurious single-hour precip/snow spike at a
+    // given grid cell (a model artifact, especially near steep terrain). Cap
+    // any one hour's snowfall so a single glitchy reading can't blow out the
+    // multi-day accumulated total.
+    const MAX_HOURLY_SNOWFALL_MM = 60; // ~6cm/hr, generous even for a true storm pulse
     forecastHours = h.time.map((t, i) => ({
       time: t,
       temp: h.temperature_2m[i],
       precip: h.precipitation[i],
-      snowfallMm: (h.snowfall[i] || 0) * 10, // Open-Meteo snowfall is cm -> mm
+      snowfallMm: Math.min((h.snowfall[i] || 0) * 10, MAX_HOURLY_SNOWFALL_MM), // Open-Meteo snowfall is cm -> mm
       freezingLevel: h.freezinglevel_height[i]
     })).filter(r => r.freezingLevel != null);
   } catch (err) {
