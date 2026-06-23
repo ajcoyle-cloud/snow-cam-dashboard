@@ -1877,8 +1877,16 @@ function SnowfallForecast() {
                 const snowfall = data.snowfall
                 const prob = data.precipProbability
                 const hasSnow = snowfall >= 0.1
+                const clickable = viewMode === 'hourly'
                 return (
-                  <td key={i} style={{ width: `${tableCellWidth}px`, color: '#3b82f6', fontWeight: 'bold', background: hasSnow ? (isDayEven ? 'rgba(37, 99, 235, 0.12)' : 'rgba(37, 99, 235, 0.08)') : (isDayEven ? 'rgba(26, 26, 26, 0.3)' : 'rgba(15, 15, 15, 0.3)'), lineHeight: 1.1, paddingTop: '1px', paddingBottom: '1px' }}>
+                  <td
+                    key={i}
+                    onClick={clickable ? () => {
+                      const iso = d.datetime.toISOString().slice(0, 16)
+                      window.open(`/whakapapa-snow-forecast.html?resort=${resort}&time=${iso}`, '_blank')
+                    } : undefined}
+                    title={clickable ? 'Open 3D snow elevation view for this hour' : undefined}
+                    style={{ width: `${tableCellWidth}px`, color: '#3b82f6', fontWeight: 'bold', background: hasSnow ? (isDayEven ? 'rgba(37, 99, 235, 0.12)' : 'rgba(37, 99, 235, 0.08)') : (isDayEven ? 'rgba(26, 26, 26, 0.3)' : 'rgba(15, 15, 15, 0.3)'), lineHeight: 1.1, paddingTop: '1px', paddingBottom: '1px', cursor: clickable ? 'pointer' : 'default' }}>
                     <div>{snowfall < 0.1 ? '' : (snowfall / 10).toFixed(1)}</div>
                     {hasSnow && prob !== null && prob >= 5 && <div style={{ fontSize: '9px', color: '#5b9bd5', fontWeight: 'normal' }}>{prob}%</div>}
                   </td>
