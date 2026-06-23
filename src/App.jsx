@@ -2064,8 +2064,8 @@ function ForecastMap3D() {
   const src = `/whakapapa-snow-forecast.html?resort=${resort}`
 
   return (
-    <div style={{ padding: '0 20px 40px' }}>
-      <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '16px', marginTop: '40px' }}>
+    <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+      <div style={{ display: 'flex', justifyContent: 'center', padding: '10px 0' }}>
         <div className="elevation-toggle">
           {Object.entries(locations).map(([key, l]) => (
             <button key={key} className={`toggle-btn ${resort === key ? 'active' : ''}`} onClick={() => setResort(key)}>
@@ -2077,7 +2077,7 @@ function ForecastMap3D() {
       <iframe
         key={src}
         src={src}
-        style={{ width: '100%', height: '500px', border: 'none', borderRadius: '8px', display: 'block' }}
+        style={{ width: '100%', flex: 1, minHeight: 0, border: 'none', borderRadius: 0, display: 'block' }}
         allowFullScreen
       />
     </div>
@@ -2108,7 +2108,7 @@ export default function App() {
         ))}
       </nav>
 
-      <main className="main-content">
+      <main className={`main-content ${activeTab === 'map' ? 'is-map' : ''}`}>
         {activeTab === 'webcams' && (
           <section className="region-section">
             <CameraGrid cameras={[...NORTH_ISLAND, ...SOUTH_ISLAND]} />
@@ -2122,7 +2122,7 @@ export default function App() {
         )}
 
         {activeTab === 'map' && (
-          <section className="region-section">
+          <section className="map-region">
             <ForecastMap3D />
           </section>
         )}
