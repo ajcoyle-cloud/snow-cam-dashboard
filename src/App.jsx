@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
+import { Camera, LineChart, Map as MapIcon } from 'lucide-react'
 import HLS from 'hls.js'
 import './App.css'
 
@@ -2087,22 +2088,49 @@ function ForecastMap3D() {
   )
 }
 
+const NAV_ITEMS = [
+  { id: 'webcams', label: 'Webcams', Icon: Camera },
+  { id: 'forecast', label: 'Forecast', Icon: LineChart },
+  { id: 'map', label: 'Map', Icon: MapIcon },
+]
+
 export default function App() {
+  const [activeTab, setActiveTab] = useState('webcams')
+
   return (
-    <div className="app">
-      <header className="header"></header>
+    <div className="app-layout">
+      <nav className="sidebar">
+        {NAV_ITEMS.map(({ id, label, Icon }) => (
+          <button
+            key={id}
+            className={`sidebar-item ${activeTab === id ? 'active' : ''}`}
+            onClick={() => setActiveTab(id)}
+          >
+            <Icon size={20} strokeWidth={1.75} />
+            <span>{label}</span>
+          </button>
+        ))}
+      </nav>
 
-      <section className="region-section">
-        <CameraGrid cameras={[...NORTH_ISLAND, ...SOUTH_ISLAND]} />
-      </section>
+      <main className="main-content">
+        {activeTab === 'webcams' && (
+          <section className="region-section">
+            <CameraGrid cameras={[...NORTH_ISLAND, ...SOUTH_ISLAND]} />
+          </section>
+        )}
 
-      <section className="region-section forecast-section">
-        <SnowfallForecast />
-      </section>
+        {activeTab === 'forecast' && (
+          <section className="region-section forecast-section">
+            <SnowfallForecast />
+          </section>
+        )}
 
-      <section className="region-section">
-        <ForecastMap3D />
-      </section>
+        {activeTab === 'map' && (
+          <section className="region-section">
+            <ForecastMap3D />
+          </section>
+        )}
+      </main>
     </div>
   )
 }

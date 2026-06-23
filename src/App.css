@@ -1,8 +1,59 @@
-.app {
+.app-layout {
   display: flex;
-  flex-direction: column;
   min-height: 100vh;
   background: #000;
+}
+
+.sidebar {
+  flex-shrink: 0;
+  width: 220px;
+  background: #161616;
+  border-right: 1px solid #262626;
+  padding: 20px 0;
+}
+
+.sidebar-item {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+  padding: 13px 24px;
+  background: none;
+  border: none;
+  color: #8a8a8a;
+  font-size: 0.95em;
+  font-family: inherit;
+  cursor: pointer;
+  transition: color 0.15s ease, background 0.15s ease;
+}
+
+.sidebar-item:hover {
+  color: #ddd;
+}
+
+.sidebar-item.active {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.main-content {
+  flex: 1;
+  min-width: 0;
+  overflow-x: hidden;
+}
+
+@media (max-width: 700px) {
+  .sidebar {
+    width: 64px;
+    padding: 16px 0;
+  }
+  .sidebar-item {
+    justify-content: center;
+    padding: 14px 0;
+  }
+  .sidebar-item span {
+    display: none;
+  }
 }
 
 .region-section {
