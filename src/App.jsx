@@ -1201,7 +1201,7 @@ function SnowfallForecast() {
 
   return (
     <div className="forecast-container" ref={containerRef}>
-      <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '4px' }}>
+      <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '10px' }}>
         <div className="elevation-toggle">
           {Object.entries(RESORTS).map(([key, r]) => (
             <button
@@ -1213,11 +1213,11 @@ function SnowfallForecast() {
         </div>
       </div>
       <h2>16 Day Forecast</h2>
-      <div style={{ textAlign: 'center', color: '#555', fontSize: '11px', marginTop: '-4px', marginBottom: '4px' }}>
+      <div style={{ textAlign: 'center', color: '#555', fontSize: '11px', marginTop: '-2px', marginBottom: '12px' }}>
         GFS next update in {nextGfsUpdate} &nbsp;·&nbsp; ECMWF next update in {nextEcmwfUpdate}
       </div>
 
-      <div style={{ display: 'flex', gap: '16px', justifyContent: 'center', marginBottom: '6px', flexWrap: 'wrap' }}>
+      <div style={{ display: 'flex', gap: '20px', justifyContent: 'center', marginBottom: '12px', flexWrap: 'wrap' }}>
         {/* API toggle */}
         <div className="elevation-toggle">
           <button

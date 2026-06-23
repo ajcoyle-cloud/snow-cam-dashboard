@@ -342,14 +342,14 @@
 }
 
 .forecast-container {
-  padding: 10px 16px;
+  padding: 16px 20px;
   max-width: 100%;
 }
 
 .forecast-container > h2 {
   color: white;
   font-size: 1.2em;
-  margin: 0 0 4px 0;
+  margin: 0 0 6px 0;
   text-align: center;
 }
 
@@ -357,14 +357,14 @@
   display: inline-flex;
   gap: 0;
   justify-content: center;
-  margin: 6px auto;
+  margin: 8px auto;
   background: #1a1a1a;
   border-radius: 24px;
   padding: 3px;
 }
 
 .toggle-btn {
-  padding: 6px 16px;
+  padding: 8px 18px;
   background: transparent;
   border: none;
   color: #888;
