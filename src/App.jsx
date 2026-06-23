@@ -1201,7 +1201,7 @@ function SnowfallForecast() {
 
   return (
     <div className="forecast-container" ref={containerRef}>
-      <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '16px' }}>
+      <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '4px' }}>
         <div className="elevation-toggle">
           {Object.entries(RESORTS).map(([key, r]) => (
             <button
@@ -1212,12 +1212,12 @@ function SnowfallForecast() {
           ))}
         </div>
       </div>
-      <h2>{RESORTS[resort].name} 16-Day Forecast</h2>
-      <div style={{ textAlign: 'center', color: '#555', fontSize: '11px', marginTop: '-12px', marginBottom: '12px' }}>
+      <h2>16 Day Forecast</h2>
+      <div style={{ textAlign: 'center', color: '#555', fontSize: '11px', marginTop: '-4px', marginBottom: '4px' }}>
         GFS next update in {nextGfsUpdate} &nbsp;·&nbsp; ECMWF next update in {nextEcmwfUpdate}
       </div>
 
-      <div style={{ display: 'flex', gap: '30px', justifyContent: 'center', marginBottom: '20px', flexWrap: 'wrap' }}>
+      <div style={{ display: 'flex', gap: '16px', justifyContent: 'center', marginBottom: '6px', flexWrap: 'wrap' }}>
         {/* API toggle */}
         <div className="elevation-toggle">
           <button
@@ -2034,7 +2034,7 @@ function SnowfallForecast() {
 
       {/* Model comparison toggle */}
       {ecmwfForecastData && (
-        <div style={{ textAlign: 'center', marginTop: '16px', marginBottom: '20px' }}>
+        <div style={{ textAlign: 'center', marginTop: '6px', marginBottom: '6px' }}>
           <div className="elevation-toggle">
             <button
               className={`toggle-btn ${!compareModels ? 'active' : ''}`}
