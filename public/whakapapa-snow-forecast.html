@@ -355,11 +355,32 @@ function initMap() {
   map.addControl(new maplibregl.NavigationControl({ visualizePitch: true, showZoom: true, showCompass: true }), 'top-right');
 
   map.on('click', (e) => {
-    const elev = map.queryTerrainElevation(e.lngLat, { exaggerated: false });
-    if (elev == null || isNaN(elev)) return;
+    const rawElev = map.queryTerrainElevation(e.lngLat, { exaggerated: false });
+    if (rawElev == null || isNaN(rawElev)) return;
+    // The DEM tileset occasionally returns a spurious spike well above the
+    // real summit (e.g. 3241m read back for Ruapehu, whose true summit is
+    // ~2797m) — clamp to this resort's configured upper bound so the probe
+    // popup never shows an impossible elevation.
+    const elev = Math.min(rawElev, TOP_ELEV);
     const depthCm = getDepthAtElevation(elev);
     showClickPopup(e.point.x, e.point.y, `${depthCm.toFixed(1)}cm · ${Math.round(elev)}m`);
   });
+
+  // Very slow auto-rotate on the initial view, purely decorative — stops for
+  // good the moment the user actually touches the map (drag, zoom, pinch,
+  // scroll), so it never fights with their own camera control.
+  let autoRotateActive = true;
+  const stopAutoRotate = () => { autoRotateActive = false; };
+  const rotateStep = () => {
+    if (!autoRotateActive) return;
+    map.setBearing(map.getBearing() + 0.015);
+    requestAnimationFrame(rotateStep);
+  };
+  requestAnimationFrame(rotateStep);
+  const mapEl = document.getElementById('map');
+  ['mousedown', 'touchstart', 'wheel'].forEach((evt) =>
+    mapEl.addEventListener(evt, stopAutoRotate, { once: true, passive: true })
+  );
 }
 
 // ── Click-to-probe popup — snow depth + elevation at the clicked point ──────
