@@ -891,13 +891,15 @@ function SnowfallForecast() {
           const ecmwfHours = ecmwfSummitData.hourly.time.map((time, i) => {
             const summitTemp = ecmwfSummitData.hourly.temperature_2m[i]
             const baseTemp = ecmwfBaseData.hourly.temperature_2m[i]
-            let freezingLevel = r.baseElev
-            if (summitTemp !== baseTemp) {
-              freezingLevel = r.baseElev + (baseTemp * (r.summitElev - r.baseElev)) / (baseTemp - summitTemp)
-            } else if (baseTemp > 0) {
-              freezingLevel = 3600
-            } else {
-              freezingLevel = 0
+            let freezingLevel = null
+            if (summitTemp != null && baseTemp != null) {
+              if (summitTemp !== baseTemp) {
+                freezingLevel = r.baseElev + (baseTemp * (r.summitElev - r.baseElev)) / (baseTemp - summitTemp)
+              } else if (baseTemp > 0) {
+                freezingLevel = 3600
+              } else {
+                freezingLevel = 0
+              }
             }
 
             const summitPrecip = ecmwfSummitData.hourly.precipitation[i] || 0
@@ -1819,7 +1821,7 @@ function SnowfallForecast() {
                 const val = elevation === 'summit' ? d.summit.temp : d.base.temp
                 return (
                   <td key={i} style={{ width: `${tableCellWidth}px`, background: 'rgba(26, 26, 26, 0.15)' }}>
-                    {val.toFixed(1)}
+                    {val != null ? val.toFixed(1) : '—'}
                   </td>
                 )
               })}
@@ -1831,7 +1833,7 @@ function SnowfallForecast() {
                   const val = elevation === 'summit' ? d.summit.temp : d.base.temp
                   return (
                     <td key={i} style={{ width: `${tableCellWidth}px`, background: 'rgba(26, 26, 26, 0.15)', color: '#10b981' }}>
-                      {val.toFixed(1)}
+                      {val != null ? val.toFixed(1) : '—'}
                     </td>
                   )
                 })}
