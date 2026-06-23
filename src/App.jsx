@@ -2090,9 +2090,7 @@ function ForecastMap3D() {
 export default function App() {
   return (
     <div className="app">
-      <header className="header">
-        <h1>🏔️ NZ Snow Cam Dashboard</h1>
-      </header>
+      <header className="header"></header>
 
       <section className="region-section">
         <CameraGrid cameras={[...NORTH_ISLAND, ...SOUTH_ISLAND]} />
