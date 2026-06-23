@@ -84,8 +84,9 @@ const NORTH_ISLAND = [
 ]
 
 const SOUTH_ISLAND = [
-  { name: 'Cardrona - Main Basin', url: 'https://www.queenstown.com/cams/cardrona.jpg', location: 'Cardrona' },
-  { name: 'Cardrona - Captain', url: 'https://www.queenstown.com/cams/cardrona2.jpg', location: 'Cardrona' },
+  { name: 'Cardrona - Main Basin', url: 'https://webcams.cardrona.com/new-webcam-page/image/?view=1', location: 'Cardrona' },
+  { name: 'Cardrona - Captains', url: 'https://webcams.cardrona.com/new-webcam-page/image/?view=2', location: 'Cardrona' },
+  { name: 'Cardrona - Soho', url: 'https://webcams.cardrona.com/new-webcam-page/image/?view=13', location: 'Cardrona' },
   { name: 'Treble Cone - Home Basin', url: 'https://www.mountainwatch.com/Resort/Treble-Cone-Home-Basin/LiveStill.jpg', location: 'Treble Cone' },
   { name: 'Treble Cone - Lower Home', url: 'https://www.mountainwatch.com/Resort/Treble-Cone-Lower-Home/LiveStill.jpg', location: 'Treble Cone' },
   { name: 'Treble Cone - Lake Wanaka View', url: 'https://www.mountainwatch.com/Resort/Treble-Cone-Lake-Wanaka-View/LiveStill.jpg', location: 'Treble Cone' },
