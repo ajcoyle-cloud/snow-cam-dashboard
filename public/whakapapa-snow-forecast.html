@@ -504,8 +504,14 @@ function renderAccumulatedView() {
   });
   const window_ = forecastHours.slice(startIdx, startIdx + accumDays * 24);
   const totalCm = window_.reduce((s, r) => s + r.snowfallMm, 0) / 10;
-  const avgFreezing = window_.reduce((s, r) => s + r.freezingLevel, 0) / window_.length;
-  const snowLine = avgFreezing - SNOW_OFFSET;
+  // Use the lowest freezing level reached during the window, not the average —
+  // averaging dilutes a cold snow event with milder days elsewhere in the same
+  // window, which made a longer period (e.g. 15 Day) show a *higher* snow line
+  // than a shorter one (10 Day) it fully contains. The minimum can only stay
+  // the same or drop as the window grows, so longer periods never show less
+  // low-elevation coverage than the shorter periods nested inside them.
+  const minFreezing = Math.min(...window_.map((r) => r.freezingLevel));
+  const snowLine = minFreezing - SNOW_OFFSET;
 
   const bandIndex = DEPTH_BANDS.findIndex(b => totalCm <= b.max);
   const band = bandIndex === -1 ? DEPTH_BANDS[DEPTH_BANDS.length - 1] : DEPTH_BANDS[bandIndex];
