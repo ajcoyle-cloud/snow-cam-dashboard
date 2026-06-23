@@ -478,18 +478,23 @@ function renderDepthLegend(activeBand) {
   `).join('');
 }
 
-// Tint the whole mountain (snow line to summit) a single flat colour — the
-// depth band the actual forecast total falls into. Previously this stacked
-// all 10 depth-band colours evenly regardless of the real total, so a 2cm
-// forecast and a 200cm forecast rendered identically; only the band actually
-// reached should show.
-function buildAccumRamp(snowLine, band) {
-  return [
-    'interpolate', ['linear'], ['elevation'],
-    snowLine - 1, 'rgba(255,255,255,0)',
-    snowLine, band.color,
-    TOP_ELEV, band.color
-  ];
+// Stack only the depth bands actually reached by the forecast total, evenly
+// between the snow line and the summit, as hard-edged steps. A light total
+// (e.g. 5cm, band index 1) only shows a couple of pale blue steps; a big
+// total (e.g. 120cm, band index 7) shows the full climb through blue/purple
+// to red. Previously this always stacked all 10 bands regardless of the
+// real total, so a 2cm and a 200cm forecast rendered identically.
+function buildAccumRamp(snowLine, bandIndex) {
+  const n = bandIndex + 1;
+  const bandWidth = (TOP_ELEV - snowLine) / n;
+  const stops = ['interpolate', ['linear'], ['elevation'], snowLine - 1, 'rgba(255,255,255,0)'];
+  DEPTH_BANDS.slice(0, n).forEach((b, i) => {
+    const start = snowLine + bandWidth * i;
+    const end = snowLine + bandWidth * (i + 1);
+    stops.push(start, b.color);
+    stops.push(end - 1, b.color);
+  });
+  return stops;
 }
 
 function renderAccumulatedView() {
@@ -507,9 +512,10 @@ function renderAccumulatedView() {
   const avgFreezing = window_.reduce((s, r) => s + r.freezingLevel, 0) / window_.length;
   const snowLine = avgFreezing - SNOW_OFFSET;
 
-  const band = DEPTH_BANDS.find(b => totalCm <= b.max) || DEPTH_BANDS[DEPTH_BANDS.length - 1];
+  const bandIndex = DEPTH_BANDS.findIndex(b => totalCm <= b.max);
+  const band = bandIndex === -1 ? DEPTH_BANDS[DEPTH_BANDS.length - 1] : DEPTH_BANDS[bandIndex];
 
-  applyRampWhenReady(buildAccumRamp(snowLine, band));
+  applyRampWhenReady(buildAccumRamp(snowLine, bandIndex === -1 ? DEPTH_BANDS.length - 1 : bandIndex));
 
   currentSnowLine = snowLine;
   currentAccumTotalCm = totalCm;
