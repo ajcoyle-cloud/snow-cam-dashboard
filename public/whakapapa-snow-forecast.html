@@ -97,7 +97,7 @@
   }
   #map-enlarge { left: 20px; }
   #map-close { right: 64px; display: none; }
-  #wind-toggle { right: 108px; }
+  #wind-toggle { right: 108px; display: none; } /* wind feature temporarily hidden on prod */
   #wind-toggle.active { background: #2563eb; }
   #map-enlarge:hover, #map-close:hover, #wind-toggle:hover { background: rgba(255,255,255,0.25); }
   #wind-toggle.active:hover { background: #1d4ed8; }
@@ -347,6 +347,24 @@ function initMap() {
       },
       layers: [
         { id: 'background', type: 'background', paint: { 'background-color': '#2d5a1b' } },
+        {
+          // Visible above the horizon in the pitched 3D view: a gradient
+          // running from light blue at the horizon (sky-radial-progress
+          // near 1, at the gradient radius) through mid blue, up to a
+          // subtle dark navy at the zenith (progress 0, straight overhead).
+          id: 'sky', type: 'sky',
+          paint: {
+            'sky-type': 'gradient',
+            'sky-gradient-center': [0, 0],
+            'sky-gradient-radius': 90,
+            'sky-gradient': [
+              'interpolate', ['linear'], ['sky-radial-progress'],
+              0, '#152544',
+              0.5, '#5b93d6',
+              1, '#d8ecfb'
+            ]
+          }
+        },
         { id: 'satellite', type: 'raster', source: 'satellite', paint: { 'raster-opacity': 1, 'raster-saturation': 0.1, 'raster-contrast': 0.05 } },
         {
           id: 'depth-shade', type: 'hillshade', source: 'terrain',
@@ -958,7 +976,7 @@ function openFromQueryParams() {
 }
 
 loadForecast();
-startWindOverlay();
+// startWindOverlay(); // wind feature temporarily disabled on prod
 </script>
 </body>
 </html>
