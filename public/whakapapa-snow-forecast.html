@@ -18,6 +18,7 @@
   /* ── Fullscreen map ────────────────────────────────────────────────── */
   #map-screen { position: fixed; inset: 0; z-index: 500; }
   #map { width: 100%; height: 100%; }
+  #wind-canvas { position: absolute; inset: 0; z-index: 4; pointer-events: none; }
 
   /* ── Timeline scrubber (play/pause + draggable slider) ─────────────────── */
   #timeline {
@@ -145,6 +146,7 @@
 
 <div id="map-screen">
   <div id="map"></div>
+  <canvas id="wind-canvas"></canvas>
   <button id="map-enlarge" onclick="enterFullscreenView()" title="Fullscreen">⤢</button>
   <button id="map-close" onclick="exitFullscreenView()" title="Close fullscreen">✕</button>
 
@@ -168,6 +170,7 @@
       <div class="si-row"><span class="l">Freezing Level</span><span class="v" id="si-fl">—</span></div>
       <div class="si-row"><span class="l">Snow Line</span><span class="v" id="si-sl">—</span></div>
       <div class="si-row"><span class="l">Snowfall (1h)</span><span class="v" id="si-snow">—</span></div>
+      <div class="si-row"><span class="l">Wind</span><span class="v" id="si-wind">—</span></div>
     </div>
     <div id="info-accum">
       <h3 id="accum-period-label">Next 5 Days</h3>
@@ -230,7 +233,7 @@ let forecastHours = [];
 async function loadForecast() {
   try {
     const base = `https://api.open-meteo.com/v1/forecast?latitude=${LOC.lat}&longitude=${LOC.lon}&temperature_unit=celsius&timezone=${LOC.timezone}&forecast_days=16`;
-    const gfsSummitUrl = `${base}&elevation=${LOC.summitElev}&hourly=temperature_2m,precipitation,snowfall,freezinglevel_height&models=gfs_global`;
+    const gfsSummitUrl = `${base}&wind_speed_unit=kmh&elevation=${LOC.summitElev}&hourly=temperature_2m,precipitation,snowfall,freezinglevel_height,windspeed_700hPa,winddirection_700hPa&models=gfs_global`;
     const ecmwfSummitUrl = `${base}&elevation=${LOC.summitElev}&hourly=temperature_2m,snowfall&models=ecmwf_ifs025`;
     const ecmwfBaseUrl = `${base}&elevation=${LOC.baseElev}&hourly=temperature_2m&models=ecmwf_ifs025`;
 
@@ -271,7 +274,11 @@ async function loadForecast() {
         temp: ecmwfTemp != null ? (gfsTemp + ecmwfTemp) / 2 : gfsTemp,
         precip: gfs.precipitation[i],
         snowfallMm: ecmwfSnowMm != null ? (gfsSnowMm + ecmwfSnowMm) / 2 : gfsSnowMm,
-        freezingLevel: ecmwfFL != null ? (gfsFL + ecmwfFL) / 2 : gfsFL
+        freezingLevel: ecmwfFL != null ? (gfsFL + ecmwfFL) / 2 : gfsFL,
+        // GFS only — used purely to drive the decorative wind streamline
+        // overlay, not averaged with ECMWF like the other fields.
+        windSpeedKmh: gfs.windspeed_700hPa?.[i] ?? null,
+        windDirDeg: gfs.winddirection_700hPa?.[i] ?? null
       };
     }).filter(r => r.freezingLevel != null);
   } catch (err) {
@@ -294,7 +301,9 @@ function buildDemoForecast() {
       temp: -2 + Math.sin(i / 8) * 3,
       precip: snowfallMm > 0 ? snowfallMm / 10 : 0,
       snowfallMm,
-      freezingLevel: 1500 + Math.sin(i / 10) * 300
+      freezingLevel: 1500 + Math.sin(i / 10) * 300,
+      windSpeedKmh: 20 + wave * 35,
+      windDirDeg: (270 + i * 4) % 360
     });
   }
   return rows;
@@ -402,6 +411,109 @@ function initMap() {
   );
 }
 
+// ── Wind streamline overlay ───────────────────────────────────────────────
+// Decorative only: applies the single selected hour's wind speed/direction
+// uniformly across the whole view as animated streamline particles, rather
+// than a true spatially-varying vector field. Particles are drawn in plain
+// screen space and rotated opposite the map's current bearing so the flow
+// direction stays geographically correct as the user rotates the camera.
+const WIND_PARTICLE_COUNT = 90;
+let currentWindSpeedKmh = 0;
+let currentWindDirDeg = 0;
+let windParticles = [];
+let windCanvas = null;
+let windCtx = null;
+let windAnimRunning = false;
+
+function degToCompass(deg) {
+  if (deg == null) return '';
+  const dirs = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
+  return dirs[Math.round(deg / 45) % 8];
+}
+
+function resizeWindCanvas() {
+  if (!windCanvas) return;
+  const rect = windCanvas.parentElement.getBoundingClientRect();
+  windCanvas.width = rect.width;
+  windCanvas.height = rect.height;
+}
+
+function spawnWindParticle(w, h) {
+  return {
+    x: Math.random() * w,
+    y: Math.random() * h,
+    life: Math.random() * 100,
+    maxLife: 60 + Math.random() * 60,
+    px: null,
+    py: null
+  };
+}
+
+function stepWindParticles() {
+  const w = windCanvas.width;
+  const h = windCanvas.height;
+  if (w === 0 || h === 0) return;
+
+  // Wind direction is meteorological "from" — particles travel toward
+  // dir+180. Counter-rotate by the map's current on-screen bearing so the
+  // streamlines track true compass direction as the camera spins.
+  const bearing = map ? map.getBearing() : 0;
+  const travelAngle = ((currentWindDirDeg + 180 - bearing) * Math.PI) / 180;
+  const speedPxPerFrame = 0.18 + Math.min(currentWindSpeedKmh, 120) * 0.022;
+  const vx = Math.sin(travelAngle) * speedPxPerFrame;
+  const vy = -Math.cos(travelAngle) * speedPxPerFrame;
+
+  // Fade the previous frame instead of clearing it outright, so each
+  // particle leaves a short trailing streak behind it.
+  windCtx.globalCompositeOperation = 'destination-out';
+  windCtx.fillStyle = 'rgba(0,0,0,0.06)';
+  windCtx.fillRect(0, 0, w, h);
+  windCtx.globalCompositeOperation = 'source-over';
+
+  windCtx.strokeStyle = 'rgba(255,255,255,0.55)';
+  windCtx.lineWidth = 1.4;
+  windCtx.lineCap = 'round';
+
+  windParticles.forEach((p) => {
+    p.px = p.x;
+    p.py = p.y;
+    p.x += vx;
+    p.y += vy;
+    p.life += 1;
+
+    const offscreen = p.x < -10 || p.x > w + 10 || p.y < -10 || p.y > h + 10;
+    if (offscreen || p.life > p.maxLife) {
+      Object.assign(p, spawnWindParticle(w, h), { life: 0 });
+      return;
+    }
+
+    windCtx.beginPath();
+    windCtx.moveTo(p.px, p.py);
+    windCtx.lineTo(p.x, p.y);
+    windCtx.stroke();
+  });
+}
+
+function windAnimLoop() {
+  if (!windAnimRunning) return;
+  stepWindParticles();
+  requestAnimationFrame(windAnimLoop);
+}
+
+function startWindOverlay() {
+  windCanvas = document.getElementById('wind-canvas');
+  windCtx = windCanvas.getContext('2d');
+  resizeWindCanvas();
+  windParticles = Array.from({ length: WIND_PARTICLE_COUNT }, () =>
+    spawnWindParticle(windCanvas.width, windCanvas.height)
+  );
+  window.addEventListener('resize', resizeWindCanvas);
+  if (!windAnimRunning) {
+    windAnimRunning = true;
+    requestAnimationFrame(windAnimLoop);
+  }
+}
+
 // ── Click-to-probe popup — snow depth + elevation at the clicked point ──────
 let currentSnowLine = null;
 let currentHourCm = 0;
@@ -501,6 +613,11 @@ function openMapView(index) {
   document.getElementById('si-fl').textContent = Math.round(hour.freezingLevel) + ' m';
   document.getElementById('si-sl').textContent = Math.round(hour.freezingLevel - SNOW_OFFSET) + ' m';
   document.getElementById('si-snow').textContent = hour.snowfallMm.toFixed(1) + ' mm';
+  document.getElementById('si-wind').textContent = hour.windSpeedKmh != null
+    ? `${Math.round(hour.windSpeedKmh)} km/h ${degToCompass(hour.windDirDeg)}`
+    : '—';
+  currentWindSpeedKmh = hour.windSpeedKmh ?? 0;
+  currentWindDirDeg = hour.windDirDeg ?? 0;
 
   document.getElementById('tl-prev').disabled = currentIndex <= 0;
   document.getElementById('tl-next').disabled = currentIndex >= forecastHours.length - 1;
@@ -645,6 +762,7 @@ function exitFullscreenView() {
 function updateFullscreenUI() {
   const isFs = !!(document.fullscreenElement || document.webkitFullscreenElement || document.msFullscreenElement);
   document.getElementById('map-screen').classList.toggle('is-fullscreen', isFs);
+  setTimeout(resizeWindCanvas, 50);
 }
 ['fullscreenchange', 'webkitfullscreenchange', 'msfullscreenchange'].forEach((evt) =>
   document.addEventListener(evt, updateFullscreenUI)
@@ -729,6 +847,7 @@ function openFromQueryParams() {
 }
 
 loadForecast();
+startWindOverlay();
 </script>
 </body>
 </html>
