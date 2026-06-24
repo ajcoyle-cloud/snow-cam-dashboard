@@ -413,11 +413,15 @@ function initMap() {
 
 // ── Wind streamline overlay ───────────────────────────────────────────────
 // Decorative only: applies the single selected hour's wind speed/direction
-// uniformly across the whole view as animated streamline particles, rather
-// than a true spatially-varying vector field. Particles are drawn in plain
-// screen space and rotated opposite the map's current bearing so the flow
-// direction stays geographically correct as the user rotates the camera.
-const WIND_PARTICLE_COUNT = 90;
+// uniformly across the whole view (not a true spatially-varying field), but
+// each particle is tracked as a real lng/lat on the ground and projected to
+// screen pixels via map.project() every frame. That hands perspective to
+// MapLibre's actual camera for free — distant particles get small per-frame
+// pixel deltas (slow, short), near ones get large deltas (fast, long) — so
+// the flow reads as wind moving across the terrain, not rain falling through
+// the sky the way a flat screen-space version did.
+const WIND_PARTICLE_COUNT = 260;
+const WIND_SPEED_MULTIPLIER = 12; // visual-only speedup so flow reads at map scale
 let currentWindSpeedKmh = 0;
 let currentWindDirDeg = 0;
 let windParticles = [];
@@ -438,59 +442,80 @@ function resizeWindCanvas() {
   windCanvas.height = rect.height;
 }
 
-function spawnWindParticle(w, h) {
-  return {
-    x: Math.random() * w,
-    y: Math.random() * h,
-    life: Math.random() * 100,
-    maxLife: 60 + Math.random() * 60,
-    px: null,
-    py: null
-  };
+// Move a lng/lat a given distance (metres) along a compass bearing, using a
+// flat-earth approximation — plenty accurate at single-mountain map scale.
+function destinationPoint(lng, lat, bearingDeg, distanceM) {
+  const R = 6371000;
+  const bearingRad = (bearingDeg * Math.PI) / 180;
+  const dLat = ((distanceM * Math.cos(bearingRad)) / R) * (180 / Math.PI);
+  const dLng = ((distanceM * Math.sin(bearingRad)) / (R * Math.cos((lat * Math.PI) / 180))) * (180 / Math.PI);
+  return [lng + dLng, lat + dLat];
+}
+
+function randomGroundPoint() {
+  const b = map.getBounds();
+  // Spawn slightly beyond the visible bounds too, so particles can be seen
+  // drifting in from just off-screen rather than always popping into view.
+  const lngPad = (b.getEast() - b.getWest()) * 0.15;
+  const latPad = (b.getNorth() - b.getSouth()) * 0.15;
+  return [
+    b.getWest() - lngPad + Math.random() * (b.getEast() - b.getWest() + lngPad * 2),
+    b.getSouth() - latPad + Math.random() * (b.getNorth() - b.getSouth() + latPad * 2)
+  ];
+}
+
+function spawnWindParticle() {
+  const [lng, lat] = randomGroundPoint();
+  return { lng, lat, sx: null, sy: null, life: Math.random() * 90, maxLife: 60 + Math.random() * 60 };
 }
 
 function stepWindParticles() {
   const w = windCanvas.width;
   const h = windCanvas.height;
-  if (w === 0 || h === 0) return;
+  if (w === 0 || h === 0 || !map) return;
 
-  // Wind direction is meteorological "from" — particles travel toward
-  // dir+180. Counter-rotate by the map's current on-screen bearing so the
-  // streamlines track true compass direction as the camera spins.
-  const bearing = map ? map.getBearing() : 0;
-  const travelAngle = ((currentWindDirDeg + 180 - bearing) * Math.PI) / 180;
-  const speedPxPerFrame = 0.18 + Math.min(currentWindSpeedKmh, 120) * 0.022;
-  const vx = Math.sin(travelAngle) * speedPxPerFrame;
-  const vy = -Math.cos(travelAngle) * speedPxPerFrame;
+  // Wind direction is meteorological "from" — particles travel toward dir+180.
+  const travelBearing = (currentWindDirDeg + 180) % 360;
+  const speedMps = (Math.min(currentWindSpeedKmh, 150) / 3.6) * WIND_SPEED_MULTIPLIER;
+  const distancePerFrame = speedMps / 60; // approx metres per animation frame
 
-  // Fade the previous frame instead of clearing it outright, so each
-  // particle leaves a short trailing streak behind it.
   windCtx.globalCompositeOperation = 'destination-out';
-  windCtx.fillStyle = 'rgba(0,0,0,0.06)';
+  windCtx.fillStyle = 'rgba(0,0,0,0.1)';
   windCtx.fillRect(0, 0, w, h);
   windCtx.globalCompositeOperation = 'source-over';
-
-  windCtx.strokeStyle = 'rgba(255,255,255,0.55)';
-  windCtx.lineWidth = 1.4;
   windCtx.lineCap = 'round';
 
   windParticles.forEach((p) => {
-    p.px = p.x;
-    p.py = p.y;
-    p.x += vx;
-    p.y += vy;
+    const [nextLng, nextLat] = destinationPoint(p.lng, p.lat, travelBearing, distancePerFrame);
+    p.lng = nextLng;
+    p.lat = nextLat;
     p.life += 1;
 
-    const offscreen = p.x < -10 || p.x > w + 10 || p.y < -10 || p.y > h + 10;
-    if (offscreen || p.life > p.maxLife) {
-      Object.assign(p, spawnWindParticle(w, h), { life: 0 });
+    const projected = map.project([p.lng, p.lat]);
+    const inBounds = isFinite(projected.x) && isFinite(projected.y) &&
+      projected.x > -50 && projected.x < w + 50 && projected.y > -50 && projected.y < h + 50;
+
+    if (!inBounds || p.life > p.maxLife) {
+      Object.assign(p, spawnWindParticle(), { sx: null, sy: null });
       return;
     }
 
-    windCtx.beginPath();
-    windCtx.moveTo(p.px, p.py);
-    windCtx.lineTo(p.x, p.y);
-    windCtx.stroke();
+    if (p.sx != null) {
+      // Per-frame pixel travel distance is the natural perspective cue —
+      // near (fast-moving-on-screen) particles draw a longer, thicker
+      // streak than distant (slow-moving-on-screen) ones, with no manual
+      // depth bookkeeping needed.
+      const pixelDist = Math.hypot(projected.x - p.sx, projected.y - p.sy);
+      const widthScale = Math.min(1, pixelDist / 6);
+      windCtx.strokeStyle = `rgba(255,255,255,${0.4 + widthScale * 0.5})`;
+      windCtx.lineWidth = 1.8 + widthScale * 3.6;
+      windCtx.beginPath();
+      windCtx.moveTo(p.sx, p.sy);
+      windCtx.lineTo(projected.x, projected.y);
+      windCtx.stroke();
+    }
+    p.sx = projected.x;
+    p.sy = projected.y;
   });
 }
 
@@ -504,13 +529,17 @@ function startWindOverlay() {
   windCanvas = document.getElementById('wind-canvas');
   windCtx = windCanvas.getContext('2d');
   resizeWindCanvas();
-  windParticles = Array.from({ length: WIND_PARTICLE_COUNT }, () =>
-    spawnWindParticle(windCanvas.width, windCanvas.height)
-  );
   window.addEventListener('resize', resizeWindCanvas);
   if (!windAnimRunning) {
     windAnimRunning = true;
-    requestAnimationFrame(windAnimLoop);
+    // Particles need real map bounds to spawn into, so wait until the map
+    // (created lazily by openMapView) actually exists.
+    const tryStart = () => {
+      if (!map) { setTimeout(tryStart, 100); return; }
+      windParticles = Array.from({ length: WIND_PARTICLE_COUNT }, () => spawnWindParticle());
+      requestAnimationFrame(windAnimLoop);
+    };
+    tryStart();
   }
 }
 
