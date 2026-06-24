@@ -317,6 +317,7 @@ function initMap() {
     pitch: LOC.pitch,
     bearing: LOC.bearing,
     maxPitch: 85,
+    attributionControl: false,
     style: {
       version: 8,
       sources: {
@@ -353,6 +354,24 @@ function initMap() {
   });
 
   map.addControl(new maplibregl.NavigationControl({ visualizePitch: true, showZoom: true, showCompass: true }), 'top-right');
+  map.addControl(new maplibregl.AttributionControl({ compact: true }), 'bottom-right');
+  // The compact attribution control is a <details> element that MapLibre
+  // auto-opens the moment it first populates with attribution text (sources
+  // load asynchronously, so this can happen well after map creation) — force
+  // it closed that one time so only the small (i) icon shows by default,
+  // without blocking the user from opening it themselves afterwards.
+  const attribEl = document.querySelector('.maplibregl-ctrl-attrib');
+  const attribInner = attribEl?.querySelector('.maplibregl-ctrl-attrib-inner');
+  if (attribEl && attribInner) {
+    const closeOnceTextAppears = () => {
+      if (attribInner.textContent.trim() === '') return;
+      attribEl.removeAttribute('open');
+      attribEl.classList.remove('maplibregl-compact-show');
+      observer.disconnect();
+    };
+    const observer = new MutationObserver(closeOnceTextAppears);
+    observer.observe(attribInner, { childList: true, characterData: true, subtree: true });
+  }
 
   map.on('click', (e) => {
     const rawElev = map.queryTerrainElevation(e.lngLat, { exaggerated: false });
