@@ -274,6 +274,11 @@
   object-fit: contain;
 }
 
+.multi-camera-view .fullscreen-image-wrapper img {
+  max-width: 90%;
+  max-height: 90%;
+}
+
 .nav-btn {
   position: absolute;
   top: 50%;

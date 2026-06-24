@@ -436,7 +436,7 @@ function CameraCard({ camera, allCameras = [] }) {
 
       {fullscreenCam && (
         <div className="fullscreen-modal" onClick={() => setFullscreenCam(null)} onKeyDown={handleKeyDown} tabIndex={0} ref={modalRef}>
-          <div className="fullscreen-content" onClick={(e) => e.stopPropagation()}>
+          <div className={`fullscreen-content ${isMultiCamera ? 'multi-camera-view' : ''}`} onClick={(e) => e.stopPropagation()}>
             <div className="fullscreen-sidebar">
               {allCameras.filter(cam => !brokenSidebar.has(cam.name)).map((cam) => {
                 const thumbUrl = cam.isYouTube
