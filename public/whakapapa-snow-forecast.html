@@ -15,6 +15,31 @@
     color: #fff;
   }
 
+  /* ── Dark, fully-rounded zoom/compass control pill ──────────────────── */
+  .maplibregl-ctrl-top-right .maplibregl-ctrl-group {
+    background: rgba(20,20,20,0.78);
+    backdrop-filter: blur(14px);
+    border: none;
+    border-radius: 9999px;
+    overflow: hidden;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.35);
+  }
+  .maplibregl-ctrl-top-right .maplibregl-ctrl-group button {
+    background-color: transparent;
+    width: 32px; height: 32px;
+  }
+  .maplibregl-ctrl-top-right .maplibregl-ctrl-group button + button {
+    border-top: 1px solid rgba(255,255,255,0.15);
+  }
+  .maplibregl-ctrl-top-right .maplibregl-ctrl-group button:hover {
+    background-color: rgba(255,255,255,0.15);
+  }
+  /* Default control icons are dark SVGs meant for a light pill; invert
+     them to white so they read clearly on the new dark background. */
+  .maplibregl-ctrl-top-right .maplibregl-ctrl-icon {
+    filter: invert(1) brightness(1.6);
+  }
+
   /* ── Fullscreen map ────────────────────────────────────────────────── */
   #map-screen { position: fixed; inset: 0; z-index: 500; }
   #map { width: 100%; height: 100%; }
