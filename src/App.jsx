@@ -1549,7 +1549,7 @@ function SnowfallForecast() {
             return segments.map((p, idx) => (
               <path
                 key={`ms-${idx}`}
-                d={smoothPath(chaikinSmooth(p))}
+                d={smoothPath(chaikinSmooth(p, 8))}
                 style={{ stroke: '#a855f7', strokeWidth: 3.3, fill: 'none', strokeLinecap: 'round', strokeLinejoin: 'round', opacity: 0.8 }}
               />
             ))
