@@ -1073,18 +1073,22 @@ function openFromQueryParams() {
 loadForecast();
 // startWindOverlay(); // wind feature temporarily disabled on prod
 
-// ── Live PredictWind observation station (Whakapapa 2000m) ─────────────────
+// ── Live PredictWind observation stations ──────────────────────────────────
 // PredictWind serves NowCasting stations as packed map-tile JSON (see
-// scripts/predictwind_obs.py for the format). We fetch the station's tile via
-// the /pw-obs proxy, decode the delta-encoded series, drop a colour-coded temp
+// scripts/predictwind_obs.py for the format). We fetch the tile via the /pw-obs
+// proxy, decode each station's delta-encoded series, drop a colour-coded temp
 // pill on the map, and open a modal with full obs + a 12h temp plot on click.
 // Units: temp = raw/10 °C, speed/gust = raw/10 knots (shown as km/h), dir = deg.
-const PW_STATION = {
-  trackId: '363045', name: 'Whakapapa 2000m',
-  lat: -39.25211, lon: 175.56458, tile: [10, 390, 1011]
-};
+// Both stations live in the same z10 tile, so one fetch covers them all.
+const PW_TILE = [10, 390, 1011];
+const PW_STATIONS = [
+  { trackId: '363045', name: 'Whakapapa 2000m' },
+  { trackId: '363044', name: 'Halidays Hut' },
+];
 const KT_TO_KMH = 1.852;
-let pwMarker = null, pwData = null, pwRefreshTimer = null;
+let pwRefreshTimer = null;
+// per-track runtime state: trackId -> { meta, series, updated, marker }
+const pwState = {};
 
 const PW_ANCHOR = /^(\d{9,})([+-]\d+)([+-]\d+)d(-?\d+)s(-?\d+)g(-?\d+)t(-?\d+)$/;
 const PW_CONT   = /^(\d+)(?:d(-?\d+))?(?:s(-?\d+))?(?:g(-?\d+))?(?:t(-?\d+))?$/;
@@ -1122,15 +1126,11 @@ function pwParseMeta(t) {
   };
 }
 
-async function pwFetch() {
-  const [z, x, y] = PW_STATION.tile;
+async function pwFetchTile() {
+  const [z, x, y] = PW_TILE;
   const res = await fetch(`/pw-obs/tile/${z}/${x}/${y}.json?t=${Date.now()}`);
   if (!res.ok) throw new Error('tile ' + res.status);
-  const tile = await res.json();
-  const tr = tile.tracks && tile.tracks[PW_STATION.trackId];
-  if (!tr) throw new Error('track not in tile');
-  const series = pwDecodeSeries(tr.s);
-  return { updated: tile.updated, meta: pwParseMeta(tr.t), series };
+  return res.json();
 }
 
 // Temperature → colour ramp (cold blue → cyan → green → warm red).
@@ -1194,9 +1194,9 @@ function pwTempGraph(series, hours = 12) {
   </svg>`;
 }
 
-function pwOpenModal() {
-  if (!pwData) return;
-  const { meta, series, updated } = pwData;
+function pwOpenModal(data) {
+  if (!data) return;
+  const { meta, series, updated } = data;
   const last = series[series.length - 1];
   const dayCut = last.ts - 24 * 3600;
   const day = series.filter(r => r.ts >= dayCut);
@@ -1239,17 +1239,18 @@ function pwOpenModal() {
   document.getElementById('map-screen').appendChild(back);
 }
 
-function pwRenderPill() {
-  if (!pwData) return;
-  const last = pwData.series[pwData.series.length - 1];
+function pwRenderPill(trackId) {
+  const st = pwState[trackId];
+  if (!st || !st.series.length) return;
+  const last = st.series[st.series.length - 1];
   const ageMin = (Date.now() / 1000 - last.ts) / 60;
-  let el = pwMarker && pwMarker.getElement();
+  let el = st.marker && st.marker.getElement();
   if (!el) {
     el = document.createElement('div');
     el.className = 'station-pill';
-    el.addEventListener('click', (e) => { e.stopPropagation(); pwOpenModal(); });
-    pwMarker = new maplibregl.Marker({ element: el, anchor: 'center' })
-      .setLngLat([pwData.meta.lon, pwData.meta.lat]).addTo(map);
+    el.addEventListener('click', (e) => { e.stopPropagation(); pwOpenModal(pwState[trackId]); });
+    st.marker = new maplibregl.Marker({ element: el, anchor: 'center' })
+      .setLngLat([st.meta.lon, st.meta.lat]).addTo(map);
   }
   el.style.background = pwTempColor(last.tempC);
   el.classList.toggle('stale', ageMin > 90);
@@ -1257,8 +1258,21 @@ function pwRenderPill() {
 }
 
 async function pwRefresh() {
-  try { pwData = await pwFetch(); pwRenderPill(); }
-  catch (e) { console.warn('PredictWind obs fetch failed:', e.message); }
+  try {
+    const tile = await pwFetchTile();
+    for (const s of PW_STATIONS) {
+      const tr = tile.tracks && tile.tracks[s.trackId];
+      if (!tr) { console.warn('PredictWind: track', s.trackId, 'not in tile'); continue; }
+      const prev = pwState[s.trackId] || {};
+      pwState[s.trackId] = {
+        marker: prev.marker || null,
+        meta: pwParseMeta(tr.t),
+        series: pwDecodeSeries(tr.s),
+        updated: tile.updated,
+      };
+      pwRenderPill(s.trackId);
+    }
+  } catch (e) { console.warn('PredictWind obs fetch failed:', e.message); }
 }
 
 function initStationPill() {
