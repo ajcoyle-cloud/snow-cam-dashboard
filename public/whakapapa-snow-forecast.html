@@ -529,6 +529,7 @@ function stepHour(delta) {
 // terrain — the legend highlights which single band the actual forecast
 // total falls into.
 const DEPTH_BANDS = [
+  { max: 1,        label: '0–1 cm',     swatch: '#ffffff', color: 'rgba(255,255,255,0.30)' },
   { max: 2,        label: '1–2 cm',     swatch: '#e8f4ff', color: 'rgba(232,244,255,0.80)' },
   { max: 4,        label: '2–4 cm',     swatch: '#b8dcfc', color: 'rgba(184,220,252,0.84)' },
   { max: 10,       label: '5–10 cm',    swatch: '#7bb8ea', color: 'rgba(123,184,234,0.87)' },
