@@ -248,6 +248,7 @@
 
 .fullscreen-content > div:not(.fullscreen-sidebar) {
   flex: 1;
+  min-height: 0;
   display: flex;
   flex-direction: column;
 }
@@ -262,6 +263,7 @@
 .fullscreen-image-wrapper {
   position: relative;
   flex: 1;
+  min-height: 0;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -274,10 +276,15 @@
   object-fit: contain;
 }
 
-.multi-camera-view .fullscreen-image-wrapper img {
-  width: 100%;
-  height: 100%;
-  object-fit: contain;
+/* Multi-camera sets (e.g. Ruapehu N/S/E): trim surrounding chrome so the
+   image fills more of the modal while still letterboxing — never cropping. */
+.multi-camera-view .fullscreen-image-wrapper {
+  margin: 6px;
+}
+
+.multi-camera-view.fullscreen-content h2 {
+  margin: 0 0 6px 15px;
+  padding-top: 6px;
 }
 
 .nav-btn {
