@@ -88,15 +88,19 @@
   .speed-btn:hover { color: #fff; }
   .speed-btn.active { background: #2563eb; color: #fff; }
 
-  #map-enlarge, #map-close {
+  #map-enlarge, #map-close, #wind-toggle {
     position: absolute; top: 20px; z-index: 20;
     background: rgba(255,255,255,0.12); color: #fff; border: none;
     width: 40px; height: 40px; border-radius: 50%; font-size: 1.1rem; cursor: pointer;
     transition: background 0.15s;
+    display: flex; align-items: center; justify-content: center;
   }
   #map-enlarge { left: 20px; }
   #map-close { right: 64px; display: none; }
-  #map-enlarge:hover, #map-close:hover { background: rgba(255,255,255,0.25); }
+  #wind-toggle { right: 108px; }
+  #wind-toggle.active { background: #2563eb; }
+  #map-enlarge:hover, #map-close:hover, #wind-toggle:hover { background: rgba(255,255,255,0.25); }
+  #wind-toggle.active:hover { background: #1d4ed8; }
   #map-screen.is-fullscreen #map-enlarge { display: none; }
   #map-screen.is-fullscreen #map-close { display: block; }
 
@@ -149,6 +153,9 @@
   <canvas id="wind-canvas"></canvas>
   <button id="map-enlarge" onclick="enterFullscreenView()" title="Fullscreen">⤢</button>
   <button id="map-close" onclick="exitFullscreenView()" title="Close fullscreen">✕</button>
+  <button id="wind-toggle" class="active" onclick="toggleWindOverlay()" title="Toggle wind streamlines">
+    <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12.8 19.6A2 2 0 1 0 14 16H2" /><path d="M17.5 8a2.5 2.5 0 1 1 2 4H2" /><path d="M9.8 4.4A2 2 0 1 1 11 8H2" /></svg>
+  </button>
 
   <div id="top-controls">
     <div class="pill-group" id="mode-switch">
@@ -394,6 +401,25 @@ function initMap() {
     showClickPopup(e.point.x, e.point.y, `${depthCm.toFixed(1)}cm`);
   });
 
+  // A user drag/zoom/rotate/pitch invalidates every particle's last screen
+  // position, so pause and clear the wind overlay for the duration rather
+  // than let it draw bogus streaks connecting stale to fresh projections.
+  // The decorative auto-rotate below also fires movestart/moveend every
+  // single frame via setBearing(), but those calls have no originalEvent
+  // (only real user gestures do) — skip pausing for those so the overlay
+  // keeps flowing smoothly while the camera idles.
+  let windInteractionActive = false;
+  map.on('movestart', (e) => {
+    if (!e.originalEvent) return;
+    windInteractionActive = true;
+    pauseWindOverlay();
+  });
+  map.on('moveend', () => {
+    if (!windInteractionActive) return;
+    windInteractionActive = false;
+    resumeWindOverlay();
+  });
+
   // Very slow auto-rotate on the initial view, purely decorative — stops for
   // good the moment the user actually touches the map (drag, zoom, pinch,
   // scroll), so it never fights with their own camera control.
@@ -436,6 +462,34 @@ let windParticles = [];
 let windCanvas = null;
 let windCtx = null;
 let windAnimRunning = false;
+let windEnabled = true;
+// While the camera is moving/rotating/zooming, each particle's last drawn
+// screen point is stale relative to the new camera transform, so drawing a
+// line from it to the freshly projected point produces a long bogus streak
+// raked across the view. Pause stepping (and clear) for the duration of any
+// camera interaction, then drop stale screen points on resume so the next
+// frame starts a fresh segment instead of connecting across the jump.
+let windPaused = false;
+
+function pauseWindOverlay() {
+  windPaused = true;
+  if (windCtx && windCanvas) windCtx.clearRect(0, 0, windCanvas.width, windCanvas.height);
+}
+
+function resumeWindOverlay() {
+  windPaused = false;
+  windParticles.forEach((p) => { p.sx = null; p.sy = null; });
+}
+
+function toggleWindOverlay() {
+  windEnabled = !windEnabled;
+  document.getElementById('wind-toggle').classList.toggle('active', windEnabled);
+  if (!windEnabled) {
+    if (windCtx && windCanvas) windCtx.clearRect(0, 0, windCanvas.width, windCanvas.height);
+  } else {
+    resumeWindOverlay();
+  }
+}
 
 function degToCompass(deg) {
   if (deg == null) return '';
@@ -480,7 +534,7 @@ function spawnWindParticle() {
 function stepWindParticles() {
   const w = windCanvas.width;
   const h = windCanvas.height;
-  if (w === 0 || h === 0 || !map) return;
+  if (w === 0 || h === 0 || !map || !windEnabled || windPaused) return;
 
   // Wind direction is meteorological "from" — particles travel toward dir+180.
   const travelBearing = (currentWindDirDeg + 180) % 360;
@@ -529,11 +583,16 @@ function stepWindParticles() {
       const fadeOut = Math.min(1, (1 - lifeFrac) * 6);
       const lifeAlpha = Math.min(fadeIn, fadeOut);
       if (!isProjectionArtifact) {
+        // Extend the drawn tip one extra delta past the particle's actual
+        // position to double the visible streak length without changing
+        // its real travel speed.
+        const tipX = projected.x + (projected.x - p.sx);
+        const tipY = projected.y + (projected.y - p.sy);
         windCtx.strokeStyle = `rgba(225,232,240,${(0.25 + widthScale * 0.35) * lifeAlpha})`;
         windCtx.lineWidth = 1.2 + widthScale * 2.4;
         windCtx.beginPath();
         windCtx.moveTo(p.sx, p.sy);
-        windCtx.lineTo(projected.x, projected.y);
+        windCtx.lineTo(tipX, tipY);
         windCtx.stroke();
       }
     }
