@@ -414,14 +414,22 @@ function initMap() {
 // ── Wind streamline overlay ───────────────────────────────────────────────
 // Decorative only: applies the single selected hour's wind speed/direction
 // uniformly across the whole view (not a true spatially-varying field), but
-// each particle is tracked as a real lng/lat on the ground and projected to
-// screen pixels via map.project() every frame. That hands perspective to
-// MapLibre's actual camera for free — distant particles get small per-frame
-// pixel deltas (slow, short), near ones get large deltas (fast, long) — so
-// the flow reads as wind moving across the terrain, not rain falling through
-// the sky the way a flat screen-space version did.
+// each particle is tracked as a real lng/lat and projected to screen pixels
+// every frame via Transform#locationToScreenPoint at a fixed altitude
+// (WIND_PLANE_ELEVATION_M), using a fake "terrain" object since MapLibre's
+// own project() always samples the real terrain DEM under the point. That
+// keeps particles on one flat invisible plane above the mountain instead of
+// draping them over the bumpy ground (which made them look like clumps of
+// snow wobbling down the slope), while still inheriting the camera's real
+// perspective (near = big/fast, far = small/slow).
 const WIND_PARTICLE_COUNT = 260;
-const WIND_SPEED_MULTIPLIER = 12; // visual-only speedup so flow reads at map scale
+const WIND_PLANE_ELEVATION_M = 1600;
+const WIND_SPEED_MULTIPLIER = 10; // visual-only speedup so flow reads at map scale
+const fixedElevationTerrain = { getElevationForLngLat: () => WIND_PLANE_ELEVATION_M };
+
+function projectAtWindPlane(lng, lat) {
+  return map.transform.locationToScreenPoint({ lng, lat }, fixedElevationTerrain);
+}
 let currentWindSpeedKmh = 0;
 let currentWindDirDeg = 0;
 let windParticles = [];
@@ -466,7 +474,7 @@ function randomGroundPoint() {
 
 function spawnWindParticle() {
   const [lng, lat] = randomGroundPoint();
-  return { lng, lat, sx: null, sy: null, life: Math.random() * 90, maxLife: 60 + Math.random() * 60 };
+  return { lng, lat, sx: null, sy: null, life: Math.random() * 40, maxLife: 28 + Math.random() * 24 };
 }
 
 function stepWindParticles() {
@@ -491,7 +499,7 @@ function stepWindParticles() {
     p.lat = nextLat;
     p.life += 1;
 
-    const projected = map.project([p.lng, p.lat]);
+    const projected = projectAtWindPlane(p.lng, p.lat);
     const inBounds = isFinite(projected.x) && isFinite(projected.y) &&
       projected.x > -50 && projected.x < w + 50 && projected.y > -50 && projected.y < h + 50;
 
@@ -506,22 +514,23 @@ function stepWindParticles() {
       // streak than distant (slow-moving-on-screen) ones, with no manual
       // depth bookkeeping needed.
       const pixelDist = Math.hypot(projected.x - p.sx, projected.y - p.sy);
-      // Terrain DEM tiles can pop in after the particle's last projection,
-      // snapping its elevation and producing a huge spurious jump on
-      // screen. Skip drawing (but still update sx/sy) when that happens
-      // so it doesn't render as a giant stray line.
-      const isTerrainPopArtifact = pixelDist > 80;
+      // Points that cross near the camera's clip plane can perspective-
+      // divide into wildly wrong screen coordinates that still happen to
+      // land inside the bounds check, producing a giant spurious line.
+      // Treat any implausibly large per-frame jump as that artifact and
+      // skip drawing it (still update sx/sy so the particle recovers).
+      const isProjectionArtifact = pixelDist > 45;
       const widthScale = Math.min(1, pixelDist / 6);
       // Ease in/out over each particle's lifespan so it gently fades up
       // when spawned and fades back down before respawning, rather than
       // popping abruptly in/out.
       const lifeFrac = Math.min(1, p.life / p.maxLife);
-      const fadeIn = Math.min(1, p.life / 20);
+      const fadeIn = Math.min(1, p.life / 8);
       const fadeOut = Math.min(1, (1 - lifeFrac) * 6);
       const lifeAlpha = Math.min(fadeIn, fadeOut);
-      if (!isTerrainPopArtifact) {
-        windCtx.strokeStyle = `rgba(255,255,255,${(0.4 + widthScale * 0.5) * lifeAlpha})`;
-        windCtx.lineWidth = 1.8 + widthScale * 3.6;
+      if (!isProjectionArtifact) {
+        windCtx.strokeStyle = `rgba(225,232,240,${(0.25 + widthScale * 0.35) * lifeAlpha})`;
+        windCtx.lineWidth = 1.2 + widthScale * 2.4;
         windCtx.beginPath();
         windCtx.moveTo(p.sx, p.sy);
         windCtx.lineTo(projected.x, projected.y);
