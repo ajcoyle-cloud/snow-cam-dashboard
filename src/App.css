@@ -275,8 +275,8 @@
 }
 
 .multi-camera-view .fullscreen-image-wrapper img {
-  max-width: 90%;
-  max-height: 90%;
+  width: 95%;
+  height: auto;
 }
 
 .nav-btn {
