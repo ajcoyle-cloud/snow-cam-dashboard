@@ -545,56 +545,12 @@ function CameraCard({ camera, allCameras = [] }) {
 }
 
 function CameraGrid({ cameras }) {
-  const [expanded, setExpanded] = useState(false)
-  const [collapsedHeight, setCollapsedHeight] = useState(null)
-  const gridRef = useRef(null)
-
-  useEffect(() => {
-    const computeHeight = () => {
-      const grid = gridRef.current
-      if (!grid) return
-      const cards = Array.from(grid.children)
-      if (cards.length === 0) return
-      const gridTop = grid.getBoundingClientRect().top
-      const rowTops = [...new Set(cards.map((c) => Math.round(c.getBoundingClientRect().top)))]
-      if (rowTops.length <= 2) {
-        setCollapsedHeight(null)
-        return
-      }
-      const secondRowTop = rowTops[1]
-      const secondRowCards = cards.filter((c) => Math.round(c.getBoundingClientRect().top) === secondRowTop)
-      const bottom = Math.max(...secondRowCards.map((c) => c.getBoundingClientRect().bottom))
-      setCollapsedHeight(bottom - gridTop)
-    }
-    computeHeight()
-    window.addEventListener('resize', computeHeight)
-    return () => window.removeEventListener('resize', computeHeight)
-  }, [cameras])
-
-  const showMoreButton = !expanded && collapsedHeight != null
-
   return (
-    <>
-      <div
-        className="camera-grid"
-        ref={gridRef}
-        style={showMoreButton ? { maxHeight: collapsedHeight, overflow: 'hidden' } : undefined}
-      >
-        {cameras.map((camera) => (
-          <CameraCard key={camera.name} camera={camera} allCameras={[...NORTH_ISLAND, ...SOUTH_ISLAND]} />
-        ))}
-      </div>
-      {showMoreButton && (
-        <div style={{ display: 'flex', justifyContent: 'center', padding: '16px', background: '#000' }}>
-          <button
-            onClick={() => setExpanded(true)}
-            style={{ padding: '10px 28px', background: '#222', color: '#fff', border: 'none', borderRadius: '20px', fontSize: '0.9em', fontWeight: 500, cursor: 'pointer' }}
-          >
-            More
-          </button>
-        </div>
-      )}
-    </>
+    <div className="camera-grid">
+      {cameras.map((camera) => (
+        <CameraCard key={camera.name} camera={camera} allCameras={[...NORTH_ISLAND, ...SOUTH_ISLAND]} />
+      ))}
+    </div>
   )
 }
 
