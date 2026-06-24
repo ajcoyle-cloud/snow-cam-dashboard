@@ -1074,6 +1074,22 @@ function SnowfallForecast() {
   const lineStyle = (color, width = 2) => ({ stroke: color, strokeWidth: width, fill: 'none', strokeLinecap: 'round', strokeLinejoin: 'round' })
   const textStyle = { fill: '#888', fontSize: 11, textAnchor: 'middle' }
 
+  // Smooth a polyline into a curved path by quadratic-curving through the
+  // midpoint of each consecutive pair of points, rounding off peaks/troughs
+  // instead of leaving sharp corners at every data point.
+  const smoothPath = (points) => {
+    if (points.length < 3) return `M ${points.map((p) => p.join(',')).join(' L ')}`
+    let d = `M ${points[0][0]},${points[0][1]}`
+    for (let i = 1; i < points.length - 1; i++) {
+      const [x0, y0] = points[i]
+      const [x1, y1] = points[i + 1]
+      d += ` Q ${x0},${y0} ${(x0 + x1) / 2},${(y0 + y1) / 2}`
+    }
+    const last = points[points.length - 1]
+    d += ` L ${last[0]},${last[1]}`
+    return d
+  }
+
   // Snowfall chart dimensions for hourly data
   const snowChartHeight = 430
   const snowChartWidth = viewMode === 'fit'
@@ -1414,7 +1430,7 @@ function SnowfallForecast() {
 
               const y = freezingLevelScale(d.freezingLevelGFS)
               const clampedY = Math.min(y, snowPadding.top + snowPlotHeight)
-              const point = `${snowXScale(i)},${clampedY}`
+              const point = [snowXScale(i), clampedY]
               const isAbove = d.freezingLevelGFS >= 2300
 
               if (segmentAbove2300 !== null && segmentAbove2300 !== isAbove) {
@@ -1436,10 +1452,10 @@ function SnowfallForecast() {
             }
 
             return gfsSegments.map((seg, idx) => (
-              <polyline
+              <path
                 key={`gfs-${idx}`}
-                points={seg.points.join(' ')}
-                style={{ stroke: '#3b82f6', strokeWidth: 4, fill: 'none', strokeLinecap: 'round', strokeLinejoin: 'round', opacity: 0.8 }}
+                d={smoothPath(seg.points)}
+                style={{ stroke: '#3b82f6', strokeWidth: 2.7, fill: 'none', strokeLinecap: 'round', strokeLinejoin: 'round', opacity: 0.8 }}
               />
             ))
           })()}
@@ -1465,7 +1481,7 @@ function SnowfallForecast() {
 
               const y = freezingLevelScale(val)
               const clampedY = Math.min(y, snowPadding.top + snowPlotHeight)
-              const point = `${snowXScale(i)},${clampedY}`
+              const point = [snowXScale(i), clampedY]
               const isAbove = val >= 2300
 
               if (segmentAbove2300 !== null && segmentAbove2300 !== isAbove) {
@@ -1487,10 +1503,10 @@ function SnowfallForecast() {
             }
 
             return iconSegments.map((seg, idx) => (
-              <polyline
+              <path
                 key={`icon-${idx}`}
-                points={seg.points.join(' ')}
-                style={{ stroke: '#10b981', strokeWidth: 4, fill: 'none', strokeLinecap: 'round', strokeLinejoin: 'round', opacity: 0.8 }}
+                d={smoothPath(seg.points)}
+                style={{ stroke: '#10b981', strokeWidth: 2.7, fill: 'none', strokeLinecap: 'round', strokeLinejoin: 'round', opacity: 0.8 }}
               />
             ))
           })()}
@@ -1513,7 +1529,7 @@ function SnowfallForecast() {
               <polyline
                 key={`ms-${idx}`}
                 points={p.join(' ')}
-                style={{ stroke: '#a855f7', strokeWidth: 5, fill: 'none', strokeLinecap: 'round', strokeLinejoin: 'round', opacity: 0.8 }}
+                style={{ stroke: '#a855f7', strokeWidth: 3.3, fill: 'none', strokeLinecap: 'round', strokeLinejoin: 'round', opacity: 0.8 }}
               />
             ))
           })()}
