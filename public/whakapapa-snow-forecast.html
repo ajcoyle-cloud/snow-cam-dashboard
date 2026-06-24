@@ -382,7 +382,7 @@ function initMap() {
     // popup never shows an impossible elevation.
     const elev = Math.min(rawElev, TOP_ELEV);
     const depthCm = getDepthAtElevation(elev);
-    showClickPopup(e.point.x, e.point.y, `${depthCm.toFixed(1)}cm · ${Math.round(elev)}m`);
+    showClickPopup(e.point.x, e.point.y, `${depthCm.toFixed(1)}cm`);
   });
 
   // Very slow auto-rotate on the initial view, purely decorative — stops for
