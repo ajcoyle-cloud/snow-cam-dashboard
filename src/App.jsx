@@ -1439,7 +1439,7 @@ function SnowfallForecast() {
               <polyline
                 key={`gfs-${idx}`}
                 points={seg.points.join(' ')}
-                style={{ stroke: '#3b82f6', strokeWidth: 2, fill: 'none', strokeLinecap: 'round', strokeLinejoin: 'round', opacity: 0.75, strokeDasharray: seg.above ? '' : '6 3' }}
+                style={{ stroke: '#3b82f6', strokeWidth: 4, fill: 'none', strokeLinecap: 'round', strokeLinejoin: 'round', opacity: 0.8 }}
               />
             ))
           })()}
@@ -1490,7 +1490,7 @@ function SnowfallForecast() {
               <polyline
                 key={`icon-${idx}`}
                 points={seg.points.join(' ')}
-                style={{ stroke: '#10b981', strokeWidth: 2, fill: 'none', strokeLinecap: 'round', strokeLinejoin: 'round', opacity: 0.75, strokeDasharray: seg.above ? '' : '4 4' }}
+                style={{ stroke: '#10b981', strokeWidth: 4, fill: 'none', strokeLinecap: 'round', strokeLinejoin: 'round', opacity: 0.8 }}
               />
             ))
           })()}
@@ -1513,7 +1513,7 @@ function SnowfallForecast() {
               <polyline
                 key={`ms-${idx}`}
                 points={p.join(' ')}
-                style={{ stroke: '#a855f7', strokeWidth: 2.5, fill: 'none', strokeLinecap: 'round', strokeLinejoin: 'round', opacity: 0.95 }}
+                style={{ stroke: '#a855f7', strokeWidth: 5, fill: 'none', strokeLinecap: 'round', strokeLinejoin: 'round', opacity: 0.8 }}
               />
             ))
           })()}
