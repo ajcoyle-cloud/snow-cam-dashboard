@@ -529,11 +529,13 @@ function stepHour(delta) {
 // terrain — the legend highlights which single band the actual forecast
 // total falls into.
 const DEPTH_BANDS = [
-  { max: 10,       label: '0–10 cm',    swatch: '#dceefc', color: 'rgba(220,238,252,0.65)' },
-  { max: 25,       label: '10–25 cm',   swatch: '#7bb8ea', color: 'rgba(123,184,234,0.74)' },
-  { max: 50,       label: '25–50 cm',   swatch: '#3f6fe0', color: 'rgba(63,111,224,0.81)' },
-  { max: 100,      label: '50–100 cm',  swatch: '#9530d8', color: 'rgba(149,48,216,0.87)' },
-  { max: Infinity, label: '100 cm+',    swatch: '#c41e3a', color: 'rgba(196,30,58,0.92)' }
+  { max: 2,        label: '1–2 cm',     swatch: '#e8f4ff', color: 'rgba(232,244,255,0.55)' },
+  { max: 4,        label: '2–4 cm',     swatch: '#b8dcfc', color: 'rgba(184,220,252,0.62)' },
+  { max: 10,       label: '5–10 cm',    swatch: '#7bb8ea', color: 'rgba(123,184,234,0.68)' },
+  { max: 15,       label: '10–15 cm',   swatch: '#4f8fe0', color: 'rgba(79,143,224,0.74)' },
+  { max: 25,       label: '15–25 cm',   swatch: '#6a4fd8', color: 'rgba(106,79,216,0.80)' },
+  { max: 50,       label: '25–50 cm',   swatch: '#9530d8', color: 'rgba(149,48,216,0.86)' },
+  { max: Infinity, label: '50 cm+',     swatch: '#c41e3a', color: 'rgba(196,30,58,0.92)' }
 ];
 
 function renderDepthLegend(activeBand) {
