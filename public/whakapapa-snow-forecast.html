@@ -347,24 +347,6 @@ function initMap() {
       },
       layers: [
         { id: 'background', type: 'background', paint: { 'background-color': '#2d5a1b' } },
-        {
-          // Visible above the horizon in the pitched 3D view: a gradient
-          // running from light blue at the horizon (sky-radial-progress
-          // near 1, at the gradient radius) through mid blue, up to a
-          // subtle dark navy at the zenith (progress 0, straight overhead).
-          id: 'sky', type: 'sky',
-          paint: {
-            'sky-type': 'gradient',
-            'sky-gradient-center': [0, 0],
-            'sky-gradient-radius': 90,
-            'sky-gradient': [
-              'interpolate', ['linear'], ['sky-radial-progress'],
-              0, '#152544',
-              0.5, '#5b93d6',
-              1, '#d8ecfb'
-            ]
-          }
-        },
         { id: 'satellite', type: 'raster', source: 'satellite', paint: { 'raster-opacity': 1, 'raster-saturation': 0.1, 'raster-contrast': 0.05 } },
         {
           id: 'depth-shade', type: 'hillshade', source: 'terrain',
