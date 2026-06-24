@@ -277,9 +277,17 @@
 }
 
 /* Multi-camera sets (e.g. Ruapehu N/S/E): trim surrounding chrome so the
-   image fills more of the modal while still letterboxing — never cropping. */
+   image fills more of the modal while still letterboxing — never cropping.
+   width/height:100% + object-fit:contain scales the (low-res) frame UP to
+   fill the area; min-height:0 on the flex parents keeps it from overflowing. */
 .multi-camera-view .fullscreen-image-wrapper {
   margin: 6px;
+}
+
+.multi-camera-view .fullscreen-image-wrapper img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
 }
 
 .multi-camera-view.fullscreen-content h2 {
