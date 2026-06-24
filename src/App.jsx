@@ -652,6 +652,7 @@ function SnowfallForecast() {
   const [mousePos, setMousePos] = useState({ x: 0, y: 0 })
   const [hoverLineX, setHoverLineX] = useState(null)
   const [containerWidth, setContainerWidth] = useState(() => window.innerWidth - 40)
+  const [windowHeight, setWindowHeight] = useState(() => window.innerHeight)
   const chartRef = useRef(null)
   const tableRef = useRef(null)
   const svgRef = useRef(null)
@@ -966,10 +967,28 @@ function SnowfallForecast() {
   }, [forecastData])
 
   useEffect(() => {
-    const handleResize = () => setContainerWidth(window.innerWidth - 40)
-    window.addEventListener('resize', handleResize)
-    return () => window.removeEventListener('resize', handleResize)
-  }, [])
+    // Measure the actual rendered container (accounts for the sidebar's
+    // width, unlike window.innerWidth) so "Fit to Screen" really fits the
+    // available width instead of overflowing into a horizontal scrollbar.
+    const el = containerRef.current
+    const updateWidth = () => setContainerWidth((el ? el.clientWidth : window.innerWidth) - 40)
+    const updateHeight = () => setWindowHeight(window.innerHeight)
+    updateWidth()
+    updateHeight()
+    window.addEventListener('resize', updateHeight)
+    let observer
+    if (el) {
+      observer = new ResizeObserver(updateWidth)
+      observer.observe(el)
+    } else {
+      window.addEventListener('resize', updateWidth)
+    }
+    return () => {
+      window.removeEventListener('resize', updateHeight)
+      window.removeEventListener('resize', updateWidth)
+      observer?.disconnect()
+    }
+  }, [forecastData])
 
   if (!forecastData || !Array.isArray(forecastData) || forecastData.length === 0) {
     return (
@@ -1112,9 +1131,9 @@ function SnowfallForecast() {
   }
 
   // Snowfall chart dimensions for hourly data
-  const snowChartHeight = 430
+  const snowChartHeight = viewMode === 'fit' ? Math.max(220, Math.min(430, windowHeight * 0.42)) : 430
   const snowChartWidth = viewMode === 'fit'
-    ? Math.max(containerWidth, 400)
+    ? containerWidth
     : Math.max(1200, displayData.length * 40)
   const snowPadding = { top: 60, right: 40, bottom: 38, left: 95 }
   const snowPlotWidth = snowChartWidth - snowPadding.left - snowPadding.right
@@ -1261,8 +1280,8 @@ function SnowfallForecast() {
           </button>
         </div>
 
-        {/* Freezing level line toggles */}
-        <div className="elevation-toggle" style={{ gap: 0 }}>
+        {/* Cloud cover toggle */}
+        <div className="elevation-toggle">
           <button
             className={`toggle-btn ${showCloud ? 'active' : ''}`}
             onClick={() => setShowCloud(s => !s)}
@@ -1272,6 +1291,10 @@ function SnowfallForecast() {
             <span style={{ display: 'inline-block', width: 10, height: 10, background: '#555', borderRadius: 2, marginRight: 5, verticalAlign: 'middle' }} />
             Cloud
           </button>
+        </div>
+
+        {/* Freezing level line (model visibility) toggles */}
+        <div className="elevation-toggle" style={{ gap: 0 }}>
           <button
             className={`toggle-btn ${showFreezing.gfs ? 'active' : ''}`}
             onClick={() => setShowFreezing(s => ({ ...s, gfs: !s.gfs }))}
@@ -1476,7 +1499,7 @@ function SnowfallForecast() {
               <path
                 key={`gfs-${idx}`}
                 d={smoothPath(seg.points)}
-                style={{ stroke: '#3b82f6', strokeWidth: 2.7, fill: 'none', strokeLinecap: 'round', strokeLinejoin: 'round', opacity: 0.8 }}
+                style={{ stroke: '#3b82f6', strokeWidth: 1.8, fill: 'none', strokeLinecap: 'round', strokeLinejoin: 'round', opacity: 0.8 }}
               />
             ))
           })()}
@@ -1527,7 +1550,7 @@ function SnowfallForecast() {
               <path
                 key={`icon-${idx}`}
                 d={smoothPath(seg.points)}
-                style={{ stroke: '#10b981', strokeWidth: 2.7, fill: 'none', strokeLinecap: 'round', strokeLinejoin: 'round', opacity: 0.8 }}
+                style={{ stroke: '#10b981', strokeWidth: 1.8, fill: 'none', strokeLinecap: 'round', strokeLinejoin: 'round', opacity: 0.8 }}
               />
             ))
           })()}
@@ -1550,7 +1573,7 @@ function SnowfallForecast() {
               <path
                 key={`ms-${idx}`}
                 d={smoothPath(chaikinSmooth(p, 8))}
-                style={{ stroke: '#a855f7', strokeWidth: 3.3, fill: 'none', strokeLinecap: 'round', strokeLinejoin: 'round', opacity: 0.8 }}
+                style={{ stroke: '#a855f7', strokeWidth: 2.2, fill: 'none', strokeLinecap: 'round', strokeLinejoin: 'round', opacity: 0.8 }}
               />
             ))
           })()}
