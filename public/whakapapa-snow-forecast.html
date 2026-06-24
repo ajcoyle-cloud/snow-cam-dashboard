@@ -369,6 +369,25 @@ function initMap() {
     }
   });
 
+  // Clear "bluebird" sky, only visible above the horizon when the camera
+  // pitches up further than the default view. Set via Map#setSky once the
+  // style has actually finished loading — calling it immediately after
+  // the constructor (or putting "sky" directly in the style object) is
+  // too early and the call is silently dropped. Not a layers[] entry
+  // either: this MapLibre version's style spec layers[] array doesn't
+  // accept a "sky" type at all, and adding one there fails validation
+  // for the whole style. Unlike Mapbox's gradient-based sky, MapLibre's
+  // model is just a sky-color (zenith) blending into a horizon-color —
+  // bright blue overhead fading to a pale, almost-white blue at the
+  // horizon.
+  map.on('load', () => {
+    map.setSky({
+      'sky-color': '#3a82d6',
+      'horizon-color': '#cfe9fb',
+      'sky-horizon-blend': 0.8
+    });
+  });
+
   map.addControl(new maplibregl.NavigationControl({ visualizePitch: true, showZoom: true, showCompass: true }), 'top-right');
   map.addControl(new maplibregl.AttributionControl({ compact: true }), 'bottom-right');
   // The compact attribution control is a <details> element that MapLibre
