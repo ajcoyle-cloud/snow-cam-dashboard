@@ -1090,6 +1090,27 @@ function SnowfallForecast() {
     return d
   }
 
+  // Chaikin corner-cutting: replaces each segment's sharp corner with two
+  // points pulled in toward the segment, shrinking the corner a bit more
+  // each pass. Used on the MetService step line, whose right-angle steps
+  // need heavier rounding than a single quadratic smoothing pass gives.
+  const chaikinSmooth = (points, iterations = 3) => {
+    let pts = points
+    for (let iter = 0; iter < iterations; iter++) {
+      if (pts.length < 3) break
+      const next = [pts[0]]
+      for (let i = 0; i < pts.length - 1; i++) {
+        const [x0, y0] = pts[i]
+        const [x1, y1] = pts[i + 1]
+        next.push([x0 + (x1 - x0) * 0.25, y0 + (y1 - y0) * 0.25])
+        next.push([x0 + (x1 - x0) * 0.75, y0 + (y1 - y0) * 0.75])
+      }
+      next.push(pts[pts.length - 1])
+      pts = next
+    }
+    return pts
+  }
+
   // Snowfall chart dimensions for hourly data
   const snowChartHeight = 430
   const snowChartWidth = viewMode === 'fit'
@@ -1522,13 +1543,13 @@ function SnowfallForecast() {
                 return
               }
               const y = Math.min(freezingLevelScale(val), snowPadding.top + snowPlotHeight)
-              pts.push(`${snowXScale(i)},${y}`)
+              pts.push([snowXScale(i), y])
             })
             if (pts.length > 0) segments.push(pts)
             return segments.map((p, idx) => (
-              <polyline
+              <path
                 key={`ms-${idx}`}
-                points={p.join(' ')}
+                d={smoothPath(chaikinSmooth(p))}
                 style={{ stroke: '#a855f7', strokeWidth: 3.3, fill: 'none', strokeLinecap: 'round', strokeLinejoin: 'round', opacity: 0.8 }}
               />
             ))
