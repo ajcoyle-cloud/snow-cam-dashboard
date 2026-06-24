@@ -113,7 +113,7 @@
   .speed-btn:hover { color: #fff; }
   .speed-btn.active { background: #2563eb; color: #fff; }
 
-  #map-enlarge, #map-close, #wind-toggle {
+  #map-enlarge, #map-close, #wind-toggle, #obs-toggle {
     position: absolute; top: 20px; z-index: 20;
     background: rgba(255,255,255,0.12); color: #fff; border: none;
     width: 40px; height: 40px; border-radius: 50%; font-size: 1.1rem; cursor: pointer;
@@ -121,6 +121,10 @@
     display: flex; align-items: center; justify-content: center;
   }
   #map-enlarge { left: 20px; }
+  #obs-toggle { left: 64px; }
+  #obs-toggle.active { background: #2563eb; }
+  #obs-toggle:hover { background: rgba(255,255,255,0.25); }
+  #obs-toggle.active:hover { background: #1d4ed8; }
   #map-close { right: 64px; display: none; }
   #wind-toggle { right: 108px; display: none; } /* wind feature temporarily hidden on prod */
   #wind-toggle.active { background: #2563eb; }
@@ -198,6 +202,21 @@
     border: 1px solid rgba(255,255,255,0.12); border-radius: 16px;
     padding: 20px 22px; box-shadow: 0 12px 40px rgba(0,0,0,0.6);
   }
+  .obs-eyebrow {
+    display: flex; align-items: center; gap: 6px; margin-bottom: 7px;
+    font-size: 0.6rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.11em;
+    color: #34d399;
+  }
+  .obs-eyebrow .live-dot {
+    width: 6px; height: 6px; border-radius: 50%; background: #34d399;
+    animation: pw-pulse 1.8s ease-out infinite;
+  }
+  .obs-eyebrow .ago { color: rgba(255,255,255,0.4); font-weight: 600; letter-spacing: 0.04em; }
+  @keyframes pw-pulse {
+    0% { box-shadow: 0 0 0 0 rgba(52,211,153,0.55); }
+    70% { box-shadow: 0 0 0 6px rgba(52,211,153,0); }
+    100% { box-shadow: 0 0 0 0 rgba(52,211,153,0); }
+  }
   .obs-modal h2 { font-size: 1.05rem; font-weight: 800; margin: 0; }
   .obs-modal .sub { font-size: 0.72rem; color: rgba(255,255,255,0.5); margin-top: 3px; }
   .obs-close {
@@ -225,6 +244,9 @@
   <div id="map"></div>
   <canvas id="wind-canvas"></canvas>
   <button id="map-enlarge" onclick="enterFullscreenView()" title="Fullscreen">⤢</button>
+  <button id="obs-toggle" class="active" onclick="toggleObsLayer()" title="Toggle live observations">
+    <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 4v10.54a4 4 0 1 1-4 0V4a2 2 0 0 1 4 0Z"/></svg>
+  </button>
   <button id="map-close" onclick="exitFullscreenView()" title="Close fullscreen">✕</button>
   <button id="wind-toggle" class="active" onclick="toggleWindOverlay()" title="Toggle wind streamlines">
     <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12.8 19.6A2 2 0 1 0 14 16H2" /><path d="M17.5 8a2.5 2.5 0 1 1 2 4H2" /><path d="M9.8 4.4A2 2 0 1 1 11 8H2" /></svg>
@@ -1087,8 +1109,21 @@ const PW_STATIONS = [
 ];
 const KT_TO_KMH = 1.852;
 let pwRefreshTimer = null;
+let pwVisible = true; // observation pills shown by default
 // per-track runtime state: trackId -> { meta, series, updated, marker }
 const pwState = {};
+
+// Relative "last updated" label, e.g. "2 mins ago".
+function pwAgo(unixSec) {
+  const s = Math.max(0, Math.floor(Date.now() / 1000 - unixSec));
+  if (s < 45) return 'just now';
+  const m = Math.round(s / 60);
+  if (m < 60) return m + (m === 1 ? ' min ago' : ' mins ago');
+  const h = Math.round(m / 60);
+  if (h < 24) return h + (h === 1 ? ' hour ago' : ' hours ago');
+  const d = Math.round(h / 24);
+  return d + (d === 1 ? ' day ago' : ' days ago');
+}
 
 const PW_ANCHOR = /^(\d{9,})([+-]\d+)([+-]\d+)d(-?\d+)s(-?\d+)g(-?\d+)t(-?\d+)$/;
 const PW_CONT   = /^(\d+)(?:d(-?\d+))?(?:s(-?\d+))?(?:g(-?\d+))?(?:t(-?\d+))?$/;
@@ -1202,13 +1237,14 @@ function pwOpenModal(data) {
   const day = series.filter(r => r.ts >= dayCut);
   const maxGust = day.reduce((a, b) => b.gustKt > a.gustKt ? b : a, day[0]);
   const tLo = Math.min(...day.map(r => r.tempC)), tHi = Math.max(...day.map(r => r.tempC));
-  const updTxt = new Date(updated * 1000).toLocaleString('en-NZ', { weekday: 'short', hour: '2-digit', minute: '2-digit' });
+  const agoTxt = pwAgo(last.ts);
 
   const back = document.createElement('div');
   back.className = 'obs-modal-backdrop';
   back.innerHTML = `
     <div class="obs-modal" style="position:relative">
       <button class="obs-close" title="Close">✕</button>
+      <div class="obs-eyebrow"><span class="live-dot"></span>Live Weather<span class="ago">· ${agoTxt}</span></div>
       <h2>${meta.name}</h2>
       <div class="sub">${meta.elevM ? meta.elevM + ' m · ' : ''}${meta.lat.toFixed(4)}, ${meta.lon.toFixed(4)}${meta.provider ? ' · ' + meta.provider : ''}</div>
       <div class="obs-now">
@@ -1225,7 +1261,7 @@ function pwOpenModal(data) {
         <div class="obs-cell"><span class="k">24h Max Gust</span><span class="vv">${(maxGust.gustKt * KT_TO_KMH).toFixed(1)} km/h</span></div>
         <div class="obs-cell"><span class="k">24h Temp Range</span><span class="vv">${tLo.toFixed(1)} – ${tHi.toFixed(1)}°C</span></div>
         <div class="obs-cell"><span class="k">Direction</span><span class="vv">${pwCompass(last.dir)} · ${last.dir}°</span></div>
-        <div class="obs-cell"><span class="k">Updated</span><span class="vv">${updTxt}</span></div>
+        <div class="obs-cell"><span class="k">Last Updated</span><span class="vv">${agoTxt}</span></div>
       </div>
       <div class="obs-graph-title">Temperature · last 12 hours</div>
       ${pwTempGraph(series, 12)}
@@ -1254,7 +1290,19 @@ function pwRenderPill(trackId) {
   }
   el.style.background = pwTempColor(last.tempC);
   el.classList.toggle('stale', ageMin > 90);
+  el.style.display = pwVisible ? '' : 'none';
   el.innerHTML = `<span class="dot"></span>${last.tempC.toFixed(1)}°C`;
+}
+
+// Single icon-tap toggle for all live observation pills (on by default).
+function toggleObsLayer() {
+  pwVisible = !pwVisible;
+  const btn = document.getElementById('obs-toggle');
+  if (btn) btn.classList.toggle('active', pwVisible);
+  for (const id in pwState) {
+    const el = pwState[id].marker && pwState[id].marker.getElement();
+    if (el) el.style.display = pwVisible ? '' : 'none';
+  }
 }
 
 async function pwRefresh() {
