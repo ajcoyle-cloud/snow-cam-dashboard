@@ -7,6 +7,10 @@
     {
       "source": "/cam-archive/:path*",
       "destination": "https://webcams.whakapapa.com/:path*"
+    },
+    {
+      "source": "/pw-obs/:path*",
+      "destination": "https://forecast.predictwind.com/observations/:path*"
     }
   ]
 }

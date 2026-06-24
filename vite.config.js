@@ -23,6 +23,14 @@ export default defineConfig({
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/cam-archive/, ''),
       },
+      // PredictWind NowCasting observation tiles (packed station tracks) have
+      // no CORS headers, so proxy them too:
+      // /pw-obs/<path>  ->  https://forecast.predictwind.com/observations/<path>
+      '/pw-obs': {
+        target: 'https://forecast.predictwind.com',
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/pw-obs/, '/observations'),
+      },
     },
   }
 })
