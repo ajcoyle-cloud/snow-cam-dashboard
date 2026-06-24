@@ -1075,7 +1075,7 @@ function SnowfallForecast() {
   const textStyle = { fill: '#888', fontSize: 11, textAnchor: 'middle' }
 
   // Snowfall chart dimensions for hourly data
-  const snowChartHeight = 315
+  const snowChartHeight = 430
   const snowChartWidth = viewMode === 'fit'
     ? Math.max(containerWidth, 400)
     : Math.max(1200, displayData.length * 40)
