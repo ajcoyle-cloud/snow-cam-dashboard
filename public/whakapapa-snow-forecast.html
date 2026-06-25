@@ -586,6 +586,10 @@ function initMap() {
   }
 
   map.on('click', (e) => {
+    // The click-to-probe popup reports snow depth (cm) for the snowfall/
+    // accumulated views; it has no meaning on the Live temperature map, so
+    // skip it there.
+    if (viewMode === 'live') return;
     const rawElev = map.queryTerrainElevation(e.lngLat, { exaggerated: false });
     if (rawElev == null || isNaN(rawElev)) return;
     // The DEM tileset occasionally returns a spurious spike well above the
@@ -1878,8 +1882,9 @@ function pwRenderPseudoPills() {
     ];
   } else if (resortKey === 'ruapehu') {
     pseudos = [
-      { elev: 2797, lat: -39.236227, lon: 175.556884, label: 'Summit' },
-      { elev: 1600, lat: -39.281215, lon: 175.568672, label: 'Base' },
+      { elev: 1750, lat: -39.243813, lon: 175.561419, label: 'Mid' },
+      { elev: 1630, lat: -39.236672, lon: 175.556259, label: 'Base' },
+      { elev: 1120, lat: -39.199659, lon: 175.538945, label: 'Chateau' },
     ];
   } else if (resortKey === 'loveland') {
     pseudos = [
