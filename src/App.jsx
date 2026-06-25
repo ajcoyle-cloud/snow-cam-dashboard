@@ -564,9 +564,9 @@ function CameraGrid({ cameras }) {
 }
 
 const RESORTS = {
-  ruapehu: { name: 'Mt Ruapehu', lat: -39.28, lon: 175.57, summitElev: 2300, baseElev: 1630, timezone: 'Pacific/Auckland', metservicePath: 'mountains-and-parks/national-parks/tongariro' },
-  cardrona: { name: 'Cardrona Alpine Resort', lat: -44.76, lon: 169.0, summitElev: 1860, baseElev: 1640, timezone: 'Pacific/Auckland', metservicePath: 'mountains-and-parks/ski-fields/cardrona' },
-  loveland: { name: 'Loveland Ski Area', lat: 39.65, lon: -105.49, summitElev: 3500, baseElev: 3100, timezone: 'America/Denver' },
+  ruapehu: { name: 'Whakapapa', lat: -39.28, lon: 175.57, summitElev: 2300, baseElev: 1630, timezone: 'Pacific/Auckland', metservicePath: 'mountains-and-parks/national-parks/tongariro' },
+  cardrona: { name: 'Cardrona', lat: -44.76, lon: 169.0, summitElev: 1860, baseElev: 1640, timezone: 'Pacific/Auckland', metservicePath: 'mountains-and-parks/ski-fields/cardrona' },
+  loveland: { name: 'Loveland', lat: 39.65, lon: -105.49, summitElev: 3500, baseElev: 3100, timezone: 'America/Denver' },
 }
 
 // --- MetService freezing-level helpers ---------------------------------------
@@ -638,8 +638,7 @@ function extractMetserviceDays(json) {
     .filter(Boolean)
 }
 
-function SnowfallForecast() {
-  const [resort, setResort] = useState('ruapehu')
+function SnowfallForecast({ resort, setResort }) {
   const [forecastData, setForecastData] = useState(null)
   const [ecmwfForecastData, setEcmwfForecastData] = useState(null)
   const [meteoBlueData, setMeteoBlueData] = useState(null)
@@ -648,7 +647,6 @@ function SnowfallForecast() {
   const [cloudData, setCloudData] = useState(null)
   const [elevation, setElevation] = useState('summit') // 'summit' or 'base'
   const [viewMode, setViewMode] = useState('fit') // 'hourly' or 'fit'
-  const [apiMode, setApiMode] = useState('openmeteo') // 'openmeteo' or 'meteoblue'
   const [meteoBlueForecastData, setMeteoBlueForecastData] = useState(null)
   const [showFreezing, setShowFreezing] = useState({ gfs: true, ecmwf: true, metservice: true })
   const [now, setNow] = useState(() => new Date())
@@ -663,7 +661,6 @@ function SnowfallForecast() {
   const [hoverLineX, setHoverLineX] = useState(null)
   const [containerWidth, setContainerWidth] = useState(() => window.innerWidth - 40)
   const [windowHeight, setWindowHeight] = useState(() => window.innerHeight)
-  const [forecastViewMode, setForecastViewMode] = useState('graphs') // 'graphs' or 'map'
   const chartRef = useRef(null)
   const tableRef = useRef(null)
   const svgRef = useRef(null)
@@ -1010,7 +1007,7 @@ function SnowfallForecast() {
     )
   }
 
-  const activeData = apiMode === 'meteoblue' && meteoBlueForecastData ? meteoBlueForecastData : forecastData
+  const activeData = forecastData
 
   // Graph always shows all hours; fit mode compresses bars to fit screen
   const displayData = activeData
@@ -1168,7 +1165,7 @@ function SnowfallForecast() {
       }
       return val
     }),
-    ...(apiMode === 'openmeteo' && meteoBlueData ? displayData.map((d, i) =>
+    ...(meteoBlueData ? displayData.map((d, i) =>
       Math.max(
         (meteoBlueData.summit.data_1h.precipitation[i] || 0) * (meteoBlueData.summit.data_1h.snowfraction?.[i] || 0) * 7,
         0
@@ -1236,50 +1233,12 @@ function SnowfallForecast() {
         </div>
       </div>
 
-      {/* View Mode Switcher */}
-      <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '12px' }}>
-        <div className="elevation-toggle">
-          <button
-            className={`toggle-btn ${forecastViewMode === 'graphs' ? 'active' : ''}`}
-            onClick={() => setForecastViewMode('graphs')}
-          >
-            Graphs & Tables
-          </button>
-          <button
-            className={`toggle-btn ${forecastViewMode === 'map' ? 'active' : ''}`}
-            onClick={() => setForecastViewMode('map')}
-          >
-            Map View
-          </button>
-        </div>
-      </div>
-
-      {forecastViewMode === 'graphs' && (
-      <>
       <h2>16 Day Forecast</h2>
       <div style={{ textAlign: 'center', color: '#555', fontSize: '11px', marginTop: '-2px', marginBottom: '12px' }}>
         GFS next update in {nextGfsUpdate} &nbsp;·&nbsp; ECMWF next update in {nextEcmwfUpdate}
       </div>
 
       <div style={{ display: 'flex', gap: '20px', justifyContent: 'center', marginBottom: '12px', flexWrap: 'wrap' }}>
-        {/* API toggle */}
-        <div className="elevation-toggle">
-          <button
-            className={`toggle-btn ${apiMode === 'openmeteo' ? 'active' : ''}`}
-            onClick={() => setApiMode('openmeteo')}
-          >
-            Open-Meteo
-          </button>
-          <button
-            className={`toggle-btn ${apiMode === 'meteoblue' ? 'active' : ''}`}
-            onClick={() => setApiMode('meteoblue')}
-            disabled={!meteoBlueData}
-            style={{ opacity: !meteoBlueData ? 0.5 : 1, cursor: !meteoBlueData ? 'not-allowed' : 'pointer' }}
-          >
-            MeteoBlue
-          </button>
-        </div>
-
         {/* View mode toggle */}
         <div className="elevation-toggle">
           <button
@@ -1317,8 +1276,8 @@ function SnowfallForecast() {
           <button
             className={`toggle-btn ${showCloud ? 'active' : ''}`}
             onClick={() => setShowCloud(s => !s)}
-            disabled={!cloudData || apiMode === 'meteoblue'}
-            style={{ fontSize: '0.8em', opacity: (!cloudData || apiMode === 'meteoblue') ? 0.5 : 1, cursor: (!cloudData || apiMode === 'meteoblue') ? 'not-allowed' : 'pointer' }}
+            disabled={!cloudData}
+            style={{ fontSize: '0.8em', opacity: !cloudData ? 0.5 : 1, cursor: !cloudData ? 'not-allowed' : 'pointer' }}
           >
             <span style={{ display: 'inline-block', width: 10, height: 10, background: '#555', borderRadius: 2, marginRight: 5, verticalAlign: 'middle' }} />
             Cloud
@@ -1338,8 +1297,8 @@ function SnowfallForecast() {
           <button
             className={`toggle-btn ${showFreezing.ecmwf ? 'active' : ''}`}
             onClick={() => setShowFreezing(s => ({ ...s, ecmwf: !s.ecmwf }))}
-            disabled={!ecmwfFreezingData || apiMode === 'meteoblue'}
-            style={{ fontSize: '0.8em', opacity: (!ecmwfFreezingData || apiMode === 'meteoblue') ? 0.5 : 1, cursor: (!ecmwfFreezingData || apiMode === 'meteoblue') ? 'not-allowed' : 'pointer' }}
+            disabled={!ecmwfFreezingData}
+            style={{ fontSize: '0.8em', opacity: !ecmwfFreezingData ? 0.5 : 1, cursor: !ecmwfFreezingData ? 'not-allowed' : 'pointer' }}
           >
             <span style={{ display: 'inline-block', width: 10, height: 3, background: '#10b981', borderRadius: 2, marginRight: 5, verticalAlign: 'middle' }} />
             ECMWF IFS
@@ -1347,8 +1306,8 @@ function SnowfallForecast() {
           <button
             className={`toggle-btn ${showFreezing.metservice ? 'active' : ''}`}
             onClick={() => setShowFreezing(s => ({ ...s, metservice: !s.metservice }))}
-            disabled={!metserviceFzl || apiMode === 'meteoblue'}
-            style={{ fontSize: '0.8em', opacity: (!metserviceFzl || apiMode === 'meteoblue') ? 0.5 : 1, cursor: (!metserviceFzl || apiMode === 'meteoblue') ? 'not-allowed' : 'pointer' }}
+            disabled={!metserviceFzl}
+            style={{ fontSize: '0.8em', opacity: !metserviceFzl ? 0.5 : 1, cursor: !metserviceFzl ? 'not-allowed' : 'pointer' }}
           >
             <span style={{ display: 'inline-block', width: 10, height: 3, background: '#a855f7', borderRadius: 2, marginRight: 5, verticalAlign: 'middle' }} />
             MetService
@@ -2099,22 +2058,15 @@ function SnowfallForecast() {
           </div>
         </div>
       )}
-      </>
-      )}
-
-      {forecastViewMode === 'map' && (
-        <ForecastMap3D />
-      )}
     </div>
   )
 }
 
-function ForecastMap3D() {
-  const [resort, setResort] = useState('ruapehu')
+function ForecastMap3D({ resort, setResort }) {
   const locations = {
-    ruapehu: { name: 'Mt Ruapehu' },
-    cardrona: { name: 'Cardrona / Wānaka' },
-    loveland: { name: 'Loveland Ski Area' },
+    ruapehu: { name: 'Whakapapa' },
+    cardrona: { name: 'Cardrona' },
+    loveland: { name: 'Loveland' },
   }
   const src = `/whakapapa-snow-forecast.html?resort=${resort}`
 
@@ -2147,6 +2099,7 @@ const NAV_ITEMS = [
 
 export default function App() {
   const [activeTab, setActiveTab] = useState('webcams')
+  const [resort, setResort] = useState('ruapehu')
 
   return (
     <div className="app-layout">
@@ -2172,13 +2125,13 @@ export default function App() {
 
         {activeTab === 'forecast' && (
           <section className="region-section forecast-section">
-            <SnowfallForecast />
+            <SnowfallForecast resort={resort} setResort={setResort} />
           </section>
         )}
 
         {activeTab === 'map' && (
           <section className="map-region">
-            <ForecastMap3D />
+            <ForecastMap3D resort={resort} setResort={setResort} />
           </section>
         )}
       </main>
