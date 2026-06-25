@@ -114,6 +114,34 @@ const USA_RESORTS = [
   { name: 'Loveland - Snowcam', url: 'https://photosskiloveland.com/snowcam/image.jpg', location: 'Loveland' },
 ]
 
+const ALL_CAMERAS = [...NORTH_ISLAND, ...SOUTH_ISLAND, ...USA_RESORTS]
+
+// Coarse region buckets used to reorder the webcam stack by selected resort.
+function cameraRegion(cam) {
+  if (cam.location === 'Loveland') return 'loveland'
+  if (cam.location === 'Whakapapa') return 'whakapapa'
+  if (cam.location === 'Turoa' || cam.location === 'Ruapehu') return 'northisland'
+  if (cam.location === 'Cardrona') return 'cardrona'
+  return 'southisland' // Treble Cone, The Remarkables, Coronet Peak, Mt Hutt
+}
+
+// Per-resort priority of region buckets. Buckets not listed fall to the end.
+const CAMERA_REGION_ORDER = {
+  ruapehu: ['whakapapa', 'northisland', 'cardrona', 'southisland', 'loveland'],
+  cardrona: ['cardrona', 'southisland', 'whakapapa', 'northisland', 'loveland'],
+  loveland: ['loveland', 'whakapapa', 'northisland', 'cardrona', 'southisland'],
+}
+
+// Stable sort keeps original within-bucket order; unknown buckets sort last.
+function orderCamerasByResort(cameras, resort) {
+  const order = CAMERA_REGION_ORDER[resort] || CAMERA_REGION_ORDER.ruapehu
+  const rank = (cam) => {
+    const i = order.indexOf(cameraRegion(cam))
+    return i === -1 ? order.length : i
+  }
+  return [...cameras].sort((a, b) => rank(a) - rank(b))
+}
+
 function WeatherDisplay({ location }) {
   const [weather, setWeather] = useState(null)
 
@@ -2119,7 +2147,18 @@ export default function App() {
       <main className={`main-content ${activeTab === 'map' ? 'is-map' : ''}`}>
         {activeTab === 'webcams' && (
           <section className="region-section">
-            <CameraGrid cameras={[...NORTH_ISLAND, ...SOUTH_ISLAND, ...USA_RESORTS]} />
+            <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '4px' }}>
+              <div className="elevation-toggle">
+                {Object.entries(RESORTS).map(([key, r]) => (
+                  <button
+                    key={key}
+                    className={`toggle-btn ${resort === key ? 'active' : ''}`}
+                    onClick={() => setResort(key)}
+                  >{r.name}</button>
+                ))}
+              </div>
+            </div>
+            <CameraGrid cameras={orderCamerasByResort(ALL_CAMERAS, resort)} />
           </section>
         )}
 
