@@ -552,9 +552,9 @@ function initMap() {
           'line-opacity': 0.9
         }
       });
-      // Live PredictWind observation temp pill for Whakapapa 2000m.
-      initStationPill();
     }
+    // Live PredictWind observation pills + temperature profile (both resorts).
+    initStationPill();
   });
 
   map.addControl(new maplibregl.NavigationControl({ visualizePitch: true, showZoom: true, showCompass: true }), 'top-right');
@@ -1169,16 +1169,34 @@ loadForecast();
 // proxy, decode each station's delta-encoded series, drop a colour-coded temp
 // pill on the map, and open a modal with full obs + a 12h temp plot on click.
 // Units: temp = raw/10 °C, speed/gust = raw/10 knots (shown as km/h), dir = deg.
-// Stations span four adjacent z10 tiles; we fetch all and merge their tracks.
-const PW_TILES = [[10, 390, 1011], [10, 390, 1010], [10, 389, 1011], [10, 389, 1010]];
-const PW_STATIONS = [
-  { trackId: '363045', name: 'Whakapapa 2000m' },
-  { trackId: '363044', name: 'Halidays Hut' },
-  { trackId: '363039', name: 'Desert Road' },
-  { trackId: '362779', name: 'National Park Township' },
-  { trackId: '362785', name: 'Waiouru Aerodrome' },
-  { trackId: '363053', name: 'Raetihi' },
-];
+// Per-resort observation stations (with the z10 tiles they live in). We fetch
+// all the resort's tiles and merge their tracks. Chosen for an elevation spread
+// wide enough to fit a lapse rate.
+const PW_CONFIG = {
+  ruapehu: {
+    tiles: [[10, 390, 1011], [10, 390, 1010], [10, 389, 1011], [10, 389, 1010]],
+    stations: [
+      { trackId: '363045', name: 'Whakapapa 2000m' },
+      { trackId: '363044', name: 'Halidays Hut' },
+      { trackId: '363039', name: 'Desert Road' },
+      { trackId: '362779', name: 'National Park Township' },
+      { trackId: '362785', name: 'Waiouru Aerodrome' },
+      { trackId: '363053', name: 'Raetihi' },
+    ],
+  },
+  cardrona: {
+    tiles: [[10, 369, 992], [10, 368, 993], [10, 368, 992], [10, 369, 993]],
+    stations: [
+      { trackId: '363167', name: 'Treble Cone' },        // 1791 m
+      { trackId: '363042', name: 'Pisa' },               // 1408 m
+      { trackId: '362792', name: 'Crown Range Road' },   // 1067 m
+      { trackId: '362817', name: 'Crown Terrace' },      // 608 m
+      { trackId: '363027', name: 'Wanaka Airport' },     // 349 m
+    ],
+  },
+};
+const PW_TILES = (PW_CONFIG[resortKey] || PW_CONFIG.ruapehu).tiles;
+const PW_STATIONS = (PW_CONFIG[resortKey] || PW_CONFIG.ruapehu).stations;
 const KT_TO_KMH = 1.852;
 let pwRefreshTimer = null;
 let pwVisible = true; // observation pills shown by default
