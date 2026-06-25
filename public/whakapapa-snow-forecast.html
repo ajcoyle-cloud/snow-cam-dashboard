@@ -46,7 +46,7 @@
   #wind-canvas { position: absolute; inset: 0; z-index: 4; pointer-events: none; }
 
   /* ── Timeline scrubber (play/pause + draggable slider) ─────────────────── */
-  #timeline {
+  #timeline, #live-timeline {
     position: absolute; left: 20px; right: 20px; bottom: 20px; z-index: 10;
     display: flex; align-items: center; gap: 14px;
     background: rgba(0,0,0,0.6);
@@ -54,24 +54,25 @@
     border-radius: 30px; padding: 10px 18px;
     box-shadow: 0 6px 26px rgba(0,0,0,0.35);
   }
-  #tl-play {
+  #live-timeline { display: none; }
+  #tl-play, #ltl-play {
     flex-shrink: 0; background: rgba(255,255,255,0.14); color: #fff; border: none;
     width: 38px; height: 38px; border-radius: 50%; cursor: pointer;
     font-size: 1rem; display: flex; align-items: center; justify-content: center;
     transition: background 0.15s;
   }
-  #tl-play:hover { background: rgba(255,255,255,0.26); }
-  #tl-slider {
+  #tl-play:hover, #ltl-play:hover { background: rgba(255,255,255,0.26); }
+  #tl-slider, #ltl-slider {
     flex: 1; -webkit-appearance: none; appearance: none;
     height: 6px; border-radius: 3px; background: rgba(255,255,255,0.25);
     cursor: pointer; outline: none;
   }
-  #tl-slider::-webkit-slider-thumb {
+  #tl-slider::-webkit-slider-thumb, #ltl-slider::-webkit-slider-thumb {
     -webkit-appearance: none; width: 18px; height: 18px; border-radius: 50%;
     background: #fff; box-shadow: 0 2px 8px rgba(0,0,0,0.4); cursor: pointer;
     border: 3px solid #2563eb;
   }
-  #tl-slider::-moz-range-thumb {
+  #tl-slider::-moz-range-thumb, #ltl-slider::-moz-range-thumb {
     width: 18px; height: 18px; border-radius: 50%; background: #fff;
     box-shadow: 0 2px 8px rgba(0,0,0,0.4); cursor: pointer; border: 3px solid #2563eb;
   }
@@ -82,7 +83,7 @@
   }
   .tl-step:hover:not(:disabled) { color: #fff; }
   .tl-step:disabled { opacity: 0.3; cursor: default; }
-  #tl-label {
+  #tl-label, #ltl-label {
     flex-shrink: 0; color: #fff; font-size: 0.78rem; font-weight: 600;
     min-width: 118px; text-align: right; font-variant-numeric: tabular-nums;
   }
@@ -163,11 +164,13 @@
   .pill-btn.active { background: #2563eb; color: #fff; }
   #period-switch { display: none; }
 
-  /* ── Freezing-level sparkline (live mode, bottom of map) ─────────────── */
+  /* ── Freezing-level sparkline (live mode, just above the time slider) ── */
   #fl-overlay {
-    position: absolute; left: 0; right: 0; bottom: 6px; height: 84px;
+    position: absolute; left: 20px; right: 20px; bottom: 80px; height: 54px;
     z-index: 9; pointer-events: none; display: none;
   }
+  /* In live mode the panel sits above the sparkline + slider stack. */
+  #map-screen.live-mode #snow-info { bottom: 146px; }
   #fl-overlay svg { width: 100%; height: 100%; display: block; }
   #fl-caption {
     position: absolute; top: 0; right: 16px;
@@ -331,6 +334,13 @@
     <input type="range" id="tl-slider" min="0" max="0" step="1" value="0">
     <button class="tl-step" id="tl-next" onclick="stepHour(1)">›</button>
     <span id="tl-label">—</span>
+  </div>
+  <div id="live-timeline">
+    <button id="ltl-play" onclick="pwTogglePlay()">▶</button>
+    <button class="tl-step" id="ltl-prev" onclick="pwStepLive(-1)">‹</button>
+    <input type="range" id="ltl-slider" min="0" max="0" step="1" value="0">
+    <button class="tl-step" id="ltl-next" onclick="pwStepLive(1)">›</button>
+    <span id="ltl-label">—</span>
   </div>
   <div id="speed-select">
     <button class="speed-btn" data-speed="1" onclick="setSpeed(1)">1×</button>
@@ -1024,7 +1034,13 @@ function setViewMode(mode) {
   document.getElementById('info-hourly').style.display = mode === 'hourly' ? 'block' : 'none';
   document.getElementById('info-accum').style.display = mode === 'accumulated' ? 'block' : 'none';
   document.getElementById('info-live').style.display = mode === 'live' ? 'block' : 'none';
-  if (mode !== 'live') document.getElementById('fl-overlay').style.display = 'none';
+  document.getElementById('live-timeline').style.display = mode === 'live' ? 'flex' : 'none';
+  document.getElementById('map-screen').classList.toggle('live-mode', mode === 'live');
+  if (mode !== 'live') {
+    document.getElementById('fl-overlay').style.display = 'none';
+    pwStopLivePlay();
+    if (pwDisplayTime != null) { pwDisplayTime = null; for (const id in pwState) pwRenderPill(id); }
+  }
 
   if (mode === 'hourly') {
     stopPlay();
@@ -1406,8 +1422,11 @@ function pwOpenModal(data) {
 function pwRenderPill(trackId) {
   const st = pwState[trackId];
   if (!st || !st.series.length) return;
-  const last = st.series[st.series.length - 1];
-  const ageMin = (Date.now() / 1000 - last.ts) / 60;
+  const lastTs = st.series[st.series.length - 1].ts;
+  // pwDisplayTime !== null when scrubbing the live time slider into the past
+  const live = pwDisplayTime == null;
+  const tempC = live ? st.series[st.series.length - 1].tempC : pwTempAtTime(st.series, pwDisplayTime);
+  const ageMin = (Date.now() / 1000 - lastTs) / 60;
   let el = st.marker && st.marker.getElement();
   if (!el) {
     el = document.createElement('div');
@@ -1418,10 +1437,10 @@ function pwRenderPill(trackId) {
     st.marker = new maplibregl.Marker({ element: el, anchor: 'center', subpixelPositioning: true })
       .setLngLat([st.meta.lon, st.meta.lat]).addTo(map);
   }
-  el.style.background = pwTempColor(last.tempC);
-  el.classList.toggle('stale', ageMin > 90);
+  el.style.background = pwTempColor(tempC);
+  el.classList.toggle('stale', live && ageMin > 90);
   el.style.display = pwVisible ? '' : 'none';
-  el.innerHTML = `<span class="dot"></span>${last.tempC.toFixed(1)}°C`;
+  el.innerHTML = `<span class="dot"></span>${tempC.toFixed(1)}°C`;
 }
 
 // Single icon-tap toggle for all live observation pills (on by default).
@@ -1466,6 +1485,11 @@ function initStationPill() {
 // 5-min obs refresh.
 let pwProfile = null; // { a, b, pts:[[elev,temp],...] }
 const PW_OVERLAY_ALPHA = 0.72;
+// Live time-slider state: scrub the past 6h. pwDisplayTime null = "now"/live.
+let pwLiveGrid = [];      // ascending unix-sec timestamps over the past 6h
+let pwLiveIdx = 0;        // current slider index into pwLiveGrid
+let pwDisplayTime = null; // selected time, or null when showing live/latest
+let pwLivePlayTimer = null;
 
 function pwComputeProfile() {
   const pts = [];
@@ -1487,6 +1511,30 @@ function pwComputeProfile() {
 }
 
 function pwTempAt(elev) { return pwProfile ? pwProfile.a + pwProfile.b * elev : null; }
+
+// Least-squares fit temp = a + b·elev over [[elev,temp],...].
+function pwFit(pts) {
+  const n = pts.length;
+  if (n < 2) return null;
+  const sx = pts.reduce((q, p) => q + p[0], 0), sy = pts.reduce((q, p) => q + p[1], 0);
+  const sxx = pts.reduce((q, p) => q + p[0] * p[0], 0), sxy = pts.reduce((q, p) => q + p[0] * p[1], 0);
+  const den = n * sxx - sx * sx;
+  if (Math.abs(den) < 1e-6) return null;
+  const b = (n * sxy - sx * sy) / den, a = (sy - b * sx) / n;
+  return { a, b, pts };
+}
+
+// Profile fitted to each station's temperature at a past time `t`.
+function pwComputeProfileAt(t) {
+  const pts = [];
+  for (const id in pwState) {
+    const s = pwState[id];
+    if (s.meta.elevM != null && s.series.length >= 2 && t >= s.series[0].ts) {
+      pts.push([s.meta.elevM, pwTempAtTime(s.series, t)]);
+    }
+  }
+  return pwFit(pts);
+}
 
 // Discrete temperature bands (°C). Each band is a solid colour with a hard
 // edge — no smooth blend. Band [edge, edge+step) is coloured at its midpoint.
@@ -1529,28 +1577,14 @@ function renderLivePanel() {
     document.getElementById('live-legend').innerHTML = '';
     return;
   }
-  // station rows, highest elevation first
-  const rows = Object.keys(pwState)
-    .map(id => pwState[id])
-    .filter(s => s.meta.elevM != null && s.series.length)
-    .sort((x, y) => y.meta.elevM - x.meta.elevM)
-    .map(s => {
-      const t = s.series[s.series.length - 1].tempC;
-      const [r, g, b] = pwTempRGB(t);
-      return `<div class="live-row">
-        <span class="ln"><span class="sw" style="background:rgb(${r},${g},${b})"></span>${s.meta.name}</span>
-        <span><span class="lt" style="color:${pwTempColor(t)}">${t.toFixed(1)}°C</span> <span class="le">${s.meta.elevM}m</span></span>
-      </div>`;
-    }).join('');
+  // Compact summary only — individual station rows removed to save map space.
   const lapse = (-pwProfile.b * 1000).toFixed(1);          // °C per 1000 m (positive = cooling with height)
   const freezeElev = pwProfile.b < 0 ? Math.round(-pwProfile.a / pwProfile.b) : null;
   const summitT = pwTempAt(TOP_ELEV);
-  const stats = `
-    <hr style="border:none;border-top:1px solid rgba(255,255,255,0.12);margin:10px 0 8px;">
+  document.getElementById('live-rows').innerHTML = `
     <div class="live-stat"><span>Lapse rate</span><b>${lapse}°C / 1000m</b></div>
     <div class="live-stat"><span>0°C level</span><b>${freezeElev != null ? freezeElev + ' m' : '—'}</b></div>
     <div class="live-stat"><span>Modelled summit (${Math.round(TOP_ELEV)}m)</span><b>${summitT != null ? summitT.toFixed(1) + '°C' : '—'}</b></div>`;
-  document.getElementById('live-rows').innerHTML = rows + stats;
 
   // banded legend, hard edges matching the overlay. Overlay is clipped to
   // ≤5°C, so the legend runs from that cutoff down to the summit temperature.
@@ -1570,10 +1604,17 @@ function renderLivePanel() {
 }
 
 // Called after each obs refresh; recompute the fit and, if Live is active,
-// repaint the overlay and panel.
+// rebuild the 6h time grid and repaint at the currently-selected position.
 function pwUpdateTempProfile() {
   pwProfile = pwComputeProfile();
-  if (viewMode === 'live') {
+  if (viewMode !== 'live') return;
+  pwLiveGrid = pwBuildLiveGrid();
+  const slider = document.getElementById('ltl-slider');
+  if (pwLiveGrid.length) {
+    slider.max = pwLiveGrid.length - 1;
+    const wasNow = pwDisplayTime == null;
+    pwApplyLiveAt(wasNow ? pwLiveGrid.length - 1 : Math.min(pwLiveIdx, pwLiveGrid.length - 1));
+  } else {
     if (pwProfile) applyRampWhenReady(pwBuildTempRamp());
     renderLivePanel();
     pwRenderFreezingOverlay();
@@ -1581,11 +1622,74 @@ function pwUpdateTempProfile() {
 }
 
 function renderLiveTempView() {
-  pwProfile = pwComputeProfile();
+  pwStopLivePlay();
+  pwLiveGrid = pwBuildLiveGrid();
+  const slider = document.getElementById('ltl-slider');
+  if (pwLiveGrid.length) {
+    slider.min = 0; slider.max = pwLiveGrid.length - 1;
+    pwApplyLiveAt(pwLiveGrid.length - 1); // start at "now"
+  } else {
+    pwDisplayTime = null;
+    pwProfile = pwComputeProfile();
+    if (pwProfile) applyRampWhenReady(pwBuildTempRamp());
+    renderLivePanel();
+    pwRenderFreezingOverlay();
+  }
+  setTimeout(() => map.resize(), 60);
+}
+
+// ── Live time slider: scrub the past 6 hours ───────────────────────────────
+function pwBuildLiveGrid(hours = 6) {
+  const stations = Object.values(pwState).filter(s => s.meta.elevM != null && s.series.length >= 2);
+  if (stations.length < 2) return [];
+  const endTs = Math.min(...stations.map(s => s.series[s.series.length - 1].ts));
+  const startTs = endTs - hours * 3600;
+  const STEP = 10 * 60;
+  const grid = [];
+  for (let t = startTs; t <= endTs; t += STEP) grid.push(t);
+  if (grid[grid.length - 1] !== endTs) grid.push(endTs);
+  return grid;
+}
+
+// Apply the live view at grid index `idx`: refit the profile at that time,
+// repaint overlay + pills + panel + freezing marker, and sync the slider.
+function pwApplyLiveAt(idx) {
+  if (!pwLiveGrid.length) return;
+  idx = Math.max(0, Math.min(idx, pwLiveGrid.length - 1));
+  pwLiveIdx = idx;
+  const t = pwLiveGrid[idx];
+  const isNow = idx === pwLiveGrid.length - 1;
+  pwDisplayTime = isNow ? null : t;
+  pwProfile = isNow ? pwComputeProfile() : pwComputeProfileAt(t);
   if (pwProfile) applyRampWhenReady(pwBuildTempRamp());
+  for (const id in pwState) pwRenderPill(id);
   renderLivePanel();
   pwRenderFreezingOverlay();
-  setTimeout(() => map.resize(), 60);
+  const slider = document.getElementById('ltl-slider');
+  slider.value = idx;
+  document.getElementById('ltl-label').textContent =
+    (isNow ? 'Now · ' : '') + new Date(t * 1000).toLocaleTimeString('en-NZ', { hour: '2-digit', minute: '2-digit', hour12: false });
+  document.getElementById('ltl-prev').disabled = idx <= 0;
+  document.getElementById('ltl-next').disabled = idx >= pwLiveGrid.length - 1;
+}
+
+function pwStepLive(delta) { pwStopLivePlay(); pwApplyLiveAt(pwLiveIdx + delta); }
+
+function pwTogglePlay() {
+  if (pwLivePlayTimer) { pwStopLivePlay(); return; }
+  if (!pwLiveGrid.length) return;
+  document.getElementById('ltl-play').textContent = '⏸';
+  pwLivePlayTimer = setInterval(() => {
+    let next = pwLiveIdx + 1;
+    if (next > pwLiveGrid.length - 1) next = 0; // loop back to 6h ago
+    pwApplyLiveAt(next);
+  }, 450);
+}
+
+function pwStopLivePlay() {
+  if (pwLivePlayTimer) { clearInterval(pwLivePlayTimer); pwLivePlayTimer = null; }
+  const btn = document.getElementById('ltl-play');
+  if (btn) btn.textContent = '▶';
 }
 
 // ── Freezing-level history sparkline ───────────────────────────────────────
@@ -1644,16 +1748,32 @@ function pwRenderFreezingOverlay() {
   const X = (ts) => P.l + (t1 === t0 ? 0 : (ts - t0) / (t1 - t0)) * pw;
   const Y = (v) => P.t + ph - ((v - lo) / (hi - lo)) * ph;
   const d = fl.map((p, i) => `${i ? 'L' : 'M'}${X(p.ts).toFixed(1)},${Y(p.fl).toFixed(1)}`).join(' ');
-  const last = fl[fl.length - 1];
+  // marker at the selected time (or the latest sample when showing "now")
+  const markTs = pwDisplayTime != null ? pwDisplayTime : fl[fl.length - 1].ts;
+  let flMark = fl[fl.length - 1].fl;
+  for (let i = 1; i < fl.length; i++) {
+    if (fl[i].ts >= markTs) {
+      const a = fl[i - 1], b = fl[i];
+      flMark = a.fl + (b.fl - a.fl) * (markTs - a.ts) / ((b.ts - a.ts) || 1);
+      break;
+    }
+  }
+  const mx = X(markTs), my = Y(flMark);
   const sh = 'drop-shadow(0 1px 2px rgba(0,0,0,0.75))';
   const svg = host.querySelector('svg');
   svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
   svg.innerHTML =
     `<path d="${d}" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="filter:${sh}"/>
-     <circle cx="${X(last.ts).toFixed(1)}" cy="${Y(last.fl).toFixed(1)}" r="3" fill="#fff" style="filter:${sh}"/>
-     <text x="${(X(last.ts) - 7).toFixed(1)}" y="${(Y(last.fl) - 6).toFixed(1)}" text-anchor="end" font-size="12" font-weight="700" fill="#fff" style="filter:${sh}">${Math.round(last.fl)} m</text>`;
+     <line x1="${mx.toFixed(1)}" y1="${P.t}" x2="${mx.toFixed(1)}" y2="${(P.t + ph).toFixed(1)}" stroke="rgba(255,255,255,0.4)" stroke-width="1"/>
+     <circle cx="${mx.toFixed(1)}" cy="${my.toFixed(1)}" r="3.5" fill="#fff" style="filter:${sh}"/>
+     <text x="${(mx - 8).toFixed(1)}" y="${(my - 6).toFixed(1)}" text-anchor="end" font-size="12" font-weight="700" fill="#fff" style="filter:${sh}">${Math.round(flMark)} m</text>`;
   document.getElementById('fl-caption').textContent = 'Freezing level · last 6h';
 }
+
+document.getElementById('ltl-slider').addEventListener('input', (e) => {
+  pwStopLivePlay();
+  pwApplyLiveAt(parseInt(e.target.value, 10));
+});
 </script>
 </body>
 </html>
