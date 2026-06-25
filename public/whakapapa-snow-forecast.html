@@ -1244,13 +1244,17 @@ async function pwFetchTiles() {
   return { updated, tracks };
 }
 
-// Temperature → colour ramp. Weighted toward blues and greens: cyan/teal/green
-// span the usual on-mountain range and orange/red only kick in above ~15°C, so
-// a typical ~10°C valley reads green rather than orange.
+// Temperature → colour ramp (warm → cold): green, blue, light blue, white at
+// 0°C, then pink and purple below freezing. White lands exactly on 0°C so it
+// marks the freezing level on the mountain.
 const PW_TEMP_STOPS = [
-  [-15, [49, 46, 129]], [-6, [37, 99, 235]], [-1, [14, 165, 233]],
-  [1, [45, 212, 218]], [4, [52, 211, 153]], [8, [74, 222, 128]],
-  [12, [163, 222, 90]], [16, [250, 204, 80]], [21, [239, 110, 60]]
+  [-12, [139, 47, 217]],   // purple (coldest)
+  [-7, [168, 85, 230]],    // purple
+  [-2.5, [244, 114, 182]], // pink
+  [0, [255, 255, 255]],    // white — freezing level
+  [1.7, [125, 211, 252]],  // light blue
+  [3.3, [37, 99, 235]],    // blue
+  [5, [60, 200, 120]],     // green (warm)
 ];
 function pwTempRGB(t) {
   const s = PW_TEMP_STOPS;
