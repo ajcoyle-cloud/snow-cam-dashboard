@@ -142,6 +142,17 @@
     box-shadow: 0 4px 16px rgba(0,0,0,0.4);
     pointer-events: none;
   }
+  .temp-hover {
+    position: absolute; z-index: 35; transform: translate(14px, -50%);
+    display: none; align-items: center; gap: 6px;
+    background: rgba(0,0,0,0.85); color: #fff;
+    padding: 5px 10px; border-radius: 8px;
+    font-size: 0.78rem; font-weight: 700; white-space: nowrap;
+    box-shadow: 0 3px 12px rgba(0,0,0,0.45); pointer-events: none;
+    font-variant-numeric: tabular-nums;
+  }
+  .temp-hover .sw { width: 9px; height: 9px; border-radius: 2px; box-shadow: 0 0 0 1px rgba(255,255,255,0.3); }
+  .temp-hover .el { color: rgba(255,255,255,0.55); font-weight: 500; font-size: 0.7rem; }
 
   /* ── Top mode/period switchers ──────────────────────────────────────── */
   #top-controls {
@@ -162,6 +173,20 @@
   .pill-btn:hover { color: #fff; }
   .pill-btn.active { background: #2563eb; color: #fff; }
   #period-switch { display: none; }
+
+  /* ── Live temperature panel ─────────────────────────────────────────── */
+  #info-live { display: none; }
+  #info-live h3 { display: flex; align-items: center; gap: 7px; }
+  #info-live h3 .live-dot { width: 6px; height: 6px; border-radius: 50%; background: #34d399; animation: pw-pulse 1.8s ease-out infinite; }
+  .live-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; font-size: 0.8rem; padding: 3px 0; }
+  .live-row .ln { display: flex; align-items: center; gap: 7px; color: rgba(255,255,255,0.75); }
+  .live-row .sw { width: 10px; height: 10px; border-radius: 3px; flex-shrink: 0; box-shadow: 0 0 0 1px rgba(255,255,255,0.25); }
+  .live-row .lt { font-weight: 700; font-variant-numeric: tabular-nums; }
+  .live-row .le { color: rgba(255,255,255,0.4); font-size: 0.72rem; font-weight: 500; }
+  .live-stat { display: flex; justify-content: space-between; font-size: 0.76rem; padding: 2px 0; color: rgba(255,255,255,0.6); }
+  .live-stat b { color: #fff; font-weight: 700; font-variant-numeric: tabular-nums; }
+  #live-legend .bar { height: 9px; border-radius: 5px; margin: 4px 0 3px; }
+  #live-legend .ticks { display: flex; justify-content: space-between; font-size: 0.62rem; color: rgba(255,255,255,0.45); font-variant-numeric: tabular-nums; }
 
   /* ── Accumulated snowfall info + depth legend ───────────────────────── */
   #info-accum { display: none; }
@@ -254,6 +279,7 @@
 
   <div id="top-controls">
     <div class="pill-group" id="mode-switch">
+      <button class="pill-btn" data-mode="live" onclick="setViewMode('live')">Live</button>
       <button class="pill-btn active" data-mode="hourly" onclick="setViewMode('hourly')">Hourly</button>
       <button class="pill-btn" data-mode="accumulated" onclick="setViewMode('accumulated')">Accumulated</button>
     </div>
@@ -280,6 +306,12 @@
       <div class="si-row"><span class="l">Approx. Snow Line</span><span class="v" id="accum-snowline">—</span></div>
       <hr style="border: none; border-top: 1px solid rgba(255,255,255,0.12); margin: 12px 0 10px;">
       <div id="depth-legend"></div>
+    </div>
+    <div id="info-live">
+      <h3><span class="live-dot"></span>Live Temperature</h3>
+      <div id="live-rows"></div>
+      <hr style="border: none; border-top: 1px solid rgba(255,255,255,0.12); margin: 12px 0 10px;">
+      <div id="live-legend"></div>
     </div>
   </div>
   <div id="timeline">
@@ -535,6 +567,27 @@ function initMap() {
     const depthCm = getDepthAtElevation(elev);
     showClickPopup(e.point.x, e.point.y, `${depthCm.toFixed(1)}cm`);
   });
+
+  // Live-temperature hover readout: in Live mode, show the modelled temperature
+  // at the terrain elevation under the cursor, following the pointer.
+  map.on('mousemove', (e) => {
+    if (viewMode !== 'live' || !pwProfile) { pwHideHover(); return; }
+    const rawElev = map.queryTerrainElevation(e.lngLat, { exaggerated: false });
+    if (rawElev == null || isNaN(rawElev)) { pwHideHover(); return; }
+    const elev = Math.min(rawElev, TOP_ELEV);
+    const t = pwTempAt(elev);
+    if (!tempHoverEl) {
+      tempHoverEl = document.createElement('div');
+      tempHoverEl.className = 'temp-hover';
+      document.getElementById('map-screen').appendChild(tempHoverEl);
+    }
+    const [r, g, b] = pwTempRGB(t);
+    tempHoverEl.style.display = 'flex';
+    tempHoverEl.style.left = e.point.x + 'px';
+    tempHoverEl.style.top = e.point.y + 'px';
+    tempHoverEl.innerHTML = `<span class="sw" style="background:rgb(${r},${g},${b})"></span>${t.toFixed(1)}°C <span class="el">${Math.round(elev)} m</span>`;
+  });
+  map.on('mouseout', pwHideHover);
 
   // A user drag/zoom/rotate/pitch invalidates every particle's last screen
   // position, so pause and clear the wind overlay for the duration rather
@@ -979,11 +1032,17 @@ function setViewMode(mode) {
   document.getElementById('speed-select').style.display = mode === 'hourly' ? 'flex' : 'none';
   document.getElementById('info-hourly').style.display = mode === 'hourly' ? 'block' : 'none';
   document.getElementById('info-accum').style.display = mode === 'accumulated' ? 'block' : 'none';
+  document.getElementById('info-live').style.display = mode === 'live' ? 'block' : 'none';
+  if (mode !== 'live') pwHideHover();
 
   if (mode === 'hourly') {
     stopPlay();
     openMapView(currentIndex < 0 ? 0 : currentIndex);
+  } else if (mode === 'live') {
+    stopPlay();
+    renderLiveTempView();
   } else {
+    stopPlay();
     renderAccumulatedView();
   }
 }
@@ -1191,23 +1250,24 @@ async function pwFetchTiles() {
 }
 
 // Temperature → colour ramp (cold blue → cyan → green → warm red).
-function pwTempColor(t) {
-  const stops = [
-    [-15, [67, 56, 202]], [-8, [37, 99, 235]], [-2, [14, 165, 233]],
-    [0, [34, 211, 238]], [3, [52, 211, 153]], [8, [251, 191, 36]], [15, [239, 68, 68]]
-  ];
-  if (t <= stops[0][0]) return `rgb(${stops[0][1].join(',')})`;
-  if (t >= stops[stops.length - 1][0]) return `rgb(${stops[stops.length - 1][1].join(',')})`;
-  for (let i = 0; i < stops.length - 1; i++) {
-    const [t0, c0] = stops[i], [t1, c1] = stops[i + 1];
+const PW_TEMP_STOPS = [
+  [-15, [67, 56, 202]], [-8, [37, 99, 235]], [-2, [14, 165, 233]],
+  [0, [34, 211, 238]], [3, [52, 211, 153]], [8, [251, 191, 36]], [15, [239, 68, 68]]
+];
+function pwTempRGB(t) {
+  const s = PW_TEMP_STOPS;
+  if (t <= s[0][0]) return s[0][1];
+  if (t >= s[s.length - 1][0]) return s[s.length - 1][1];
+  for (let i = 0; i < s.length - 1; i++) {
+    const [t0, c0] = s[i], [t1, c1] = s[i + 1];
     if (t >= t0 && t <= t1) {
       const f = (t - t0) / (t1 - t0);
-      const c = c0.map((v, k) => Math.round(v + (c1[k] - v) * f));
-      return `rgb(${c.join(',')})`;
+      return c0.map((v, k) => Math.round(v + (c1[k] - v) * f));
     }
   }
-  return 'rgb(34,211,238)';
+  return [34, 211, 238];
 }
+function pwTempColor(t) { return `rgb(${pwTempRGB(t).join(',')})`; }
 
 const PW_COMPASS = ['N','NNE','NE','ENE','E','ESE','SE','SSE','S','SSW','SW','WSW','W','WNW','NW','NNW'];
 const pwCompass = (d) => PW_COMPASS[Math.round(d / 22.5) % 16];
@@ -1351,6 +1411,132 @@ async function pwRefresh() {
 function initStationPill() {
   pwRefresh();
   if (!pwRefreshTimer) pwRefreshTimer = setInterval(pwRefresh, 5 * 60 * 1000);
+}
+
+// ── Live temperature profile + whole-mountain colour overlay ───────────────
+// Fit a linear lapse rate (temp = a + b·elevation) to the live station
+// readings, then drive the elevation-keyed colour-relief layer with it so the
+// whole terrain is tinted by modelled live temperature. Recomputed on every
+// 5-min obs refresh.
+let pwProfile = null; // { a, b, pts:[[elev,temp],...] }
+const PW_OVERLAY_ALPHA = 0.72;
+let tempHoverEl = null;
+function pwHideHover() { if (tempHoverEl) tempHoverEl.style.display = 'none'; }
+
+function pwComputeProfile() {
+  const pts = [];
+  for (const id in pwState) {
+    const s = pwState[id];
+    if (s.meta.elevM != null && s.series.length) pts.push([s.meta.elevM, s.series[s.series.length - 1].tempC]);
+  }
+  if (pts.length < 2) return null;
+  const n = pts.length;
+  const sx = pts.reduce((q, p) => q + p[0], 0);
+  const sy = pts.reduce((q, p) => q + p[1], 0);
+  const sxx = pts.reduce((q, p) => q + p[0] * p[0], 0);
+  const sxy = pts.reduce((q, p) => q + p[0] * p[1], 0);
+  const denom = n * sxx - sx * sx;
+  if (Math.abs(denom) < 1e-6) return null;
+  const b = (n * sxy - sx * sy) / denom;
+  const a = (sy - b * sx) / n;
+  return { a, b, pts };
+}
+
+function pwTempAt(elev) { return pwProfile ? pwProfile.a + pwProfile.b * elev : null; }
+
+// Discrete temperature bands (°C). Each band is a solid colour with a hard
+// edge — no smooth blend. Band [edge, edge+step) is coloured at its midpoint.
+const PW_BAND_STEP = 2;
+const PW_BAND_HI = 16, PW_BAND_LO = -12;
+
+// Inverse profile: elevation at which the modelled temperature equals `t`.
+function pwElevAtTemp(t) { return (t - pwProfile.a) / pwProfile.b; }
+
+// Build a hard-edged band ramp over elevation. Temperature is linear in
+// elevation, so equal-temp bands map to elevation thresholds. MapLibre's
+// color-relief layer only renders `interpolate` (not `step`) ramps, so we
+// fake the hard edges: hold each band's colour flat, then jump to the next
+// across a 0.5 m gap — a near-vertical transition that reads as a crisp edge.
+function pwBuildTempRamp() {
+  const flat = (t) => { const [r, g, b] = pwTempRGB(t); return `rgba(${r},${g},${b},${PW_OVERLAY_ALPHA})`; };
+  if (!pwProfile || pwProfile.b >= 0) return flat(pwProfile ? pwProfile.a : 0);
+  const EPS = 0.5;
+  // band boundary temps, descending -> boundary elevations, ascending
+  const bounds = [];
+  for (let t = PW_BAND_HI; t >= PW_BAND_LO; t -= PW_BAND_STEP) bounds.push({ t, e: pwElevAtTemp(t) });
+  const ramp = ['interpolate', ['linear'], ['elevation']];
+  let prev = flat(PW_BAND_HI + PW_BAND_STEP / 2);     // warmest band (below first boundary)
+  ramp.push(bounds[0].e - 200, prev);
+  for (const bd of bounds) {
+    const next = flat(bd.t - PW_BAND_STEP / 2);        // band just colder than this edge
+    ramp.push(bd.e - EPS, prev, bd.e, next);
+    prev = next;
+  }
+  ramp.push(bounds[bounds.length - 1].e + 200, prev);
+  return ramp;
+}
+
+function renderLivePanel() {
+  if (!pwProfile) {
+    document.getElementById('live-rows').innerHTML = '<div class="live-stat">Waiting for observations…</div>';
+    document.getElementById('live-legend').innerHTML = '';
+    return;
+  }
+  // station rows, highest elevation first
+  const rows = Object.keys(pwState)
+    .map(id => pwState[id])
+    .filter(s => s.meta.elevM != null && s.series.length)
+    .sort((x, y) => y.meta.elevM - x.meta.elevM)
+    .map(s => {
+      const t = s.series[s.series.length - 1].tempC;
+      const [r, g, b] = pwTempRGB(t);
+      return `<div class="live-row">
+        <span class="ln"><span class="sw" style="background:rgb(${r},${g},${b})"></span>${s.meta.name}</span>
+        <span><span class="lt" style="color:${pwTempColor(t)}">${t.toFixed(1)}°C</span> <span class="le">${s.meta.elevM}m</span></span>
+      </div>`;
+    }).join('');
+  const lapse = (-pwProfile.b * 1000).toFixed(1);          // °C per 1000 m (positive = cooling with height)
+  const freezeElev = pwProfile.b < 0 ? Math.round(-pwProfile.a / pwProfile.b) : null;
+  const summitT = pwTempAt(TOP_ELEV);
+  const stats = `
+    <hr style="border:none;border-top:1px solid rgba(255,255,255,0.12);margin:10px 0 8px;">
+    <div class="live-stat"><span>Lapse rate</span><b>${lapse}°C / 1000m</b></div>
+    <div class="live-stat"><span>0°C level</span><b>${freezeElev != null ? freezeElev + ' m' : '—'}</b></div>
+    <div class="live-stat"><span>Modelled summit (${Math.round(TOP_ELEV)}m)</span><b>${summitT != null ? summitT.toFixed(1) + '°C' : '—'}</b></div>`;
+  document.getElementById('live-rows').innerHTML = rows + stats;
+
+  // banded legend across the on-mountain temperature span (hard edges, matching
+  // the overlay). Left = warm (valley), right = cold (summit).
+  const elo = 600, ehi = Math.max(TOP_ELEV, 2800);
+  const top = Math.ceil(pwTempAt(elo) / PW_BAND_STEP) * PW_BAND_STEP;
+  const bot = Math.floor(pwTempAt(ehi) / PW_BAND_STEP) * PW_BAND_STEP;
+  const span = Math.max(PW_BAND_STEP, top - bot);
+  const segs = [];
+  for (let t = top; t > bot; t -= PW_BAND_STEP) {
+    const c = pwTempColor(t - PW_BAND_STEP / 2);
+    const x0 = (top - t) / span * 100, x1 = (top - (t - PW_BAND_STEP)) / span * 100;
+    segs.push(`${c} ${x0}%`, `${c} ${x1}%`);
+  }
+  document.getElementById('live-legend').innerHTML =
+    `<div class="bar" style="background:linear-gradient(90deg,${segs.join(',')})"></div>
+     <div class="ticks"><span>${top}°C</span><span>${PW_BAND_STEP}° bands</span><span>${bot}°C</span></div>`;
+}
+
+// Called after each obs refresh; recompute the fit and, if Live is active,
+// repaint the overlay and panel.
+function pwUpdateTempProfile() {
+  pwProfile = pwComputeProfile();
+  if (viewMode === 'live') {
+    if (pwProfile) applyRampWhenReady(pwBuildTempRamp());
+    renderLivePanel();
+  }
+}
+
+function renderLiveTempView() {
+  pwProfile = pwComputeProfile();
+  if (pwProfile) applyRampWhenReady(pwBuildTempRamp());
+  renderLivePanel();
+  setTimeout(() => map.resize(), 60);
 }
 </script>
 </body>
