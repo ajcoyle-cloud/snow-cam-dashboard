@@ -170,7 +170,7 @@
     z-index: 9; pointer-events: none; display: none;
   }
   /* In live mode the panel sits just above the time slider. */
-  #map-screen.live-mode #snow-info { bottom: 76px; }
+  #map-screen.live-mode #snow-info { bottom: 96px; }
   #fl-overlay svg { width: 100%; height: 100%; display: block; }
   #fl-caption {
     position: absolute; top: 0; right: 16px;
@@ -1888,8 +1888,8 @@ function pwRenderPseudoPills() {
     ];
   } else if (resortKey === 'loveland') {
     pseudos = [
-      { elev: 3870, lat: 39.6750, lon: -105.8975, label: 'Summit' },
-      { elev: 3225, lat: 39.6803, lon: -105.8989, label: 'Base' },
+      { elev: 3871, lat: 39.673167, lon: -105.926355, label: 'Top' },
+      { elev: 3292, lat: 39.680855, lon: -105.898442, label: 'Base' },
     ];
   }
   for (const p of pseudos) {
