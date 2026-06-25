@@ -1476,18 +1476,21 @@ function toggleObsLayer() {
   }
 }
 
-// Render pseudo temperature pills at ski field base and summit (Cardrona only).
+// Render pseudo temperature pills for ski field elevations (resort-specific).
 function pwRenderPseudoPills() {
-  if (resortKey !== 'cardrona' || !pwProfile) return;
+  if (!pwProfile) return;
   // Remove existing pseudo pills
   for (const el of document.querySelectorAll('.pseudo-pill')) {
     if (el.marker) el.marker.remove();
   }
-  // Base (~1600m) and summit (~2100m) of Cardrona ski field
-  const pseudos = [
-    { elev: 1600, lat: -44.762, lon: 169.012, label: 'Base' },
-    { elev: 2100, lat: -44.748, lon: 169.025, label: 'Summit' },
-  ];
+  // Pseudo pills: elevation and position per resort
+  let pseudos = [];
+  if (resortKey === 'cardrona') {
+    pseudos = [
+      { elev: 1600, lat: -44.762, lon: 169.012, label: 'Base' },
+      { elev: 2100, lat: -44.748, lon: 169.025, label: 'Summit' },
+    ];
+  }
   for (const p of pseudos) {
     const t = pwTempAt(p.elev);
     if (t == null) continue;
