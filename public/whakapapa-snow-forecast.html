@@ -163,6 +163,18 @@
   .pill-btn.active { background: #2563eb; color: #fff; }
   #period-switch { display: none; }
 
+  /* ── Freezing-level sparkline (live mode, bottom of map) ─────────────── */
+  #fl-overlay {
+    position: absolute; left: 0; right: 0; bottom: 6px; height: 84px;
+    z-index: 9; pointer-events: none; display: none;
+  }
+  #fl-overlay svg { width: 100%; height: 100%; display: block; }
+  #fl-caption {
+    position: absolute; top: 0; right: 16px;
+    font-size: 0.62rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em;
+    color: rgba(255,255,255,0.8); text-shadow: 0 1px 3px rgba(0,0,0,0.7);
+  }
+
   /* ── Live temperature panel ─────────────────────────────────────────── */
   #info-live { display: none; }
   #info-live h3 { display: flex; align-items: center; gap: 7px; }
@@ -249,6 +261,15 @@
   .obs-cell .vv { font-size: 0.92rem; font-weight: 600; }
   .obs-graph-title { font-size: 0.62rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; color: rgba(255,255,255,0.45); margin: 18px 0 6px; }
   .obs-graph { width: 100%; display: block; }
+  .obs-graph-wrap { position: relative; }
+  .g-tip {
+    position: absolute; transform: translate(-50%, -135%); pointer-events: none;
+    background: rgba(0,0,0,0.9); color: #fff; padding: 4px 9px; border-radius: 7px;
+    font-size: 0.72rem; white-space: nowrap; box-shadow: 0 3px 12px rgba(0,0,0,0.5);
+    display: flex; align-items: baseline; gap: 6px; font-variant-numeric: tabular-nums;
+  }
+  .g-tip b { font-size: 0.82rem; font-weight: 700; }
+  .g-tip .t { color: rgba(255,255,255,0.6); }
 
 </style>
 </head>
@@ -303,6 +324,7 @@
       <div id="live-legend"></div>
     </div>
   </div>
+  <div id="fl-overlay"><span id="fl-caption"></span><svg></svg></div>
   <div id="timeline">
     <button id="tl-play" onclick="togglePlay()">▶</button>
     <button class="tl-step" id="tl-prev" onclick="stepHour(-1)">‹</button>
@@ -1002,6 +1024,7 @@ function setViewMode(mode) {
   document.getElementById('info-hourly').style.display = mode === 'hourly' ? 'block' : 'none';
   document.getElementById('info-accum').style.display = mode === 'accumulated' ? 'block' : 'none';
   document.getElementById('info-live').style.display = mode === 'live' ? 'block' : 'none';
+  if (mode !== 'live') document.getElementById('fl-overlay').style.display = 'none';
 
   if (mode === 'hourly') {
     stopPlay();
@@ -1040,6 +1063,8 @@ function updateFullscreenUI() {
 ['fullscreenchange', 'webkitfullscreenchange', 'msfullscreenchange'].forEach((evt) =>
   document.addEventListener(evt, updateFullscreenUI)
 );
+// Redraw the freezing-level sparkline (sized in pixels) when the map resizes.
+window.addEventListener('resize', () => { if (typeof viewMode !== 'undefined' && viewMode === 'live') pwRenderFreezingOverlay(); });
 
 // ── Timeline scrubber: drag-to-seek + play/pause autoplay ────────────────────
 document.getElementById('tl-slider').addEventListener('input', (e) => {
@@ -1270,7 +1295,13 @@ function pwTempGraph(series, hours = 12) {
   const fmt = (ts) => new Date(ts * 1000).toLocaleTimeString('en-NZ', { hour: '2-digit', minute: '2-digit', hour12: false });
   const last = pts[pts.length - 1];
   const dotColor = pwTempColor(last.tempC);
-  return `<svg class="obs-graph" viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg">
+  // store plotted geometry so the hover handler can map cursor x → nearest sample
+  pwGraphState = {
+    W, H, plotTop: P.t, plotH: ph,
+    pts: pts.map(p => ({ ts: p.ts, tempC: p.tempC, x: +X(p.ts).toFixed(2), y: +Y(p.tempC).toFixed(2) })),
+  };
+  return `<div class="obs-graph-wrap">
+    <svg class="obs-graph" viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg">
     <defs><linearGradient id="pwfill" x1="0" y1="0" x2="0" y2="1">
       <stop offset="0" stop-color="#38bdf8" stop-opacity="0.35"/>
       <stop offset="1" stop-color="#38bdf8" stop-opacity="0"/>
@@ -1278,10 +1309,47 @@ function pwTempGraph(series, hours = 12) {
     ${yLabels}
     <path d="${area}" fill="url(#pwfill)" />
     <path d="${line}" fill="none" stroke="#7dd3fc" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+    <line class="g-vline" x1="0" y1="${P.t}" x2="0" y2="${(P.t + ph).toFixed(1)}" stroke="rgba(255,255,255,0.55)" stroke-width="1" style="display:none" />
     <circle cx="${X(last.ts).toFixed(1)}" cy="${Y(last.tempC).toFixed(1)}" r="3.5" fill="${dotColor}" stroke="#fff" stroke-width="1.5" />
+    <circle class="g-hdot" r="3.5" fill="#fff" stroke="#0a1424" stroke-width="1.5" style="display:none" />
     <text x="${P.l}" y="${H - 5}" font-size="9" fill="rgba(255,255,255,0.45)">${fmt(t0)}</text>
     <text x="${W - P.r}" y="${H - 5}" text-anchor="end" font-size="9" fill="rgba(255,255,255,0.45)">${fmt(t1)}</text>
-  </svg>`;
+    <rect class="g-capture" x="${P.l}" y="${P.t}" width="${pw}" height="${ph}" fill="transparent" style="cursor:crosshair" />
+    </svg>
+    <div class="g-tip" style="display:none"></div>
+  </div>`;
+}
+
+let pwGraphState = null;
+
+// Wire pointer hover on the temperature graph: snap to the nearest sample and
+// show a tooltip with its exact temperature and time.
+function pwWireGraphHover(root) {
+  const wrap = root.querySelector('.obs-graph-wrap');
+  if (!wrap || !pwGraphState) return;
+  const st = pwGraphState;
+  const svg = wrap.querySelector('svg.obs-graph');
+  const cap = wrap.querySelector('.g-capture');
+  const vline = wrap.querySelector('.g-vline');
+  const hdot = wrap.querySelector('.g-hdot');
+  const tip = wrap.querySelector('.g-tip');
+  const fmt = (ts) => new Date(ts * 1000).toLocaleTimeString('en-NZ', { hour: '2-digit', minute: '2-digit', hour12: false });
+  const move = (e) => {
+    const rect = svg.getBoundingClientRect();
+    const sx = (e.clientX - rect.left) / rect.width * st.W;
+    let best = st.pts[0], bd = Infinity;
+    for (const p of st.pts) { const d = Math.abs(p.x - sx); if (d < bd) { bd = d; best = p; } }
+    vline.style.display = ''; vline.setAttribute('x1', best.x); vline.setAttribute('x2', best.x);
+    hdot.style.display = ''; hdot.setAttribute('cx', best.x); hdot.setAttribute('cy', best.y);
+    tip.style.display = 'block';
+    tip.innerHTML = `<b>${best.tempC.toFixed(1)}°C</b><span class="t">${fmt(best.ts)}</span>`;
+    const px = Math.max(34, Math.min(rect.width - 34, best.x / st.W * rect.width));
+    tip.style.left = px + 'px';
+    tip.style.top = (best.y / st.H * rect.height) + 'px';
+  };
+  const hide = () => { vline.style.display = 'none'; hdot.style.display = 'none'; tip.style.display = 'none'; };
+  cap.addEventListener('pointermove', move);
+  cap.addEventListener('pointerleave', hide);
 }
 
 function pwOpenModal(data) {
@@ -1328,6 +1396,7 @@ function pwOpenModal(data) {
     if (e.key === 'Escape') { close(); document.removeEventListener('keydown', esc); }
   });
   document.getElementById('map-screen').appendChild(back);
+  pwWireGraphHover(back);
 }
 
 function pwRenderPill(trackId) {
@@ -1418,7 +1487,8 @@ function pwTempAt(elev) { return pwProfile ? pwProfile.a + pwProfile.b * elev : 
 // Discrete temperature bands (°C). Each band is a solid colour with a hard
 // edge — no smooth blend. Band [edge, edge+step) is coloured at its midpoint.
 const PW_BAND_STEP = 2;
-const PW_BAND_HI = 16, PW_BAND_LO = -12;
+const PW_BAND_LO = -12;
+const PW_OVERLAY_MAX_TEMP = 5; // only tint terrain at/below this; warmer = bare tile
 
 // Inverse profile: elevation at which the modelled temperature equals `t`.
 function pwElevAtTemp(t) { return (t - pwProfile.a) / pwProfile.b; }
@@ -1428,16 +1498,18 @@ function pwElevAtTemp(t) { return (t - pwProfile.a) / pwProfile.b; }
 // color-relief layer only renders `interpolate` (not `step`) ramps, so we
 // fake the hard edges: hold each band's colour flat, then jump to the next
 // across a 0.5 m gap — a near-vertical transition that reads as a crisp edge.
+// Terrain warmer than PW_OVERLAY_MAX_TEMP is fully transparent (bare map tile).
 function pwBuildTempRamp() {
+  const TRANSP = 'rgba(0,0,0,0)';
   const flat = (t) => { const [r, g, b] = pwTempRGB(t); return `rgba(${r},${g},${b},${PW_OVERLAY_ALPHA})`; };
-  if (!pwProfile || pwProfile.b >= 0) return flat(pwProfile ? pwProfile.a : 0);
+  if (!pwProfile || pwProfile.b >= 0) return TRANSP;
   const EPS = 0.5;
-  // band boundary temps, descending -> boundary elevations, ascending
+  // boundaries from the warm cutoff down; descending temp -> ascending elevation
   const bounds = [];
-  for (let t = PW_BAND_HI; t >= PW_BAND_LO; t -= PW_BAND_STEP) bounds.push({ t, e: pwElevAtTemp(t) });
+  for (let t = PW_OVERLAY_MAX_TEMP; t >= PW_BAND_LO; t -= PW_BAND_STEP) bounds.push({ t, e: pwElevAtTemp(t) });
   const ramp = ['interpolate', ['linear'], ['elevation']];
-  let prev = flat(PW_BAND_HI + PW_BAND_STEP / 2);     // warmest band (below first boundary)
-  ramp.push(bounds[0].e - 200, prev);
+  let prev = TRANSP;                                   // warmer than cutoff: no overlay
+  ramp.push(bounds[0].e - 400, prev);
   for (const bd of bounds) {
     const next = flat(bd.t - PW_BAND_STEP / 2);        // band just colder than this edge
     ramp.push(bd.e - EPS, prev, bd.e, next);
@@ -1476,11 +1548,11 @@ function renderLivePanel() {
     <div class="live-stat"><span>Modelled summit (${Math.round(TOP_ELEV)}m)</span><b>${summitT != null ? summitT.toFixed(1) + '°C' : '—'}</b></div>`;
   document.getElementById('live-rows').innerHTML = rows + stats;
 
-  // banded legend across the on-mountain temperature span (hard edges, matching
-  // the overlay). Left = warm (valley), right = cold (summit).
-  const elo = 600, ehi = Math.max(TOP_ELEV, 2800);
-  const top = Math.ceil(pwTempAt(elo) / PW_BAND_STEP) * PW_BAND_STEP;
-  const bot = Math.floor(pwTempAt(ehi) / PW_BAND_STEP) * PW_BAND_STEP;
+  // banded legend, hard edges matching the overlay. Overlay is clipped to
+  // ≤5°C, so the legend runs from that cutoff down to the summit temperature.
+  const ehi = Math.max(TOP_ELEV, 2800);
+  const top = PW_OVERLAY_MAX_TEMP;
+  const bot = Math.min(top - PW_BAND_STEP, Math.floor(pwTempAt(ehi) / PW_BAND_STEP) * PW_BAND_STEP);
   const span = Math.max(PW_BAND_STEP, top - bot);
   const segs = [];
   for (let t = top; t > bot; t -= PW_BAND_STEP) {
@@ -1490,7 +1562,7 @@ function renderLivePanel() {
   }
   document.getElementById('live-legend').innerHTML =
     `<div class="bar" style="background:linear-gradient(90deg,${segs.join(',')})"></div>
-     <div class="ticks"><span>${top}°C</span><span>${PW_BAND_STEP}° bands</span><span>${bot}°C</span></div>`;
+     <div class="ticks"><span>≤${top}°C</span><span>${PW_BAND_STEP}° bands</span><span>${bot}°C</span></div>`;
 }
 
 // Called after each obs refresh; recompute the fit and, if Live is active,
@@ -1500,6 +1572,7 @@ function pwUpdateTempProfile() {
   if (viewMode === 'live') {
     if (pwProfile) applyRampWhenReady(pwBuildTempRamp());
     renderLivePanel();
+    pwRenderFreezingOverlay();
   }
 }
 
@@ -1507,7 +1580,75 @@ function renderLiveTempView() {
   pwProfile = pwComputeProfile();
   if (pwProfile) applyRampWhenReady(pwBuildTempRamp());
   renderLivePanel();
+  pwRenderFreezingOverlay();
   setTimeout(() => map.resize(), 60);
+}
+
+// ── Freezing-level history sparkline ───────────────────────────────────────
+// Reconstruct the 0°C level over the past few hours by refitting the lapse rate
+// at each past timestep from the stations' temperature histories, then draw it
+// as a bare white line along the bottom of the map.
+function pwTempAtTime(series, ts) {
+  if (ts <= series[0].ts) return series[0].tempC;
+  const n = series.length;
+  if (ts >= series[n - 1].ts) return series[n - 1].tempC;
+  for (let i = 1; i < n; i++) {
+    if (series[i].ts >= ts) {
+      const a = series[i - 1], b = series[i];
+      return a.tempC + (b.tempC - a.tempC) * (ts - a.ts) / (b.ts - a.ts);
+    }
+  }
+  return series[n - 1].tempC;
+}
+
+function pwFreezingSeries(hours = 6) {
+  const stations = Object.values(pwState).filter(s => s.meta.elevM != null && s.series.length >= 2);
+  if (stations.length < 2) return [];
+  const endTs = Math.min(...stations.map(s => s.series[s.series.length - 1].ts));
+  const startTs = endTs - hours * 3600;
+  const STEP = 15 * 60;
+  const out = [];
+  for (let t = startTs; t <= endTs; t += STEP) {
+    const pts = [];
+    for (const s of stations) if (t >= s.series[0].ts) pts.push([s.meta.elevM, pwTempAtTime(s.series, t)]);
+    if (pts.length < 2) continue;
+    const n = pts.length;
+    const sx = pts.reduce((q, p) => q + p[0], 0), sy = pts.reduce((q, p) => q + p[1], 0);
+    const sxx = pts.reduce((q, p) => q + p[0] * p[0], 0), sxy = pts.reduce((q, p) => q + p[0] * p[1], 0);
+    const den = n * sxx - sx * sx;
+    if (Math.abs(den) < 1e-6) continue;
+    const b = (n * sxy - sx * sy) / den, a = (sy - b * sx) / n;
+    if (b >= 0) continue;
+    out.push({ ts: t, fl: -a / b });
+  }
+  return out;
+}
+
+function pwRenderFreezingOverlay() {
+  const host = document.getElementById('fl-overlay');
+  if (viewMode !== 'live') { host.style.display = 'none'; return; }
+  const fl = pwFreezingSeries(6);
+  if (fl.length < 2) { host.style.display = 'none'; return; }
+  host.style.display = 'block';
+  const W = host.clientWidth, H = host.clientHeight;
+  const P = { l: 12, r: 12, t: 18, b: 8 };
+  const pw = W - P.l - P.r, ph = H - P.t - P.b;
+  const t0 = fl[0].ts, t1 = fl[fl.length - 1].ts;
+  let lo = Math.min(...fl.map(p => p.fl)), hi = Math.max(...fl.map(p => p.fl));
+  if (hi - lo < 150) { const m = (hi + lo) / 2; lo = m - 75; hi = m + 75; }
+  const padv = (hi - lo) * 0.25; lo -= padv; hi += padv;
+  const X = (ts) => P.l + (t1 === t0 ? 0 : (ts - t0) / (t1 - t0)) * pw;
+  const Y = (v) => P.t + ph - ((v - lo) / (hi - lo)) * ph;
+  const d = fl.map((p, i) => `${i ? 'L' : 'M'}${X(p.ts).toFixed(1)},${Y(p.fl).toFixed(1)}`).join(' ');
+  const last = fl[fl.length - 1];
+  const sh = 'drop-shadow(0 1px 2px rgba(0,0,0,0.75))';
+  const svg = host.querySelector('svg');
+  svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
+  svg.innerHTML =
+    `<path d="${d}" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="filter:${sh}"/>
+     <circle cx="${X(last.ts).toFixed(1)}" cy="${Y(last.fl).toFixed(1)}" r="3" fill="#fff" style="filter:${sh}"/>
+     <text x="${(X(last.ts) - 7).toFixed(1)}" y="${(Y(last.fl) - 6).toFixed(1)}" text-anchor="end" font-size="12" font-weight="700" fill="#fff" style="filter:${sh}">${Math.round(last.fl)} m</text>`;
+  document.getElementById('fl-caption').textContent = 'Freezing level · last 6h';
 }
 </script>
 </body>
