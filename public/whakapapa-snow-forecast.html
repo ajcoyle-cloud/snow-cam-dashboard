@@ -166,11 +166,11 @@
 
   /* ── Freezing-level sparkline (live mode, just above the time slider) ── */
   #fl-overlay {
-    position: absolute; left: 20px; right: 20px; bottom: 80px; height: 54px;
+    position: absolute; left: 20px; right: 20px; bottom: 80px; height: 162px;
     z-index: 9; pointer-events: none; display: none;
   }
-  /* In live mode the panel sits above the sparkline + slider stack. */
-  #map-screen.live-mode #snow-info { bottom: 146px; }
+  /* In live mode the panel sits just above the time slider. */
+  #map-screen.live-mode #snow-info { bottom: 76px; }
   #fl-overlay svg { width: 100%; height: 100%; display: block; }
   #fl-caption {
     position: absolute; top: 0; right: 16px;
@@ -1777,14 +1777,13 @@ function pwRenderFreezingOverlay() {
     }
   }
   const mx = X(markTs), my = Y(flMark);
-  const sh = 'drop-shadow(0 1px 2px rgba(0,0,0,0.75))';
   const svg = host.querySelector('svg');
   svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
   svg.innerHTML =
-    `<path d="${d}" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="filter:${sh}"/>
-     <line x1="${mx.toFixed(1)}" y1="${P.t}" x2="${mx.toFixed(1)}" y2="${(P.t + ph).toFixed(1)}" stroke="rgba(255,255,255,0.4)" stroke-width="1"/>
-     <circle cx="${mx.toFixed(1)}" cy="${my.toFixed(1)}" r="3.5" fill="#fff" style="filter:${sh}"/>
-     <text x="${(mx - 8).toFixed(1)}" y="${(my - 6).toFixed(1)}" text-anchor="end" font-size="12" font-weight="700" fill="#fff" style="filter:${sh}">${Math.round(flMark)} m</text>`;
+    `<path d="${d}" fill="none" stroke="#fff" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round" stroke-opacity="0.6"/>
+     <line x1="${mx.toFixed(1)}" y1="${P.t}" x2="${mx.toFixed(1)}" y2="${(P.t + ph).toFixed(1)}" stroke="rgba(255,255,255,0.3)" stroke-width="1"/>
+     <circle cx="${mx.toFixed(1)}" cy="${my.toFixed(1)}" r="3.5" fill="#fff" opacity="0.6"/>
+     <text x="${(mx - 8).toFixed(1)}" y="${(my - 6).toFixed(1)}" text-anchor="end" font-size="12" font-weight="700" fill="#fff" opacity="0.6">${Math.round(flMark)} m</text>`;
   document.getElementById('fl-caption').textContent = 'Freezing level · last 6h';
 }
 
