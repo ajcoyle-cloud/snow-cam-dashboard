@@ -1809,6 +1809,11 @@ function pwRenderPseudoPills() {
       { elev: 2100, lat: -44.852148, lon: 168.940757, label: 'Summit' },
       { elev: 1600, lat: -44.874519, lon: 168.964017, label: 'Base' },
     ];
+  } else if (resortKey === 'whakapapa') {
+    pseudos = [
+      { elev: 2797, lat: -39.236227, lon: 175.556884, label: 'Summit' },
+      { elev: 1600, lat: -39.281215, lon: 175.568672, label: 'Base' },
+    ];
   }
   for (const p of pseudos) {
     const t = pwTempAt(p.elev);
