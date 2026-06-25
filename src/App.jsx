@@ -1,3 +1,4 @@
+// Updated with Loveland ski area and forecast view switcher
 import { useState, useEffect, useRef } from 'react'
 import { Camera, LineChart, Map as MapIcon } from 'lucide-react'
 import HLS from 'hls.js'
@@ -14,6 +15,7 @@ const WEATHER_LOCATIONS = {
   'Treble Cone': { lat: -44.4, lon: 169.2, elevation: 2088 },
   'The Remarkables': { lat: -44.4, lon: 168.7, elevation: 1960 },
   'Coronet Peak': { lat: -44.4, lon: 168.8, elevation: 1649 },
+  'Loveland': { lat: 39.65, lon: -105.49, elevation: 3290 },
 }
 
 const getWeatherIcon = (pictocode) => {
@@ -103,6 +105,13 @@ const SOUTH_ISLAND = [
   { name: 'Coronet Peak – Top Station', url: 'https://www.queenstown.com/cams/coronetpeak2.jpg', location: 'Coronet Peak' },
   { name: 'Coronet Peak – Coronet Express', url: 'https://www.queenstown.com/cams/coronetpeak4.jpg', location: 'Coronet Peak' },
   { name: 'Coronet Peak - Summit', url: 'https://www.mountainwatch.com/Resort/Coronet-Peak-Coronet-Peak-Summit/LiveStill.jpg', location: 'Coronet Peak' },
+]
+
+const USA_RESORTS = [
+  { name: 'Loveland - Ptarmigan', url: 'https://photosskiloveland.com/ptarmigan/image.jpg', location: 'Loveland' },
+  { name: 'Loveland - Chair One', url: 'https://photosskiloveland.com/chairone/image.jpg', location: 'Loveland' },
+  { name: 'Loveland - Basin', url: 'https://photosskiloveland.com/basin/image.jpg', location: 'Loveland' },
+  { name: 'Loveland - Snowcam', url: 'https://photosskiloveland.com/snowcam/image.jpg', location: 'Loveland' },
 ]
 
 function WeatherDisplay({ location }) {
@@ -548,7 +557,7 @@ function CameraGrid({ cameras }) {
   return (
     <div className="camera-grid">
       {cameras.map((camera) => (
-        <CameraCard key={camera.name} camera={camera} allCameras={[...NORTH_ISLAND, ...SOUTH_ISLAND]} />
+        <CameraCard key={camera.name} camera={camera} allCameras={cameras} />
       ))}
     </div>
   )
@@ -557,6 +566,7 @@ function CameraGrid({ cameras }) {
 const RESORTS = {
   ruapehu: { name: 'Mt Ruapehu', lat: -39.28, lon: 175.57, summitElev: 2300, baseElev: 1630, timezone: 'Pacific/Auckland', metservicePath: 'mountains-and-parks/national-parks/tongariro' },
   cardrona: { name: 'Cardrona Alpine Resort', lat: -44.76, lon: 169.0, summitElev: 1860, baseElev: 1640, timezone: 'Pacific/Auckland', metservicePath: 'mountains-and-parks/ski-fields/cardrona' },
+  loveland: { name: 'Loveland Ski Area', lat: 39.65, lon: -105.49, summitElev: 3500, baseElev: 3100, timezone: 'America/Denver' },
 }
 
 // --- MetService freezing-level helpers ---------------------------------------
@@ -653,6 +663,7 @@ function SnowfallForecast() {
   const [hoverLineX, setHoverLineX] = useState(null)
   const [containerWidth, setContainerWidth] = useState(() => window.innerWidth - 40)
   const [windowHeight, setWindowHeight] = useState(() => window.innerHeight)
+  const [forecastViewMode, setForecastViewMode] = useState('graphs') // 'graphs' or 'map'
   const chartRef = useRef(null)
   const tableRef = useRef(null)
   const svgRef = useRef(null)
@@ -1167,12 +1178,12 @@ function SnowfallForecast() {
 
   console.log(`maxPrecip: ${maxPrecip}mm`)
 
-  // Reference elevation for chart baseline
-  const refElevation = elevation === 'summit' ? 2100 : 1600
-
-  // Scale freezing level with fixed elevation range (0m to 4000m)
+  // Scale freezing level with an elevation range that always covers the
+  // resort's summit plus headroom, so high-elevation resorts (e.g. Loveland,
+  // summit ~3500m) don't get their freezing-level lines clipped off the top
+  // of a chart sized for NZ resorts (summit ~2300m).
   const minElevationChart = 0
-  const maxElevationChart = 4000
+  const maxElevationChart = Math.max(5500, RESORTS[resort].summitElev + 1500)
   const freezingLevelScale = (elevation_m) => {
     const elevRange = maxElevationChart - minElevationChart
     return snowPadding.top + snowPlotHeight - (((elevation_m - minElevationChart) / elevRange) * snowPlotHeight)
@@ -1224,6 +1235,27 @@ function SnowfallForecast() {
           ))}
         </div>
       </div>
+
+      {/* View Mode Switcher */}
+      <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '12px' }}>
+        <div className="elevation-toggle">
+          <button
+            className={`toggle-btn ${forecastViewMode === 'graphs' ? 'active' : ''}`}
+            onClick={() => setForecastViewMode('graphs')}
+          >
+            Graphs & Tables
+          </button>
+          <button
+            className={`toggle-btn ${forecastViewMode === 'map' ? 'active' : ''}`}
+            onClick={() => setForecastViewMode('map')}
+          >
+            Map View
+          </button>
+        </div>
+      </div>
+
+      {forecastViewMode === 'graphs' && (
+      <>
       <h2>16 Day Forecast</h2>
       <div style={{ textAlign: 'center', color: '#555', fontSize: '11px', marginTop: '-2px', marginBottom: '12px' }}>
         GFS next update in {nextGfsUpdate} &nbsp;·&nbsp; ECMWF next update in {nextEcmwfUpdate}
@@ -1399,7 +1431,7 @@ function SnowfallForecast() {
           })}
 
           {/* Altitude reference lines */}
-          {[1000, 1630, 2300].map((elev) => {
+          {[Math.round(RESORTS[resort].baseElev / 2 / 100) * 100, RESORTS[resort].baseElev, RESORTS[resort].summitElev].map((elev) => {
             const y = freezingLevelScale(elev)
             const clampedY = Math.min(y, snowPadding.top + snowPlotHeight)
             return (
@@ -1454,19 +1486,19 @@ function SnowfallForecast() {
           })}
 
 
-          {/* GFS model freezing level line — dashed below 2300m, solid above */}
+          {/* GFS model freezing level line — dashed below summit, solid above */}
           {showFreezing.gfs && (() => {
             const gfsSegments = []
             let segmentPoints = []
-            let segmentAbove2300 = null
+            let segmentAboveSummit = null
             let lastPoint = null
 
             displayData.forEach((d, i) => {
               if (d.freezingLevelGFS === null) {
                 if (segmentPoints.length > 0) {
-                  gfsSegments.push({ points: segmentPoints, above: segmentAbove2300 })
+                  gfsSegments.push({ points: segmentPoints, above: segmentAboveSummit })
                   segmentPoints = []
-                  segmentAbove2300 = null
+                  segmentAboveSummit = null
                 }
                 lastPoint = null
                 return
@@ -1475,24 +1507,24 @@ function SnowfallForecast() {
               const y = freezingLevelScale(d.freezingLevelGFS)
               const clampedY = Math.min(y, snowPadding.top + snowPlotHeight)
               const point = [snowXScale(i), clampedY]
-              const isAbove = d.freezingLevelGFS >= 2300
+              const isAbove = d.freezingLevelGFS >= RESORTS[resort].summitElev
 
-              if (segmentAbove2300 !== null && segmentAbove2300 !== isAbove) {
+              if (segmentAboveSummit !== null && segmentAboveSummit !== isAbove) {
                 // Include transition point in current segment
                 segmentPoints.push(point)
-                gfsSegments.push({ points: segmentPoints, above: segmentAbove2300 })
+                gfsSegments.push({ points: segmentPoints, above: segmentAboveSummit })
                 // Start new segment with transition point
                 segmentPoints = [point]
               } else {
                 segmentPoints.push(point)
               }
 
-              segmentAbove2300 = isAbove
+              segmentAboveSummit = isAbove
               lastPoint = point
             })
 
             if (segmentPoints.length > 0) {
-              gfsSegments.push({ points: segmentPoints, above: segmentAbove2300 })
+              gfsSegments.push({ points: segmentPoints, above: segmentAboveSummit })
             }
 
             return gfsSegments.map((seg, idx) => (
@@ -1504,20 +1536,20 @@ function SnowfallForecast() {
             ))
           })()}
 
-          {/* ICON freezing level line — dashed below 2300m, solid above */}
+          {/* ICON freezing level line — dashed below summit, solid above */}
           {showFreezing.ecmwf && ecmwfFreezingData && (() => {
             const iconSegments = []
             let segmentPoints = []
-            let segmentAbove2300 = null
+            let segmentAboveSummit = null
             let lastPoint = null
 
             displayData.forEach((d, i) => {
               const val = ecmwfFreezingData[i]
               if (val === null || val === undefined) {
                 if (segmentPoints.length > 0) {
-                  iconSegments.push({ points: segmentPoints, above: segmentAbove2300 })
+                  iconSegments.push({ points: segmentPoints, above: segmentAboveSummit })
                   segmentPoints = []
-                  segmentAbove2300 = null
+                  segmentAboveSummit = null
                 }
                 lastPoint = null
                 return
@@ -1526,24 +1558,24 @@ function SnowfallForecast() {
               const y = freezingLevelScale(val)
               const clampedY = Math.min(y, snowPadding.top + snowPlotHeight)
               const point = [snowXScale(i), clampedY]
-              const isAbove = val >= 2300
+              const isAbove = val >= RESORTS[resort].summitElev
 
-              if (segmentAbove2300 !== null && segmentAbove2300 !== isAbove) {
+              if (segmentAboveSummit !== null && segmentAboveSummit !== isAbove) {
                 // Include transition point in current segment
                 segmentPoints.push(point)
-                iconSegments.push({ points: segmentPoints, above: segmentAbove2300 })
+                iconSegments.push({ points: segmentPoints, above: segmentAboveSummit })
                 // Start new segment with transition point
                 segmentPoints = [point]
               } else {
                 segmentPoints.push(point)
               }
 
-              segmentAbove2300 = isAbove
+              segmentAboveSummit = isAbove
               lastPoint = point
             })
 
             if (segmentPoints.length > 0) {
-              iconSegments.push({ points: segmentPoints, above: segmentAbove2300 })
+              iconSegments.push({ points: segmentPoints, above: segmentAboveSummit })
             }
 
             return iconSegments.map((seg, idx) => (
@@ -1895,7 +1927,7 @@ function SnowfallForecast() {
                 const precip = data.precipitation
                 const snowfall = data.snowfall
                 const prob = data.precipProbability
-                const elev = elevation === 'summit' ? 2300 : 1630
+                const elev = elevation === 'summit' ? RESORTS[resort].summitElev : RESORTS[resort].baseElev
                 const freezingLevel = d.freezingLevelECMWF ?? d.freezingLevelGFS ?? d.freezingLevel
                 const isSnow = freezingLevel < elev && snowfall > 0.1
                 const showBlank = isSnow
@@ -1916,7 +1948,7 @@ function SnowfallForecast() {
                   const precip = data.precipitation
                   const snowfall = data.snowfall
                   const prob = data.precipProbability
-                  const elev = elevation === 'summit' ? 2300 : 1630
+                  const elev = elevation === 'summit' ? RESORTS[resort].summitElev : RESORTS[resort].baseElev
                   const freezingLevel = d.freezingLevel
                   const isSnow = freezingLevel < elev && snowfall > 0.1
                   const showBlank = isSnow
@@ -2026,7 +2058,7 @@ function SnowfallForecast() {
               <td style={{ width: `${snowPadding.left}px` }}>Freezing {compareModels ? '(GFS)' : '(m)'}</td>
               {tableData.map((d, i) => {
                 const val = d.freezingLevelGFS ?? d.freezingLevel
-                const isAboveSummit = val > 2300
+                const isAboveSummit = val > RESORTS[resort].summitElev
                 return (
                   <td key={i} style={{ width: `${tableCellWidth}px`, color: isAboveSummit ? '#ef4444' : '#7bb3f0', background: 'rgba(26, 26, 26, 0.15)' }}>{val || '—'}</td>
                 )
@@ -2037,7 +2069,7 @@ function SnowfallForecast() {
                 <td style={{ width: `${snowPadding.left}px` }}>Freezing (ECMWF) (m)</td>
                 {ecmwfTableData.map((d, i) => {
                   const val = d.freezingLevel
-                  const isAboveSummit = val > 2300
+                  const isAboveSummit = val > RESORTS[resort].summitElev
                   return (
                     <td key={i} style={{ width: `${tableCellWidth}px`, color: isAboveSummit ? '#ef4444' : '#10b981', background: 'rgba(26, 26, 26, 0.15)' }}>{val || '—'}</td>
                   )
@@ -2067,6 +2099,12 @@ function SnowfallForecast() {
           </div>
         </div>
       )}
+      </>
+      )}
+
+      {forecastViewMode === 'map' && (
+        <ForecastMap3D />
+      )}
     </div>
   )
 }
@@ -2076,6 +2114,7 @@ function ForecastMap3D() {
   const locations = {
     ruapehu: { name: 'Mt Ruapehu' },
     cardrona: { name: 'Cardrona / Wānaka' },
+    loveland: { name: 'Loveland Ski Area' },
   }
   const src = `/whakapapa-snow-forecast.html?resort=${resort}`
 
@@ -2127,7 +2166,7 @@ export default function App() {
       <main className={`main-content ${activeTab === 'map' ? 'is-map' : ''}`}>
         {activeTab === 'webcams' && (
           <section className="region-section">
-            <CameraGrid cameras={[...NORTH_ISLAND, ...SOUTH_ISLAND]} />
+            <CameraGrid cameras={[...NORTH_ISLAND, ...SOUTH_ISLAND, ...USA_RESORTS]} />
           </section>
         )}
 

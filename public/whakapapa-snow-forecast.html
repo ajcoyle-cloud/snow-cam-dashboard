@@ -366,10 +366,18 @@ const RESORT_CONFIG = {
     topElev: 1950, // approx summit ridge for the colour ramp's upper bound
     // Camera framing targets the actual ski basin (not the weather sample point above).
     center: [168.9501, -44.8676], zoom: 13.6, pitch: 62, bearing: 200
+  },
+  loveland: {
+    name: 'Loveland Ski Area',
+    lat: 39.6803, lon: -105.8989, summitElev: 3870, baseElev: 3225, timezone: 'America/Denver',
+    topElev: 3965, // approx summit ridge for the colour ramp's upper bound
+    center: [-105.8989, 39.6803], zoom: 13.4, pitch: 62, bearing: 30
   }
 };
 
-const resortKey = new URLSearchParams(window.location.search).get('resort') === 'cardrona' ? 'cardrona' : 'ruapehu';
+const VALID_RESORT_KEYS = new Set(Object.keys(RESORT_CONFIG));
+const requestedResort = new URLSearchParams(window.location.search).get('resort');
+const resortKey = VALID_RESORT_KEYS.has(requestedResort) ? requestedResort : 'ruapehu';
 const LOC = RESORT_CONFIG[resortKey];
 
 // Whakapapa ski field lift lines (chairlifts, gondola, T-bars, carpets, rope
@@ -851,7 +859,11 @@ function showClickPopup(x, y, text) {
 const SNOWFALL_THRESHOLD_MM = 0.1;
 
 function buildSnowRamp(hour) {
-  const snowLine = hour.freezingLevel - SNOW_OFFSET;
+  // Clamp below TOP_ELEV so the ramp's stops stay strictly ascending even
+  // when the freezing level forecasts above the resort's summit (e.g. a
+  // Northern Hemisphere resort like Loveland queried in southern winter,
+  // or any resort in its own off-season).
+  const snowLine = Math.min(hour.freezingLevel - SNOW_OFFSET, TOP_ELEV - 2);
 
   if (hour.snowfallMm < SNOWFALL_THRESHOLD_MM) {
     const color = 'rgba(60,130,255,0.4)';
@@ -868,12 +880,13 @@ function buildSnowRamp(hour) {
   const a1 = (0.85 * intensity).toFixed(2);
   const a2 = (0.97 * intensity).toFixed(2);
   const a3 = (1 * intensity).toFixed(2);
+  const midPoint = Math.min(snowLine + 100, TOP_ELEV - 1);
 
   return [
     'interpolate', ['linear'], ['elevation'],
     snowLine - 1, 'rgba(205,225,255,0)',
     snowLine, `rgba(205,225,255,${a1})`,
-    snowLine + 100, `rgba(225,240,255,${a2})`,
+    midPoint, `rgba(225,240,255,${a2})`,
     TOP_ELEV, `rgba(248,251,255,${a3})`
   ];
 }
@@ -975,12 +988,17 @@ function renderDepthLegend(activeBand) {
 function buildAccumRamp(snowLine, bandIndex) {
   const n = bandIndex + 1;
   const bandWidth = (TOP_ELEV - snowLine) / n;
+  // A narrow snowLine..TOP_ELEV gap (e.g. snowLine clamped right up against
+  // TOP_ELEV) can make bandWidth sub-1, so "end - 1" would fall below "start"
+  // and break the ramp's required ascending order — nudge it down to a small
+  // fraction of the band width instead of a flat 1m in that case.
+  const edgeGap = Math.min(1, bandWidth / 4);
   const stops = ['interpolate', ['linear'], ['elevation'], snowLine - 1, 'rgba(255,255,255,0)'];
   DEPTH_BANDS.slice(0, n).forEach((b, i) => {
     const start = snowLine + bandWidth * i;
     const end = snowLine + bandWidth * (i + 1);
     stops.push(start, b.color);
-    stops.push(end - 1, b.color);
+    stops.push(end - edgeGap, b.color);
   });
   return stops;
 }
@@ -1004,7 +1022,9 @@ function renderAccumulatedView() {
   // the same or drop as the window grows, so longer periods never show less
   // low-elevation coverage than the shorter periods nested inside them.
   const minFreezing = Math.min(...window_.map((r) => r.freezingLevel));
-  const snowLine = minFreezing - SNOW_OFFSET;
+  // Clamp below TOP_ELEV — see buildSnowRamp for why (freezing level can
+  // forecast above the resort's summit in its off-season).
+  const snowLine = Math.min(minFreezing - SNOW_OFFSET, TOP_ELEV - 2);
 
   const bandIndex = DEPTH_BANDS.findIndex(b => totalCm <= b.max);
   const band = bandIndex === -1 ? DEPTH_BANDS[DEPTH_BANDS.length - 1] : DEPTH_BANDS[bandIndex];
@@ -1194,6 +1214,19 @@ const PW_CONFIG = {
       { trackId: '363027', name: 'Wanaka Airport' },     // 349 m
     ],
   },
+  // 5 nearest PredictWind track stations to Loveland Ski Area (39.6803,
+  // -105.8989), picked for an elevation spread wide enough to fit a lapse
+  // rate, same as the other resorts.
+  loveland: {
+    tiles: [[10, 636, 210], [10, 636, 209], [10, 635, 211], [10, 633, 209]],
+    stations: [
+      { trackId: '220562', name: '0CO' },             // 3792 m, ~17 km away
+      { trackId: '220910', name: 'C99' },              // 3319 m, ~36 km away
+      { trackId: '222441', name: 'Leadville (LXV)' },  // 3026 m, ~62 km away
+      { trackId: '221922', name: 'Granby (GNB)' },     // 2501 m, ~46 km away
+      { trackId: '1142', name: 'Kremmling (K20V)' },   // 2259 m, ~58 km away
+    ],
+  },
 };
 const PW_TILES = (PW_CONFIG[resortKey] || PW_CONFIG.ruapehu).tiles;
 const PW_STATIONS = (PW_CONFIG[resortKey] || PW_CONFIG.ruapehu).stations;
@@ -1215,23 +1248,56 @@ function pwAgo(unixSec) {
   return d + (d === 1 ? ' day ago' : ' days ago');
 }
 
-const PW_ANCHOR = /^(\d{9,})([+-]\d+)([+-]\d+)d(-?\d+)s(-?\d+)g(-?\d+)t(-?\d+)$/;
-const PW_CONT   = /^(\d+)(?:d(-?\d+))?(?:s(-?\d+))?(?:g(-?\d+))?(?:t(-?\d+))?$/;
+// Field letters (d/s/g/t, plus humidity/rain which we don't use) aren't all
+// guaranteed present — marine buoy tracks report d/s/g/t, but land METAR
+// stations (e.g. US airport AWOS feeds near Loveland) often omit gust (g)
+// and add h/r instead. Parse whichever letter-tokens are actually there
+// rather than requiring a fixed d-s-g-t sequence, or the whole record (and
+// every delta after it) silently fails to decode.
+const PW_ANCHOR = /^(\d{9,})([+-]\d+)([+-]\d+)(.*)$/;
+const PW_CONT   = /^(\d+)(.*)$/;
+const PW_FIELD  = /([a-z])(-?\d+)/g;
+
+function pwParseFieldTokens(tail) {
+  const f = {};
+  for (const m of tail.matchAll(PW_FIELD)) f[m[1]] = +m[2];
+  return f;
+}
 
 function pwDecodeSeries(s) {
-  const out = []; let ts, dir, spd, gst, tmp;
+  const out = []; let ts, dir = 0, spd = 0, gst = 0, tmp = 0;
   for (const rec of s.split('|')) {
     const a = rec.match(PW_ANCHOR);
+    // METAR-style records bundle t (temp) with p (pressure, ~1000hPa) and h
+    // (humidity %) as a one-shot absolute observation snapshot, not a wind-
+    // style running delta — unlike d/s/g, which always accumulate. We only
+    // use t, but its presence alongside p is the tell: treat it as absolute
+    // there, or it silently runs away into a meaningless cumulative sum.
     if (a) {
-      ts = +a[1]; dir = +a[4]; spd = +a[5]; gst = +a[6]; tmp = +a[7];
+      ts = +a[1];
+      const f = pwParseFieldTokens(a[4]);
+      dir = f.d ?? 0; spd = f.s ?? 0; gst = f.g ?? 0;
+      // p === 0 (with t/h/r also 0) is a "no observation this round" sentinel,
+      // not a real reading — real pressure is never exactly 0 — so it leaves
+      // tmp at whatever it already was rather than zeroing it out.
+      if (f.p) tmp = f.t ?? tmp;
+      else if (f.p === undefined) tmp = f.t ?? 0;
     } else {
       const m = rec.match(PW_CONT);
       if (!m) continue;
       ts += +m[1];
-      if (m[2] !== undefined) dir += +m[2];
-      if (m[3] !== undefined) spd += +m[3];
-      if (m[4] !== undefined) gst += +m[4];
-      if (m[5] !== undefined) tmp += +m[5];
+      const f = pwParseFieldTokens(m[2]);
+      if (f.d !== undefined) dir += f.d;
+      if (f.s !== undefined) spd += f.s;
+      if (f.g !== undefined) gst += f.g;
+      if (f.t !== undefined) {
+        // Pure delta-accumulated temp (no 'p' bundled) can drift off into an
+        // impossible reading if a record's deltas get misparsed somewhere
+        // upstream — clamp to a physically plausible range rather than carry
+        // a runaway sum (e.g. a glitch that pushed one station to 54°C).
+        const next = f.p ? f.t : tmp + f.t;
+        if (f.p || (next / 10 >= -50 && next / 10 <= 50)) tmp = next;
+      }
     }
     out.push({ ts, dir: ((dir % 360) + 360) % 360, speedKt: spd / 10, gustKt: gst / 10, tempC: tmp / 10 });
   }
@@ -1691,6 +1757,7 @@ function pwApplyLiveAt(idx) {
   for (const id in pwState) pwRenderPill(id);
   renderLivePanel();
   pwRenderFreezingOverlay();
+  pwRenderPseudoPills();
   const slider = document.getElementById('ltl-slider');
   slider.value = idx;
   document.getElementById('ltl-label').textContent =
@@ -1809,10 +1876,15 @@ function pwRenderPseudoPills() {
       { elev: 2100, lat: -44.852148, lon: 168.940757, label: 'Summit' },
       { elev: 1600, lat: -44.874519, lon: 168.964017, label: 'Base' },
     ];
-  } else if (resortKey === 'whakapapa') {
+  } else if (resortKey === 'ruapehu') {
     pseudos = [
       { elev: 2797, lat: -39.236227, lon: 175.556884, label: 'Summit' },
       { elev: 1600, lat: -39.281215, lon: 175.568672, label: 'Base' },
+    ];
+  } else if (resortKey === 'loveland') {
+    pseudos = [
+      { elev: 3870, lat: 39.6750, lon: -105.8975, label: 'Summit' },
+      { elev: 3225, lat: 39.6803, lon: -105.8989, label: 'Base' },
     ];
   }
   for (const p of pseudos) {
