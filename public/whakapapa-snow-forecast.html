@@ -142,17 +142,6 @@
     box-shadow: 0 4px 16px rgba(0,0,0,0.4);
     pointer-events: none;
   }
-  .temp-hover {
-    position: absolute; z-index: 35; transform: translate(14px, -50%);
-    display: none; align-items: center; gap: 6px;
-    background: rgba(0,0,0,0.85); color: #fff;
-    padding: 5px 10px; border-radius: 8px;
-    font-size: 0.78rem; font-weight: 700; white-space: nowrap;
-    box-shadow: 0 3px 12px rgba(0,0,0,0.45); pointer-events: none;
-    font-variant-numeric: tabular-nums;
-  }
-  .temp-hover .sw { width: 9px; height: 9px; border-radius: 2px; box-shadow: 0 0 0 1px rgba(255,255,255,0.3); }
-  .temp-hover .el { color: rgba(255,255,255,0.55); font-weight: 500; font-size: 0.7rem; }
 
   /* ── Top mode/period switchers ──────────────────────────────────────── */
   #top-controls {
@@ -568,26 +557,6 @@ function initMap() {
     showClickPopup(e.point.x, e.point.y, `${depthCm.toFixed(1)}cm`);
   });
 
-  // Live-temperature hover readout: in Live mode, show the modelled temperature
-  // at the terrain elevation under the cursor, following the pointer.
-  map.on('mousemove', (e) => {
-    if (viewMode !== 'live' || !pwProfile) { pwHideHover(); return; }
-    const rawElev = map.queryTerrainElevation(e.lngLat, { exaggerated: false });
-    if (rawElev == null || isNaN(rawElev)) { pwHideHover(); return; }
-    const elev = Math.min(rawElev, TOP_ELEV);
-    const t = pwTempAt(elev);
-    if (!tempHoverEl) {
-      tempHoverEl = document.createElement('div');
-      tempHoverEl.className = 'temp-hover';
-      document.getElementById('map-screen').appendChild(tempHoverEl);
-    }
-    const [r, g, b] = pwTempRGB(t);
-    tempHoverEl.style.display = 'flex';
-    tempHoverEl.style.left = e.point.x + 'px';
-    tempHoverEl.style.top = e.point.y + 'px';
-    tempHoverEl.innerHTML = `<span class="sw" style="background:rgb(${r},${g},${b})"></span>${t.toFixed(1)}°C <span class="el">${Math.round(elev)} m</span>`;
-  });
-  map.on('mouseout', pwHideHover);
 
   // A user drag/zoom/rotate/pitch invalidates every particle's last screen
   // position, so pause and clear the wind overlay for the duration rather
@@ -1033,7 +1002,6 @@ function setViewMode(mode) {
   document.getElementById('info-hourly').style.display = mode === 'hourly' ? 'block' : 'none';
   document.getElementById('info-accum').style.display = mode === 'accumulated' ? 'block' : 'none';
   document.getElementById('info-live').style.display = mode === 'live' ? 'block' : 'none';
-  if (mode !== 'live') pwHideHover();
 
   if (mode === 'hourly') {
     stopPlay();
@@ -1160,13 +1128,15 @@ loadForecast();
 // proxy, decode each station's delta-encoded series, drop a colour-coded temp
 // pill on the map, and open a modal with full obs + a 12h temp plot on click.
 // Units: temp = raw/10 °C, speed/gust = raw/10 knots (shown as km/h), dir = deg.
-// Stations span two adjacent z10 tiles; we fetch both and merge their tracks.
-const PW_TILES = [[10, 390, 1011], [10, 390, 1010]];
+// Stations span four adjacent z10 tiles; we fetch all and merge their tracks.
+const PW_TILES = [[10, 390, 1011], [10, 390, 1010], [10, 389, 1011], [10, 389, 1010]];
 const PW_STATIONS = [
   { trackId: '363045', name: 'Whakapapa 2000m' },
   { trackId: '363044', name: 'Halidays Hut' },
   { trackId: '363039', name: 'Desert Road' },
   { trackId: '362779', name: 'National Park Township' },
+  { trackId: '362785', name: 'Waiouru Aerodrome' },
+  { trackId: '363053', name: 'Raetihi' },
 ];
 const KT_TO_KMH = 1.852;
 let pwRefreshTimer = null;
@@ -1249,10 +1219,13 @@ async function pwFetchTiles() {
   return { updated, tracks };
 }
 
-// Temperature → colour ramp (cold blue → cyan → green → warm red).
+// Temperature → colour ramp. Weighted toward blues and greens: cyan/teal/green
+// span the usual on-mountain range and orange/red only kick in above ~15°C, so
+// a typical ~10°C valley reads green rather than orange.
 const PW_TEMP_STOPS = [
-  [-15, [67, 56, 202]], [-8, [37, 99, 235]], [-2, [14, 165, 233]],
-  [0, [34, 211, 238]], [3, [52, 211, 153]], [8, [251, 191, 36]], [15, [239, 68, 68]]
+  [-15, [49, 46, 129]], [-6, [37, 99, 235]], [-1, [14, 165, 233]],
+  [1, [45, 212, 218]], [4, [52, 211, 153]], [8, [74, 222, 128]],
+  [12, [163, 222, 90]], [16, [250, 204, 80]], [21, [239, 110, 60]]
 ];
 function pwTempRGB(t) {
   const s = PW_TEMP_STOPS;
@@ -1420,8 +1393,6 @@ function initStationPill() {
 // 5-min obs refresh.
 let pwProfile = null; // { a, b, pts:[[elev,temp],...] }
 const PW_OVERLAY_ALPHA = 0.72;
-let tempHoverEl = null;
-function pwHideHover() { if (tempHoverEl) tempHoverEl.style.display = 'none'; }
 
 function pwComputeProfile() {
   const pts = [];
