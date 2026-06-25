@@ -952,8 +952,6 @@ function openMapView(index) {
 
   if (currentIndex >= forecastHours.length - 1) stopPlay();
 
-  pwComputeWindProfile();
-  pwRenderPseudoWindPills();
   setTimeout(() => map.resize(), 60);
 }
 
@@ -1051,8 +1049,6 @@ function renderAccumulatedView() {
   document.getElementById('accum-snowline').textContent = Math.round(snowLine) + ' m';
   renderDepthLegend(band);
 
-  pwComputeWindProfile();
-  pwRenderPseudoWindPills();
   setTimeout(() => map.resize(), 60);
 }
 
