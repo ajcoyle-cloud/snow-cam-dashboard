@@ -1101,11 +1101,13 @@ loadForecast();
 // proxy, decode each station's delta-encoded series, drop a colour-coded temp
 // pill on the map, and open a modal with full obs + a 12h temp plot on click.
 // Units: temp = raw/10 °C, speed/gust = raw/10 knots (shown as km/h), dir = deg.
-// Both stations live in the same z10 tile, so one fetch covers them all.
-const PW_TILE = [10, 390, 1011];
+// Stations span two adjacent z10 tiles; we fetch both and merge their tracks.
+const PW_TILES = [[10, 390, 1011], [10, 390, 1010]];
 const PW_STATIONS = [
   { trackId: '363045', name: 'Whakapapa 2000m' },
   { trackId: '363044', name: 'Halidays Hut' },
+  { trackId: '363039', name: 'Desert Road' },
+  { trackId: '362779', name: 'National Park Township' },
 ];
 const KT_TO_KMH = 1.852;
 let pwRefreshTimer = null;
@@ -1148,24 +1150,44 @@ function pwDecodeSeries(s) {
   return out;
 }
 
+// Coordinates are packed with variable precision: the decimal point is dropped
+// and trailing zeros may be trimmed, so the divisor depends on digit count, not
+// a fixed 1e5 (e.g. Whakapapa lon 17556458→175.56458, but National Park lon
+// 1754217→175.4217). Scale so the integer part has the expected digit count
+// (lat ~39° = 2 digits, lon ~175° = 3 digits).
+function pwDecodeCoord(signed, intDigits) {
+  const sign = signed[0] === '-' ? -1 : 1;
+  const dg = signed.replace(/^[+-]/, '');
+  return sign * (+dg) / Math.pow(10, dg.length - intDigits);
+}
+
 function pwParseMeta(t) {
   const name = t.split('$', 1)[0];
   const m = t.match(/([+-]\d+)([+-]\d+)\^(\d+)/);
   const prov = (t.match(/S([a-z0-9_]+)\$/) || [])[1] || null;
   return {
     name,
-    lat: m ? +m[1] / 1e5 : PW_STATION.lat,
-    lon: m ? +m[2] / 1e5 : PW_STATION.lon,
+    lat: m ? pwDecodeCoord(m[1], 2) : null,
+    lon: m ? pwDecodeCoord(m[2], 3) : null,
     elevM: m ? +m[3] : null,
     provider: prov
   };
 }
 
-async function pwFetchTile() {
-  const [z, x, y] = PW_TILE;
-  const res = await fetch(`/pw-obs/tile/${z}/${x}/${y}.json?t=${Date.now()}`);
-  if (!res.ok) throw new Error('tile ' + res.status);
-  return res.json();
+async function pwFetchTiles() {
+  const tiles = await Promise.all(PW_TILES.map(async ([z, x, y]) => {
+    const res = await fetch(`/pw-obs/tile/${z}/${x}/${y}.json?t=${Date.now()}`);
+    if (!res.ok) throw new Error('tile ' + res.status);
+    return res.json();
+  }));
+  // merge all tracks; keep the newest tile's "updated" stamp
+  const tracks = {};
+  let updated = 0;
+  for (const t of tiles) {
+    Object.assign(tracks, t.tracks || {});
+    if (t.updated > updated) updated = t.updated;
+  }
+  return { updated, tracks };
 }
 
 // Temperature → colour ramp (cold blue → cyan → green → warm red).
@@ -1285,7 +1307,9 @@ function pwRenderPill(trackId) {
     el = document.createElement('div');
     el.className = 'station-pill';
     el.addEventListener('click', (e) => { e.stopPropagation(); pwOpenModal(pwState[trackId]); });
-    st.marker = new maplibregl.Marker({ element: el, anchor: 'center' })
+    // subpixelPositioning avoids the whole-pixel snapping that makes pills
+    // jitter/wiggle during the slow continuous auto-rotate.
+    st.marker = new maplibregl.Marker({ element: el, anchor: 'center', subpixelPositioning: true })
       .setLngLat([st.meta.lon, st.meta.lat]).addTo(map);
   }
   el.style.background = pwTempColor(last.tempC);
@@ -1307,10 +1331,10 @@ function toggleObsLayer() {
 
 async function pwRefresh() {
   try {
-    const tile = await pwFetchTile();
+    const tile = await pwFetchTiles();
     for (const s of PW_STATIONS) {
       const tr = tile.tracks && tile.tracks[s.trackId];
-      if (!tr) { console.warn('PredictWind: track', s.trackId, 'not in tile'); continue; }
+      if (!tr) { console.warn('PredictWind: track', s.trackId, 'not in tiles'); continue; }
       const prev = pwState[s.trackId] || {};
       pwState[s.trackId] = {
         marker: prev.marker || null,
@@ -1320,6 +1344,7 @@ async function pwRefresh() {
       };
       pwRenderPill(s.trackId);
     }
+    if (typeof pwUpdateTempProfile === 'function') pwUpdateTempProfile();
   } catch (e) { console.warn('PredictWind obs fetch failed:', e.message); }
 }
 
