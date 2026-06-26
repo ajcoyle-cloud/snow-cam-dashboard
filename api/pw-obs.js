@@ -8,10 +8,13 @@
 //
 // This function fetches PredictWind with a fixed desktop User-Agent instead, so
 // the request is accepted regardless of the visitor's device. vercel.json
-// rewrites /pw-obs/* to this function.
+// rewrites /pw-obs/<path> to /api/pw-obs?path=<path>.
 export default async function handler(req, res) {
-  const parts = req.query.path;
-  const path = Array.isArray(parts) ? parts.join('/') : (parts || '');
+  const path = (req.query.path || '').toString().replace(/^\/+/, '');
+  if (!path) {
+    res.status(400).json({ error: 'missing path' });
+    return;
+  }
   const url = `https://forecast.predictwind.com/observations/${path}`;
 
   try {
@@ -31,6 +34,6 @@ export default async function handler(req, res) {
     res.setHeader('Cache-Control', 'no-store, max-age=0');
     res.send(body);
   } catch (e) {
-    res.status(502).json({ error: 'pw-obs proxy failed', detail: String(e && e.message || e) });
+    res.status(502).json({ error: 'pw-obs proxy failed', detail: String((e && e.message) || e) });
   }
 }
