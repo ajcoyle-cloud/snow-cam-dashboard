@@ -10,7 +10,7 @@
     },
     {
       "source": "/pw-obs/:path*",
-      "destination": "https://forecast.predictwind.com/observations/:path*"
+      "destination": "/api/pw-obs/:path*"
     }
   ]
 }

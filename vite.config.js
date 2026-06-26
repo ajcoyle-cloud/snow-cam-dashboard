@@ -30,6 +30,12 @@ export default defineConfig({
         target: 'https://forecast.predictwind.com',
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/pw-obs/, '/observations'),
+        // PredictWind returns 412 for mobile user-agents, so force a desktop UA
+        // (prod does the same via api/pw-obs). Keeps dev behaviour identical
+        // regardless of which device hits the dev server.
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15',
+        },
       },
     },
   }
