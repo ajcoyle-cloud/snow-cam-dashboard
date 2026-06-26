@@ -416,10 +416,17 @@ function CameraCard({ camera, allCameras = [] }) {
     return () => window.removeEventListener('message', handleMessage)
   }, [])
 
-  // Calculate temperature at a given elevation using the lapse rate
+  // Calculate temperature at a given elevation using the lapse rate.
+  // Use live lapse rate if available, else fall back to standard NZ mountain rate
+  // (-0.65°C per 100m, ~6.5°C per 1000m). Base temp at ~1000m = ~5°C (typical NZ resort base).
   const calcTempAtElevation = (elev) => {
-    if (!pwProfile || !pwProfile.a || pwProfile.b === undefined) return null
-    return pwProfile.a + pwProfile.b * elev
+    if (pwProfile && pwProfile.a !== undefined && pwProfile.b !== undefined) {
+      return pwProfile.a + pwProfile.b * elev
+    }
+    // Fallback: standard NZ lapse rate + base estimate
+    const baseElev = 1000, baseTemp = 5
+    const lapsePerM = -0.0065  // -6.5°C per 1000m
+    return baseTemp + (elev - baseElev) * lapsePerM
   }
 
   const handleKeyDown = (e) => {
@@ -496,7 +503,7 @@ function CameraCard({ camera, allCameras = [] }) {
               onError={() => setBroken(true)}
             />
           )}
-          {camera.elevation && pwProfile && (
+          {camera.elevation && (
             <div style={{
               position: 'absolute',
               top: '8px',
@@ -510,22 +517,6 @@ function CameraCard({ camera, allCameras = [] }) {
               pointerEvents: 'none'
             }}>
               {calcTempAtElevation(camera.elevation)?.toFixed(1)}°C
-            </div>
-          )}
-          {/* Debug: show when elevation exists but pwProfile missing */}
-          {camera.elevation && !pwProfile && (
-            <div style={{
-              position: 'absolute',
-              top: '8px',
-              right: '8px',
-              background: 'rgba(255, 0, 0, 0.5)',
-              color: '#fff',
-              padding: '2px 6px',
-              borderRadius: '4px',
-              fontSize: '0.6rem',
-              pointerEvents: 'none'
-            }}>
-              {camera.elevation}m
             </div>
           )}
         </div>
@@ -628,7 +619,7 @@ function CameraCard({ camera, allCameras = [] }) {
                   onError={(e) => { e.target.style.opacity = '0.2' }}
                 />
               )}
-              {activeCam.elevation && pwProfile && (
+              {activeCam.elevation && (
                 <div style={{
                   position: 'absolute',
                   top: '12px',
