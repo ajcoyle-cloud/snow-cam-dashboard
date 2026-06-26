@@ -473,22 +473,7 @@ function CameraCard({ camera, allCameras = [] }) {
         onClick={handleFullscreenOpen}
       >
         <div className="card-header">
-          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-            <h3 style={{ margin: 0 }}>{camera.name}</h3>
-            {camera.elevation && (
-              <div style={{
-                background: 'rgba(0, 0, 0, 0.5)',
-                color: '#fff',
-                padding: '3px 8px',
-                borderRadius: '3px',
-                fontSize: '0.85rem',
-                fontWeight: '600',
-                whiteSpace: 'nowrap'
-              }}>
-                {calcTempAtElevation(camera.elevation)?.toFixed(1)}°C
-              </div>
-            )}
-          </div>
+          <h3>{camera.name}</h3>
           <WeatherDisplay location={camera.location} />
         </div>
         <div className="image-container" style={{ position: 'relative' }}>
@@ -517,6 +502,20 @@ function CameraCard({ camera, allCameras = [] }) {
               alt={camera.name}
               onError={() => setBroken(true)}
             />
+          )}
+          {camera.elevation && (
+            <div style={{
+              position: 'absolute',
+              top: '8px',
+              right: '8px',
+              color: '#fff',
+              fontSize: '0.9rem',
+              fontWeight: '600',
+              textShadow: '1px 1px 2px rgba(0,0,0,0.5)',
+              pointerEvents: 'none'
+            }}>
+              {calcTempAtElevation(camera.elevation)?.toFixed(1)}°C
+            </div>
           )}
         </div>
         {isMultiCamera && (
@@ -591,22 +590,7 @@ function CameraCard({ camera, allCameras = [] }) {
             </div>
             <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
               <button className="close-btn" onClick={() => setFullscreenCam(null)}>✕</button>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                <h2 style={{ margin: 0 }}>{displayName}</h2>
-                {activeCam.elevation && (
-                  <div style={{
-                    background: 'rgba(0, 0, 0, 0.5)',
-                    color: '#fff',
-                    padding: '4px 10px',
-                    borderRadius: '3px',
-                    fontSize: '0.95rem',
-                    fontWeight: '600',
-                    whiteSpace: 'nowrap'
-                  }}>
-                    {calcTempAtElevation(activeCam.elevation)?.toFixed(1)}°C
-                  </div>
-                )}
-              </div>
+              <h2>{displayName}</h2>
               <div className="fullscreen-image-wrapper" style={{ position: 'relative' }}>
               {isYouTube ? (
                 <iframe
@@ -632,6 +616,20 @@ function CameraCard({ camera, allCameras = [] }) {
                   alt={displayName}
                   onError={(e) => { e.target.style.opacity = '0.2' }}
                 />
+              )}
+              {activeCam.elevation && (
+                <div style={{
+                  position: 'absolute',
+                  top: '12px',
+                  right: '12px',
+                  color: '#fff',
+                  fontSize: '1.1rem',
+                  fontWeight: '600',
+                  textShadow: '1px 1px 3px rgba(0,0,0,0.6)',
+                  pointerEvents: 'none'
+                }}>
+                  {calcTempAtElevation(activeCam.elevation)?.toFixed(1)}°C
+                </div>
               )}
               {isMultiCamera && (
                 <>
