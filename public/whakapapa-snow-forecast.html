@@ -1708,7 +1708,7 @@ function pwUpdateTempProfile() {
   pwProfile = pwComputeProfile();
   // Pseudo summit/base pills aren't live-only — show them on the hourly and
   // accumulated views too (the live path renders them itself, below).
-  if (viewMode !== 'live') { pwRenderPseudoPills(); pwRenderPseudoWindPills(); return; }
+  if (viewMode !== 'live') { pwRenderPseudoPills(); return; }
   pwLiveGrid = pwBuildLiveGrid();
   const slider = document.getElementById('ltl-slider');
   if (pwLiveGrid.length) {
@@ -1738,7 +1738,6 @@ function renderLiveTempView() {
     renderLivePanel();
     pwRenderFreezingOverlay();
     pwRenderPseudoPills();
-    pwRenderPseudoWindPills();
   }
   setTimeout(() => map.resize(), 60);
 }
@@ -1771,7 +1770,6 @@ function pwApplyLiveAt(idx) {
   renderLivePanel();
   pwRenderFreezingOverlay();
   pwRenderPseudoPills();
-  pwRenderPseudoWindPills();
   const slider = document.getElementById('ltl-slider');
   slider.value = idx;
   document.getElementById('ltl-label').textContent =
