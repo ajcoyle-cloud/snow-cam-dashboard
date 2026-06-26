@@ -1213,8 +1213,14 @@ function updateAccumMinSummary() {
 let viewMode = 'hourly'; // 'hourly' | 'accumulated'
 let accumDays = 5;
 
+// Persist the map view selection so it carries across location switches (each
+// resort reloads this page in the iframe, which would otherwise reset to the
+// default hourly view). Same-origin localStorage survives that reload.
+function pwPersist(key, val) { try { localStorage.setItem(key, val); } catch (e) {} }
+
 function setViewMode(mode) {
   viewMode = mode;
+  pwPersist('sp-view-mode', mode);
   document.querySelectorAll('#mode-switch .pill-btn').forEach(b => b.classList.toggle('active', b.dataset.mode === mode));
   document.getElementById('period-switch').style.display = mode === 'accumulated' ? 'flex' : 'none';
   document.getElementById('timeline').style.display = mode === 'hourly' ? 'flex' : 'none';
@@ -1248,6 +1254,7 @@ function setViewMode(mode) {
 
 function setPeriod(days) {
   accumDays = days;
+  pwPersist('sp-accum-days', days);
   document.querySelectorAll('#period-switch .pill-btn').forEach(b => b.classList.toggle('active', parseInt(b.dataset.days, 10) === days));
   renderAccumulatedView();
 }
@@ -1350,6 +1357,25 @@ function openFromQueryParams() {
     if (diff < bestDiff) { bestDiff = diff; bestIdx = i; }
   });
   openMapView(bestIdx);
+  restoreViewMode();
+}
+
+// Re-apply the view mode (live/hourly/accumulated, plus accumulated period)
+// saved on the previous resort, so switching location keeps the same view.
+function restoreViewMode() {
+  let saved = null, savedDays = NaN;
+  try {
+    saved = localStorage.getItem('sp-view-mode');
+    savedDays = parseInt(localStorage.getItem('sp-accum-days'), 10);
+  } catch (e) { return; }
+  if (saved === 'accumulated') {
+    if ([5, 10, 15].includes(savedDays)) accumDays = savedDays;
+    document.querySelectorAll('#period-switch .pill-btn').forEach(b => b.classList.toggle('active', parseInt(b.dataset.days, 10) === accumDays));
+    setViewMode('accumulated');
+  } else if (saved === 'live') {
+    setViewMode('live');
+  }
+  // 'hourly' or unset: openMapView already established the default hourly view.
 }
 
 loadForecast();
