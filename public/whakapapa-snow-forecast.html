@@ -1361,10 +1361,17 @@ function openFromQueryParams() {
 }
 
 // Send the lapse-rate profile (a, b) to the parent app so it can calculate
-// temperatures at any elevation (e.g., webcam locations). Sent on each update.
+// temperatures at any elevation (e.g., webcam locations). Also persist to
+// localStorage so it's available on the Webcams tab even when the map iframe
+// isn't loaded.
 function pwBroadcastProfile() {
-  if (pwProfile && window.parent !== window) {
-    window.parent.postMessage({ type: 'pw-profile', profile: pwProfile }, '*');
+  if (pwProfile) {
+    // Broadcast to parent if in an iframe
+    if (window.parent !== window) {
+      window.parent.postMessage({ type: 'pw-profile', profile: pwProfile }, '*');
+    }
+    // Persist to localStorage for cross-tab availability
+    try { localStorage.setItem('sp-pw-profile', JSON.stringify(pwProfile)); } catch (e) {}
   }
 }
 

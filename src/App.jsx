@@ -392,8 +392,21 @@ function CameraCard({ camera, allCameras = [] }) {
     }
   }, [fullscreenCam])
 
-  // Listen for temperature profile (lapse rate) from the whakapapa-snow-forecast iframe
+  // Listen for temperature profile (lapse rate) from the whakapapa-snow-forecast iframe,
+  // and also load from localStorage (for when the iframe isn't loaded yet).
   useEffect(() => {
+    // Try to load from localStorage first
+    try {
+      const stored = localStorage.getItem('sp-pw-profile')
+      if (stored) {
+        const profile = JSON.parse(stored)
+        if (profile?.a !== undefined && profile?.b !== undefined) {
+          setPwProfile(profile)
+        }
+      }
+    } catch (e) {}
+
+    // Listen for updates from the iframe
     const handleMessage = (event) => {
       if (event.data?.type === 'pw-profile' && event.data?.profile) {
         setPwProfile(event.data.profile)
