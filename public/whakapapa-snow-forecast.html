@@ -1447,18 +1447,24 @@ function pwParseMeta(t) {
 }
 
 async function pwFetchTiles() {
-  const tiles = await Promise.all(PW_TILES.map(async ([z, x, y]) => {
+  // Use allSettled, not all: on flaky mobile connections one tile timing out
+  // shouldn't void the other three — merge whatever succeeded and only throw
+  // if every single tile failed.
+  const results = await Promise.allSettled(PW_TILES.map(async ([z, x, y]) => {
     const res = await fetch(`/pw-obs/tile/${z}/${x}/${y}.json?t=${Date.now()}`);
     if (!res.ok) throw new Error('tile ' + res.status);
     return res.json();
   }));
-  // merge all tracks; keep the newest tile's "updated" stamp
   const tracks = {};
   let updated = 0;
-  for (const t of tiles) {
-    Object.assign(tracks, t.tracks || {});
-    if (t.updated > updated) updated = t.updated;
+  let okCount = 0;
+  for (const r of results) {
+    if (r.status !== 'fulfilled') { console.warn('PredictWind tile fetch failed:', r.reason && r.reason.message); continue; }
+    okCount++;
+    Object.assign(tracks, r.value.tracks || {});
+    if (r.value.updated > updated) updated = r.value.updated;
   }
+  if (!okCount) throw new Error('all tiles failed');
   return { updated, tracks };
 }
 
@@ -1661,7 +1667,7 @@ function toggleObsLayer() {
 }
 
 
-async function pwRefresh() {
+async function pwRefresh(isRetry) {
   try {
     const tile = await pwFetchTiles();
     for (const s of PW_STATIONS) {
@@ -1677,7 +1683,13 @@ async function pwRefresh() {
       pwRenderPill(s.trackId);
     }
     if (typeof pwUpdateTempProfile === 'function') pwUpdateTempProfile();
-  } catch (e) { console.warn('PredictWind obs fetch failed:', e.message); }
+  } catch (e) {
+    console.warn('PredictWind obs fetch failed:', e.message);
+    // A cold/flaky mobile connection can fail the very first attempt; retry
+    // once shortly after instead of leaving the live view empty for the full
+    // 5-minute refresh interval.
+    if (!isRetry) setTimeout(() => pwRefresh(true), 4000);
+  }
 }
 
 function initStationPill() {
