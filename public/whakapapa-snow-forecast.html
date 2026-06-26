@@ -70,11 +70,11 @@
   #tl-slider::-webkit-slider-thumb, #ltl-slider::-webkit-slider-thumb {
     -webkit-appearance: none; width: 18px; height: 18px; border-radius: 50%;
     background: #fff; box-shadow: 0 2px 8px rgba(0,0,0,0.4); cursor: pointer;
-    border: 3px solid #2563eb;
+    border: 3px solid #333;
   }
   #tl-slider::-moz-range-thumb, #ltl-slider::-moz-range-thumb {
     width: 18px; height: 18px; border-radius: 50%; background: #fff;
-    box-shadow: 0 2px 8px rgba(0,0,0,0.4); cursor: pointer; border: 3px solid #2563eb;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.4); cursor: pointer; border: 3px solid #333;
   }
   .tl-step {
     flex-shrink: 0; background: transparent; color: rgba(255,255,255,0.85); border: none;
@@ -103,16 +103,16 @@
     position: absolute; bottom: 92px; right: 20px; z-index: 10;
     display: flex; gap: 4px;
     background: rgba(10,20,36,0.78); backdrop-filter: blur(14px);
-    border-radius: 12px; padding: 5px;
+    border-radius: 999px; padding: 5px;
     box-shadow: 0 4px 24px rgba(0,0,0,0.3);
   }
   .speed-btn {
     background: transparent; color: rgba(255,255,255,0.6); border: none;
-    padding: 7px 11px; border-radius: 8px; font-size: 0.72rem; font-weight: 700;
+    padding: 7px 11px; border-radius: 999px; font-size: 0.72rem; font-weight: 700;
     cursor: pointer; transition: all 0.15s; font-family: inherit;
   }
   .speed-btn:hover { color: #fff; }
-  .speed-btn.active { background: #2563eb; color: #fff; }
+  .speed-btn.active { background: #333; color: #fff; }
 
   #map-enlarge, #map-close, #wind-toggle, #obs-toggle, #rotate-toggle {
     position: absolute; top: 20px; z-index: 20;
@@ -123,18 +123,18 @@
   }
   #map-enlarge { left: 20px; }
   #obs-toggle { left: 64px; }
-  #obs-toggle.active { background: #2563eb; }
+  #obs-toggle.active { background: #333; }
   #obs-toggle:hover { background: rgba(255,255,255,0.25); }
-  #obs-toggle.active:hover { background: #1d4ed8; }
+  #obs-toggle.active:hover { background: #404040; }
   #rotate-toggle { left: 108px; }
-  #rotate-toggle.active { background: #2563eb; }
+  #rotate-toggle.active { background: #333; }
   #rotate-toggle:hover { background: rgba(255,255,255,0.25); }
-  #rotate-toggle.active:hover { background: #1d4ed8; }
+  #rotate-toggle.active:hover { background: #404040; }
   #map-close { right: 64px; display: none; }
   #wind-toggle { right: 108px; display: none; } /* wind feature temporarily hidden on prod */
-  #wind-toggle.active { background: #2563eb; }
+  #wind-toggle.active { background: #333; }
   #map-enlarge:hover, #map-close:hover, #wind-toggle:hover { background: rgba(255,255,255,0.25); }
-  #wind-toggle.active:hover { background: #1d4ed8; }
+  #wind-toggle.active:hover { background: #404040; }
   #map-screen.is-fullscreen #map-enlarge { display: none; }
   #map-screen.is-fullscreen #map-close { display: block; }
 
@@ -156,16 +156,16 @@
   .pill-group {
     display: flex; gap: 4px;
     background: rgba(0,0,0,0.6); backdrop-filter: blur(14px);
-    border-radius: 12px; padding: 5px;
+    border-radius: 999px; padding: 5px;
     box-shadow: 0 4px 24px rgba(0,0,0,0.3);
   }
   .pill-btn {
     background: transparent; color: rgba(255,255,255,0.65); border: none;
-    padding: 8px 16px; border-radius: 8px; font-size: 0.78rem; font-weight: 700;
+    padding: 8px 16px; border-radius: 999px; font-size: 0.78rem; font-weight: 700;
     cursor: pointer; transition: all 0.15s; font-family: inherit; white-space: nowrap;
   }
   .pill-btn:hover { color: #fff; }
-  .pill-btn.active { background: #2563eb; color: #fff; }
+  .pill-btn.active { background: #333; color: #fff; }
   #period-switch { display: none; }
 
   /* ── Freezing-level sparkline (live mode, just above the time slider) ── */
@@ -348,12 +348,12 @@
       transition: max-height 0.3s cubic-bezier(0.32, 0.72, 0, 1);
     }
 
-    /* Minimised: collapse the scrollable body to a sliver (just the
-       heading), so it never covers the scrubber below. Swipe/tap to
-       expand. The outer panel's bottom padding/position don't change, so
-       its background keeps reaching the screen edge either way. */
+    /* Minimised: collapse the scrollable body away entirely so only the
+       grab-handle peeks above the timeline. Swipe/tap to expand. The outer
+       panel's bottom padding/position don't change, so its background
+       keeps reaching the screen edge either way. */
     #snow-info.drawer-min #drawer-scroll {
-      max-height: 24px;
+      max-height: 0;
       overflow: hidden;
     }
     #snow-info.drawer-min h3 { margin-bottom: 0; }

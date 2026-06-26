@@ -495,7 +495,7 @@ function CameraCard({ camera, allCameras = [] }) {
                     }}
                     style={{
                       cursor: 'pointer',
-                      border: fullscreenCam.name === cam.name ? '3px solid #2563eb' : '2px solid #333',
+                      border: fullscreenCam.name === cam.name ? '3px solid #fff' : '2px solid #333',
                       borderRadius: '2px',
                       overflow: 'hidden',
                       transition: 'border 0.2s',
