@@ -586,7 +586,7 @@ function CameraCard({ camera, allCameras = [] }) {
             <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
               <button className="close-btn" onClick={() => setFullscreenCam(null)}>✕</button>
               <h2>{displayName}</h2>
-              <div className="fullscreen-image-wrapper">
+              <div className="fullscreen-image-wrapper" style={{ position: 'relative' }}>
               {isYouTube ? (
                 <iframe
                   src={`https://www.youtube.com/embed/${activeCam.youtubeId}?autoplay=1&mute=1&controls=0&modestbranding=1&rel=0&iv_load_policy=3&disablekb=1&fs=0`}
@@ -611,6 +611,22 @@ function CameraCard({ camera, allCameras = [] }) {
                   alt={displayName}
                   onError={(e) => { e.target.style.opacity = '0.2' }}
                 />
+              )}
+              {activeCam.elevation && pwProfile && (
+                <div style={{
+                  position: 'absolute',
+                  top: '12px',
+                  right: '12px',
+                  background: 'rgba(0, 0, 0, 0.7)',
+                  color: '#fff',
+                  padding: '6px 12px',
+                  borderRadius: '4px',
+                  fontSize: '0.85rem',
+                  fontWeight: '600',
+                  pointerEvents: 'none'
+                }}>
+                  {calcTempAtElevation(activeCam.elevation)?.toFixed(1)}°C
+                </div>
               )}
               {isMultiCamera && (
                 <>
