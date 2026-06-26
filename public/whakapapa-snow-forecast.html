@@ -358,6 +358,11 @@
     }
     #snow-info.drawer-min h3 { margin-bottom: 0; }
 
+    /* Accumulated mode has no bottom timeline, so the tall background-extending
+       padding is just empty grey when minimised. Trim it so the drawer hugs the
+       summary and sits low against the screen edge. */
+    #map-screen.accum-mode #snow-info.drawer-min { padding-bottom: 14px; }
+
     /* Minimised-drawer summary: fills the blank grey space with the headline
        figures so the collapsed drawer still carries useful info. Only visible
        while minimised, and only when populated (empty in modes that don't set
@@ -1219,6 +1224,7 @@ function setViewMode(mode) {
   document.getElementById('info-live').style.display = mode === 'live' ? 'block' : 'none';
   document.getElementById('live-timeline').style.display = mode === 'live' ? 'flex' : 'none';
   document.getElementById('map-screen').classList.toggle('live-mode', mode === 'live');
+  document.getElementById('map-screen').classList.toggle('accum-mode', mode === 'accumulated');
   // The minimised-drawer summary is accumulated-only; clear it elsewhere so the
   // :empty rule keeps it hidden.
   if (mode !== 'accumulated') { const dms = document.getElementById('drawer-min-summary'); if (dms) dms.innerHTML = ''; }
