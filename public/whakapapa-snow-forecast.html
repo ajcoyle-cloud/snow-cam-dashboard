@@ -219,10 +219,6 @@
     box-shadow: 0 0 0 2px rgba(255,255,255,0.35); flex-shrink: 0;
   }
   .station-pill.stale { opacity: 0.55; }
-  .pseudo-wind-pill {
-    background: linear-gradient(135deg, #6366f1, #8b5cf6) !important;
-    pointer-events: none;
-  }
 
   .obs-modal-backdrop {
     position: absolute; inset: 0; z-index: 1200;
@@ -1720,7 +1716,6 @@ function pwUpdateTempProfile() {
     renderLivePanel();
     pwRenderFreezingOverlay();
     pwRenderPseudoPills();
-    pwRenderPseudoWindPills();
   }
 }
 
@@ -1874,40 +1869,11 @@ function pwRenderFreezingOverlay() {
   document.getElementById('fl-caption').textContent = 'Freezing level · last 6h';
 }
 
-// Compute interpolated wind profile from observations (simple lapse rate model).
-let pwWindProfile = null; // { avgSpeedKt, avgDirDeg } or null
-function pwComputeWindProfile() {
-  const windObs = [];
-  for (const id in pwState) {
-    const s = pwState[id];
-    if (s.meta.elevM != null && s.series.length) {
-      const latest = s.series[s.series.length - 1];
-      if (latest.speedKt != null) {
-        windObs.push({ elev: s.meta.elevM, speedKt: latest.speedKt, dirDeg: latest.dir });
-      }
-    }
-  }
-  if (windObs.length === 0) { pwWindProfile = null; return; }
-  const avgSpeedKt = windObs.reduce((sum, o) => sum + o.speedKt, 0) / windObs.length;
-  const x = windObs.reduce((sum, o) => sum + Math.cos((o.dirDeg * Math.PI) / 180), 0) / windObs.length;
-  const y = windObs.reduce((sum, o) => sum + Math.sin((o.dirDeg * Math.PI) / 180), 0) / windObs.length;
-  const avgDirDeg = (Math.atan2(y, x) * 180) / Math.PI;
-  pwWindProfile = { avgSpeedKt, avgDirDeg: ((avgDirDeg % 360) + 360) % 360 };
-}
-
-function pwWindSpeedAt() {
-  return pwWindProfile ? pwWindProfile.avgSpeedKt : null;
-}
-
-function pwWindDirAt() {
-  return pwWindProfile ? pwWindProfile.avgDirDeg : null;
-}
-
 // Render pseudo temperature pills for ski field elevations (resort-specific).
 function pwRenderPseudoPills() {
   if (!pwProfile) return;
   // Remove existing pseudo pills
-  for (const el of document.querySelectorAll('.pseudo-pill:not(.pseudo-wind-pill)')) {
+  for (const el of document.querySelectorAll('.pseudo-pill')) {
     if (el.marker) el.marker.remove();
   }
   // Pseudo pills: elevation and position per resort
@@ -1938,49 +1904,6 @@ function pwRenderPseudoPills() {
     el.style.display = pwVisible ? '' : 'none';
     el.style.pointerEvents = 'none';  // non-interactive
     el.innerHTML = `<span class="dot"></span>${t.toFixed(1)}°C`;
-    const marker = new maplibregl.Marker({ element: el, anchor: 'center', subpixelPositioning: true })
-      .setLngLat([p.lon, p.lat]).addTo(map);
-    el.marker = marker;
-  }
-}
-
-// Render pseudo wind pills for ski field elevations (resort-specific).
-function pwRenderPseudoWindPills() {
-  pwComputeWindProfile();
-  if (!pwWindProfile) return;
-  // Remove existing pseudo wind pills
-  for (const el of document.querySelectorAll('.pseudo-wind-pill')) {
-    if (el.marker) el.marker.remove();
-  }
-  // Wind pills at resort-specific elevations
-  let pseudos = [];
-  if (resortKey === 'cardrona') {
-    pseudos = [
-      { elev: 2178, lat: -44.865401, lon: 168.944538, label: 'Summit' },
-      { elev: 1524, lat: -44.874271, lon: 168.964661, label: 'Base' },
-    ];
-  } else if (resortKey === 'ruapehu') {
-    pseudos = [
-      { elev: 1750, lat: -39.243813, lon: 175.561419, label: 'Mid' },
-      { elev: 1630, lat: -39.236672, lon: 175.556259, label: 'Base' },
-      { elev: 1120, lat: -39.199659, lon: 175.538945, label: 'Chateau' },
-    ];
-  } else if (resortKey === 'loveland') {
-    pseudos = [
-      { elev: 3871, lat: 39.673167, lon: -105.926355, label: 'Top' },
-      { elev: 3292, lat: 39.680855, lon: -105.898442, label: 'Base' },
-    ];
-  }
-  for (const p of pseudos) {
-    const windSpeedKt = pwWindSpeedAt();
-    const windDirDeg = pwWindDirAt();
-    if (windSpeedKt == null) continue;
-    const windSpeedKmh = (windSpeedKt * 1.852).toFixed(0);
-    const el = document.createElement('div');
-    el.className = 'station-pill pseudo-pill pseudo-wind-pill';
-    el.style.display = pwVisible ? '' : 'none';
-    el.style.pointerEvents = 'none';
-    el.innerHTML = `<span class="dot"></span>${windSpeedKmh} km/h ${degToCompass(windDirDeg)}`;
     const marker = new maplibregl.Marker({ element: el, anchor: 'center', subpixelPositioning: true })
       .setLngLat([p.lon, p.lat]).addTo(map);
     el.marker = marker;
