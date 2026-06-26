@@ -512,6 +512,22 @@ function CameraCard({ camera, allCameras = [] }) {
               {calcTempAtElevation(camera.elevation)?.toFixed(1)}°C
             </div>
           )}
+          {/* Debug: show when elevation exists but pwProfile missing */}
+          {camera.elevation && !pwProfile && (
+            <div style={{
+              position: 'absolute',
+              top: '8px',
+              right: '8px',
+              background: 'rgba(255, 0, 0, 0.5)',
+              color: '#fff',
+              padding: '2px 6px',
+              borderRadius: '4px',
+              fontSize: '0.6rem',
+              pointerEvents: 'none'
+            }}>
+              {camera.elevation}m
+            </div>
+          )}
         </div>
         {isMultiCamera && (
           <div className="camera-badge">{safeIndex + 1}/{activeCameras.length}</div>
