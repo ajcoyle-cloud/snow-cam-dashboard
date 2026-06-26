@@ -1360,6 +1360,14 @@ function openFromQueryParams() {
   restoreViewMode();
 }
 
+// Send the lapse-rate profile (a, b) to the parent app so it can calculate
+// temperatures at any elevation (e.g., webcam locations). Sent on each update.
+function pwBroadcastProfile() {
+  if (pwProfile && window.parent !== window) {
+    window.parent.postMessage({ type: 'pw-profile', profile: pwProfile }, '*');
+  }
+}
+
 // Re-apply the view mode (live/hourly/accumulated, plus accumulated period)
 // saved on the previous resort, so switching location keeps the same view.
 function restoreViewMode() {
@@ -1934,6 +1942,7 @@ function renderLivePanel() {
 // rebuild the 6h time grid and repaint at the currently-selected position.
 function pwUpdateTempProfile() {
   pwProfile = pwComputeProfile();
+  pwBroadcastProfile();
   // Pseudo summit/base pills aren't live-only — show them on the hourly and
   // accumulated views too (the live path renders them itself, below).
   if (viewMode !== 'live') { pwRenderPseudoPills(); return; }
@@ -1961,6 +1970,7 @@ function renderLiveTempView() {
   } else {
     pwDisplayTime = null;
     pwProfile = pwComputeProfile();
+    pwBroadcastProfile();
     if (pwProfile) applyRampWhenReady(pwBuildTempRamp());
     renderLivePanel();
     pwRenderFreezingOverlay();

@@ -64,12 +64,12 @@ const getWindArrow = (degrees) => {
 
 const NORTH_ISLAND = [
   { name: 'RSC Lodge', url: 'https://www.rsc.org.nz/latest.jpg', location: 'Whakapapa' },
-  { name: 'Happy Valley', url: 'https://webcams.whakapapa.com/hvfromskywaka/latest.jpg', archiveBase: 'hvfromskywaka', location: 'Whakapapa' },
+  { name: 'Happy Valley', url: 'https://webcams.whakapapa.com/hvfromskywaka/latest.jpg', archiveBase: 'hvfromskywaka', location: 'Whakapapa', elevation: 1620 },
   { name: 'The Pinnacles', url: 'https://www.mountainwatch.com/Resort/Whakapapa-the-pinnacles/LiveStill.jpg', location: 'Whakapapa' },
   { name: 'Staircase Slopes', url: 'https://www.mountainwatch.com/Resort/Whakapapa-staircase-slpes/LiveStill.jpg', location: 'Whakapapa' },
   { name: 'Te Heuheu Valley', url: 'https://www.mountainwatch.com/Resort/Whakapapa-the-heuheu-valey/LiveStill.jpg', location: 'Whakapapa' },
-  { name: 'Hut Flat', url: 'https://webcams.whakapapa.com/hutflat/latest.jpg', location: 'Whakapapa' },
-  { name: 'Far West T-Bar', url: 'https://webcams.whakapapa.com/farwesttbar/latest.jpg', location: 'Whakapapa' },
+  { name: 'Hut Flat', url: 'https://webcams.whakapapa.com/hutflat/latest.jpg', location: 'Whakapapa', elevation: 1750 },
+  { name: 'Far West T-Bar', url: 'https://webcams.whakapapa.com/farwesttbar/latest.jpg', location: 'Whakapapa', elevation: 2200 },
   { name: 'Turoa - Camera 1', url: 'https://s128.ipcamlive.com/streams_timeshift/80bze0dwhrnofue8a/snapshot.jpg', location: 'Turoa' },
   { name: 'Turoa - Camera 2', url: 'https://s128.ipcamlive.com/streams_timeshift/80eabuzmxklvr7gvj/snapshot.jpg', location: 'Turoa' },
   { name: 'Ohakune', isYouTube: true, youtubeId: 'GxxT-Cv3r3g', location: 'Turoa' },
@@ -366,6 +366,7 @@ function CameraCard({ camera, allCameras = [] }) {
   const [refreshKey, setRefreshKey] = useState(0)
   const [broken, setBroken] = useState(false)
   const [brokenSidebar, setBrokenSidebar] = useState(new Set())
+  const [pwProfile, setPwProfile] = useState(null) // lapse rate from live temp iframe
   const modalRef = useRef(null)
 
   useEffect(() => {
@@ -390,6 +391,23 @@ function CameraCard({ camera, allCameras = [] }) {
       modalRef.current.focus()
     }
   }, [fullscreenCam])
+
+  // Listen for temperature profile (lapse rate) from the whakapapa-snow-forecast iframe
+  useEffect(() => {
+    const handleMessage = (event) => {
+      if (event.data?.type === 'pw-profile' && event.data?.profile) {
+        setPwProfile(event.data.profile)
+      }
+    }
+    window.addEventListener('message', handleMessage)
+    return () => window.removeEventListener('message', handleMessage)
+  }, [])
+
+  // Calculate temperature at a given elevation using the lapse rate
+  const calcTempAtElevation = (elev) => {
+    if (!pwProfile || !pwProfile.a || pwProfile.b === undefined) return null
+    return pwProfile.a + pwProfile.b * elev
+  }
 
   const handleKeyDown = (e) => {
     if (e.key === 'Escape') {
@@ -438,7 +456,7 @@ function CameraCard({ camera, allCameras = [] }) {
           <h3>{camera.name}</h3>
           <WeatherDisplay location={camera.location} />
         </div>
-        <div className="image-container">
+        <div className="image-container" style={{ position: 'relative' }}>
           {isYouTube ? (
             <div style={{ position: 'relative', width: '100%', height: '100%' }}>
               <iframe
@@ -464,6 +482,22 @@ function CameraCard({ camera, allCameras = [] }) {
               alt={camera.name}
               onError={() => setBroken(true)}
             />
+          )}
+          {camera.elevation && pwProfile && (
+            <div style={{
+              position: 'absolute',
+              top: '8px',
+              right: '8px',
+              background: 'rgba(0, 0, 0, 0.7)',
+              color: '#fff',
+              padding: '4px 10px',
+              borderRadius: '4px',
+              fontSize: '0.75rem',
+              fontWeight: '600',
+              pointerEvents: 'none'
+            }}>
+              {calcTempAtElevation(camera.elevation)?.toFixed(1)}°C
+            </div>
           )}
         </div>
         {isMultiCamera && (
