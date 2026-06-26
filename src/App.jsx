@@ -1635,7 +1635,7 @@ function SnowfallForecast({ resort, setResort }) {
             const valMm = maxPrecip * frac
             const valCm = valMm / 10
             const y = snowPadding.top + snowPlotHeight - frac * snowPlotHeight
-            const decimals = maxPrecip < 5 ? 1 : 0
+            const decimals = maxPrecip < 50 ? 1 : 0
             return (
               <g key={`tick-${i}`}>
                 <line x1={snowPadding.left - 5} y1={y} x2={snowPadding.left} y2={y} stroke="#555" strokeWidth="1" />
@@ -2099,8 +2099,8 @@ function ForecastMap3D({ resort, setResort }) {
   const src = `/whakapapa-snow-forecast.html?resort=${resort}`
 
   return (
-    <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
-      <div style={{ display: 'flex', justifyContent: 'center', padding: '10px 0' }}>
+    <div className="map-3d-wrap" style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+      <div className="map-resort-switch" style={{ display: 'flex', justifyContent: 'center', padding: '10px 0' }}>
         <div className="elevation-toggle">
           {Object.entries(locations).map(([key, l]) => (
             <button key={key} className={`toggle-btn ${resort === key ? 'active' : ''}`} onClick={() => setResort(key)}>
@@ -2111,6 +2111,7 @@ function ForecastMap3D({ resort, setResort }) {
       </div>
       <iframe
         key={src}
+        className="map-3d-frame"
         src={src}
         style={{ width: '100%', flex: 1, minHeight: 0, border: 'none', borderRadius: 0, display: 'block' }}
         allowFullScreen
