@@ -311,39 +311,49 @@
     /* Decorative freezing-level sparkline would fight the drawer — hide it. */
     #fl-overlay { display: none !important; }
 
-    /* Timeline pinned to the very bottom; drawer sits above it. */
+    /* Timeline pinned to the very bottom, painted above the drawer's
+       background layer (which extends down behind it — see below). */
     #timeline, #live-timeline {
       left: 12px; right: 12px; bottom: 14px;
       gap: 8px; padding: 8px 12px;
+      z-index: 11;
     }
     #tl-label, #ltl-label { min-width: 0; font-size: 0.7rem; }
 
     /* ── Bottom-sheet drawer ──────────────────────────────────────────── */
+    /* The outer panel always sits flush with the bottom of the screen and
+       carries a tall bottom padding, so its background extends behind the
+       timeline down to the screen edge in BOTH expanded and minimised
+       states — only #drawer-scroll's height changes between the two,
+       which only affects how far up the visible content reaches. */
     #snow-info {
-      left: 0; right: 0; bottom: 84px;
+      left: 0; right: 0; bottom: 0;
       min-width: 0; width: 100%;
       border-radius: 18px 18px 0 0;
-      padding: 4px 20px 18px;
-      max-height: 60vh; overflow-y: auto;
-      transition: max-height 0.3s cubic-bezier(0.32, 0.72, 0, 1);
+      padding: 4px 20px calc(18px + 84px);
       touch-action: none;
     }
-    #map-screen.live-mode #snow-info { bottom: 84px; }
 
     #drawer-handle {
       display: flex; align-items: center; justify-content: center;
       height: 22px; margin: 0 -20px 4px; cursor: grab;
-      position: sticky; top: 0;
     }
     #drawer-handle .grip {
       width: 38px; height: 4px; border-radius: 2px;
       background: rgba(255,255,255,0.35);
     }
 
-    /* Minimised: collapse to a thin bar (handle + heading) anchored above the
-       timeline, so it never covers the scrubber. Swipe/tap to expand. */
-    #snow-info.drawer-min {
-      max-height: 50px;
+    #drawer-scroll {
+      max-height: 60vh; overflow-y: auto;
+      transition: max-height 0.3s cubic-bezier(0.32, 0.72, 0, 1);
+    }
+
+    /* Minimised: collapse the scrollable body to a sliver (just the
+       heading), so it never covers the scrubber below. Swipe/tap to
+       expand. The outer panel's bottom padding/position don't change, so
+       its background keeps reaching the screen edge either way. */
+    #snow-info.drawer-min #drawer-scroll {
+      max-height: 24px;
       overflow: hidden;
     }
     #snow-info.drawer-min h3 { margin-bottom: 0; }
@@ -384,6 +394,7 @@
 
   <div id="snow-info">
     <div id="drawer-handle"><span class="grip"></span></div>
+    <div id="drawer-scroll">
     <div id="info-hourly">
       <h3>Selected Forecast Hour</h3>
       <div class="si-row"><span class="l">Time</span><span class="v" id="si-time">—</span></div>
@@ -405,6 +416,7 @@
       <div id="live-rows"></div>
       <hr style="border: none; border-top: 1px solid rgba(255,255,255,0.12); margin: 12px 0 10px;">
       <div id="live-legend"></div>
+    </div>
     </div>
   </div>
   <div id="fl-overlay"><span id="fl-caption"></span><svg></svg></div>

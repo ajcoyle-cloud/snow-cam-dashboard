@@ -485,6 +485,13 @@
   width: 100%;
   border-bottom: none;
   position: relative;
+  cursor: grab;
+}
+
+.forecast-chart.dragging-scroll,
+.forecast-data-table.dragging-scroll {
+  cursor: grabbing;
+  scroll-snap-type: none;
 }
 
 .forecast-chart svg {
@@ -498,6 +505,7 @@
   overflow-y: hidden;
   margin: 0;
   background: #0a0a0a;
+  cursor: grab;
 }
 
 .forecast-data-table table {

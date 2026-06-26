@@ -666,6 +666,98 @@ function extractMetserviceDays(json) {
     .filter(Boolean)
 }
 
+// Mouse/pen click-drag-to-scroll with momentum, so the wide hourly chart
+// feels the same as a touch swipe. Touch is left alone — it already gets
+// native momentum scrolling from overflow-x: auto.
+function attachInertiaScroll(el) {
+  let isDown = false
+  let dragged = false
+  let startX = 0
+  let startScroll = 0
+  let lastX = 0
+  let lastT = 0
+  let velocity = 0
+  let rafId = null
+
+  const stopMomentum = () => {
+    if (rafId) cancelAnimationFrame(rafId)
+    rafId = null
+  }
+
+  const clampScroll = (v) => Math.max(0, Math.min(v, el.scrollWidth - el.clientWidth))
+
+  const swallowNextClick = (e) => {
+    e.stopPropagation()
+    e.preventDefault()
+    el.removeEventListener('click', swallowNextClick, true)
+  }
+
+  const onPointerDown = (e) => {
+    if (e.pointerType === 'touch') return
+    isDown = true
+    dragged = false
+    stopMomentum()
+    startX = e.clientX
+    startScroll = el.scrollLeft
+    lastX = e.clientX
+    lastT = performance.now()
+    velocity = 0
+  }
+
+  const onPointerMove = (e) => {
+    if (!isDown) return
+    const dx = e.clientX - startX
+    if (Math.abs(dx) > 4 && !dragged) {
+      dragged = true
+      el.classList.add('dragging-scroll')
+      el.addEventListener('click', swallowNextClick, true)
+    }
+    if (dragged) {
+      el.scrollLeft = clampScroll(startScroll - dx)
+      const now = performance.now()
+      const dt = now - lastT
+      if (dt > 4) velocity = Math.max(-3, Math.min(3, (e.clientX - lastX) / dt))
+      lastX = e.clientX
+      lastT = now
+    }
+  }
+
+  const onPointerUp = () => {
+    if (!isDown) return
+    isDown = false
+    el.classList.remove('dragging-scroll')
+    if (!dragged) return
+    let v = velocity * -16
+    const step = () => {
+      if (Math.abs(v) < 0.5) {
+        rafId = null
+        return
+      }
+      const next = clampScroll(el.scrollLeft + v)
+      if (next === el.scrollLeft) {
+        rafId = null
+        return
+      }
+      el.scrollLeft = next
+      v *= 0.94
+      rafId = requestAnimationFrame(step)
+    }
+    rafId = requestAnimationFrame(step)
+  }
+
+  el.addEventListener('pointerdown', onPointerDown)
+  window.addEventListener('pointermove', onPointerMove)
+  window.addEventListener('pointerup', onPointerUp)
+
+  return () => {
+    stopMomentum()
+    el.removeEventListener('pointerdown', onPointerDown)
+    window.removeEventListener('pointermove', onPointerMove)
+    window.removeEventListener('pointerup', onPointerUp)
+    el.removeEventListener('click', swallowNextClick, true)
+  }
+}
+
 function SnowfallForecast({ resort, setResort }) {
   const [forecastData, setForecastData] = useState(null)
   const [ecmwfForecastData, setEcmwfForecastData] = useState(null)
@@ -999,6 +1091,21 @@ function SnowfallForecast({ resort, setResort }) {
     return () => {
       chart.removeEventListener('scroll', syncChartToTable)
       table.removeEventListener('scroll', syncTableToChart)
+    }
+  }, [forecastData])
+
+  // Click-drag-to-scroll with momentum (mouse/pen) on the chart and table
+  useEffect(() => {
+    const chart = chartRef.current
+    const table = tableRef.current
+    if (!chart || !table) return
+
+    const detachChart = attachInertiaScroll(chart)
+    const detachTable = attachInertiaScroll(table)
+
+    return () => {
+      detachChart()
+      detachTable()
     }
   }, [forecastData])
 
