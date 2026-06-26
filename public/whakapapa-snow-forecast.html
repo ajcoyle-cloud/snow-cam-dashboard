@@ -1446,25 +1446,42 @@ function pwParseMeta(t) {
   };
 }
 
+// fetch with a hard timeout. A plain fetch() has no timeout, so on a stalled
+// mobile radio a request can hang indefinitely — it never resolves and never
+// rejects, so the live view sits on "Waiting for observations…" forever and
+// the retry below never fires. AbortController turns a stall into a rejection
+// after `ms`, which lets the retry path kick in.
+function pwFetchTimeout(url, ms = 9000) {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), ms);
+  return fetch(url, { signal: ctrl.signal, cache: 'no-store' })
+    .finally(() => clearTimeout(timer));
+}
+
 async function pwFetchTiles() {
   // Use allSettled, not all: on flaky mobile connections one tile timing out
   // shouldn't void the other three — merge whatever succeeded and only throw
   // if every single tile failed.
   const results = await Promise.allSettled(PW_TILES.map(async ([z, x, y]) => {
-    const res = await fetch(`/pw-obs/tile/${z}/${x}/${y}.json?t=${Date.now()}`);
+    const res = await pwFetchTimeout(`/pw-obs/tile/${z}/${x}/${y}.json?t=${Date.now()}`);
     if (!res.ok) throw new Error('tile ' + res.status);
     return res.json();
   }));
   const tracks = {};
   let updated = 0;
   let okCount = 0;
+  let lastErr = '';
   for (const r of results) {
-    if (r.status !== 'fulfilled') { console.warn('PredictWind tile fetch failed:', r.reason && r.reason.message); continue; }
+    if (r.status !== 'fulfilled') {
+      lastErr = (r.reason && (r.reason.name === 'AbortError' ? 'timeout' : r.reason.message)) || 'error';
+      console.warn('PredictWind tile fetch failed:', lastErr);
+      continue;
+    }
     okCount++;
     Object.assign(tracks, r.value.tracks || {});
     if (r.value.updated > updated) updated = r.value.updated;
   }
-  if (!okCount) throw new Error('all tiles failed');
+  if (!okCount) throw new Error('all tiles failed (' + lastErr + ')');
   return { updated, tracks };
 }
 
@@ -1667,7 +1684,10 @@ function toggleObsLayer() {
 }
 
 
-async function pwRefresh(isRetry) {
+let pwLastError = '';     // last fetch failure, surfaced in the live panel
+let pwHasData = false;    // have we ever successfully loaded ≥1 station?
+
+async function pwRefresh(attempt = 0) {
   try {
     const tile = await pwFetchTiles();
     for (const s of PW_STATIONS) {
@@ -1682,19 +1702,24 @@ async function pwRefresh(isRetry) {
       };
       pwRenderPill(s.trackId);
     }
+    pwLastError = '';
+    pwHasData = true;
     if (typeof pwUpdateTempProfile === 'function') pwUpdateTempProfile();
   } catch (e) {
+    pwLastError = e.message;
     console.warn('PredictWind obs fetch failed:', e.message);
-    // A cold/flaky mobile connection can fail the very first attempt; retry
-    // once shortly after instead of leaving the live view empty for the full
-    // 5-minute refresh interval.
-    if (!isRetry) setTimeout(() => pwRefresh(true), 4000);
+    // A cold/flaky mobile connection can fail the first attempts (a stalled
+    // request now aborts via pwFetchTimeout instead of hanging). Retry a few
+    // times with backoff before falling back to the 5-min interval, and show
+    // the failure in the panel so it's never a silent "Waiting…" forever.
+    if (!pwHasData && viewMode === 'live') renderLivePanel();
+    if (attempt < 4) setTimeout(() => pwRefresh(attempt + 1), 3000 * (attempt + 1));
   }
 }
 
 function initStationPill() {
   pwRefresh();
-  if (!pwRefreshTimer) pwRefreshTimer = setInterval(pwRefresh, 5 * 60 * 1000);
+  if (!pwRefreshTimer) pwRefreshTimer = setInterval(() => pwRefresh(), 5 * 60 * 1000);
 }
 
 // ── Live temperature profile + whole-mountain colour overlay ───────────────
@@ -1792,7 +1817,10 @@ function pwBuildTempRamp() {
 
 function renderLivePanel() {
   if (!pwProfile) {
-    document.getElementById('live-rows').innerHTML = '<div class="live-stat">Waiting for observations…</div>';
+    const msg = pwLastError
+      ? `Couldn't load observations (${pwLastError}). Retrying…`
+      : 'Waiting for observations…';
+    document.getElementById('live-rows').innerHTML = `<div class="live-stat">${msg}</div>`;
     document.getElementById('live-legend').innerHTML = '';
     return;
   }
