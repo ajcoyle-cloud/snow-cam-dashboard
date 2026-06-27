@@ -2220,19 +2220,33 @@ let pwLivePlayTimer = null;
 function pwComputeProfile() {
   const pts = [];
   const weights = [];
+  const stations = [];
   for (const id in pwState) {
     const s = pwState[id];
     if (s.meta.elevM != null && s.series.length) {
-      pts.push([s.meta.elevM, s.series[s.series.length - 1].tempC]);
-      // Prioritize on-mountain stations, lighter weight for regional stations
-      // Whakapapa 2000m (363045) and Halidays Hut (363044): weight = 1.0
-      // National Park Township (362779): weight = 0.3 (supplementary reference)
-      // All others: weight = 0.1 (regional background, minimal influence)
-      const weight = id === '363045' || id === '363044' ? 1.0 : id === '362779' ? 0.3 : 0.1;
-      weights.push(weight);
+      const elev = s.meta.elevM;
+      const temp = s.series[s.series.length - 1].tempC;
+      pts.push([elev, temp]);
+      stations.push({ id, elev, temp });
     }
   }
   if (pts.length < 2) return null;
+
+  // Automatically prioritize highest-elevation stations (on-mountain) over lower ones (regional).
+  // Weight by elevation rank: top 2 elevations get weight 1.0, middle gets 0.3, rest get 0.1.
+  const sorted = stations.slice().sort((a, b) => b.elev - a.elev);
+  const maxElev = sorted[0]?.elev;
+
+  for (const [elev, temp] of pts) {
+    let weight = 0.1;
+    if (elev === sorted[0].elev || (sorted[1] && elev === sorted[1].elev)) {
+      weight = 1.0;  // Top 2 highest elevations
+    } else if (sorted[2] && elev === sorted[2].elev) {
+      weight = 0.3;  // 3rd highest elevation (supplementary reference)
+    }
+    weights.push(weight);
+  }
+
   return pwWeightedFit(pts, weights);
 }
 
@@ -2276,16 +2290,32 @@ function pwFit(pts) {
 function pwComputeProfileAt(t) {
   const pts = [];
   const weights = [];
+  const stations = [];
   for (const id in pwState) {
     const s = pwState[id];
     if (s.meta.elevM != null && s.series.length >= 2 && t >= s.series[0].ts) {
-      pts.push([s.meta.elevM, pwTempAtTime(s.series, t)]);
-      // Apply same weighting as pwComputeProfile
-      const weight = id === '363045' || id === '363044' ? 1.0 : id === '362779' ? 0.3 : 0.1;
-      weights.push(weight);
+      const elev = s.meta.elevM;
+      const temp = pwTempAtTime(s.series, t);
+      pts.push([elev, temp]);
+      stations.push({ id, elev, temp });
     }
   }
   if (pts.length < 2) return null;
+
+  // Automatically prioritize highest-elevation stations (on-mountain) over lower ones (regional).
+  // Weight by elevation rank: top 2 elevations get weight 1.0, middle gets 0.3, rest get 0.1.
+  const sorted = stations.slice().sort((a, b) => b.elev - a.elev);
+
+  for (const [elev, temp] of pts) {
+    let weight = 0.1;
+    if (elev === sorted[0].elev || (sorted[1] && elev === sorted[1].elev)) {
+      weight = 1.0;  // Top 2 highest elevations
+    } else if (sorted[2] && elev === sorted[2].elev) {
+      weight = 0.3;  // 3rd highest elevation (supplementary reference)
+    }
+    weights.push(weight);
+  }
+
   return pwWeightedFit(pts, weights);
 }
 
