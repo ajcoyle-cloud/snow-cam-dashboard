@@ -130,6 +130,7 @@ const CAMERA_REGION_ORDER = {
   ruapehu: ['whakapapa', 'northisland', 'cardrona', 'southisland', 'loveland'],
   cardrona: ['cardrona', 'southisland', 'whakapapa', 'northisland', 'loveland'],
   loveland: ['loveland', 'whakapapa', 'northisland', 'cardrona', 'southisland'],
+  mtlyford: ['southisland', 'cardrona', 'whakapapa', 'northisland', 'loveland'],
 }
 
 // Stable sort keeps original within-bucket order; unknown buckets sort last.
@@ -663,6 +664,7 @@ const RESORTS = {
   ruapehu: { name: 'Whakapapa', lat: -39.28, lon: 175.57, summitElev: 2300, baseElev: 1630, timezone: 'Pacific/Auckland', metservicePath: 'mountains-and-parks/national-parks/tongariro' },
   cardrona: { name: 'Cardrona', lat: -44.76, lon: 169.0, summitElev: 1860, baseElev: 1640, timezone: 'Pacific/Auckland', metservicePath: 'mountains-and-parks/ski-fields/cardrona' },
   loveland: { name: 'Loveland', lat: 39.65, lon: -105.49, summitElev: 3500, baseElev: 3100, timezone: 'America/Denver' },
+  mtlyford: { name: 'Mt Lyford', lat: -42.708, lon: 171.822, summitElev: 1800, baseElev: 1340, timezone: 'Pacific/Auckland' },
 }
 
 // --- MetService freezing-level helpers ---------------------------------------
