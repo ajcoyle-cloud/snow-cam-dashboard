@@ -798,6 +798,12 @@ function initMap() {
 // uniformly across the whole view (not a true spatially-varying field), but
 // each particle is tracked as a real lng/lat and projected to screen pixels
 
+function degToCompass(deg) {
+  if (deg == null) return '';
+  const dirs = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
+  return dirs[Math.round(deg / 45) % 8];
+}
+
 // ── Click-to-probe popup — snow depth + elevation at the clicked point ──────
 let currentSnowLine = null;
 let currentHourCm = 0;
@@ -905,8 +911,6 @@ function openMapView(index) {
   document.getElementById('si-wind').textContent = hour.windSpeedKmh != null
     ? `${Math.round(hour.windSpeedKmh)} km/h ${degToCompass(hour.windDirDeg)}`
     : '—';
-  currentWindSpeedKmh = hour.windSpeedKmh ?? 0;
-  currentWindDirDeg = hour.windDirDeg ?? 0;
 
   document.getElementById('tl-prev').disabled = currentIndex <= 0;
   document.getElementById('tl-next').disabled = currentIndex >= forecastHours.length - 1;
