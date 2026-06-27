@@ -876,7 +876,9 @@ function buildSnowRamp(hour) {
   const snowLine = Math.min(hour.freezingLevel - SNOW_OFFSET, TOP_ELEV - 2);
 
   if (hour.snowfallMm < SNOWFALL_THRESHOLD_MM) {
-    const color = 'rgba(60,130,255,0.4)';
+    // Blue freezing-level overlay (no active snowfall). Opacity halved 0.4 → 0.2
+    // so the drape reads as a subtle tint rather than a solid wash.
+    const color = 'rgba(60,130,255,0.2)';
     return [
       'interpolate', ['linear'], ['elevation'],
       snowLine - 1, 'rgba(255,255,255,0)',
@@ -2220,15 +2222,24 @@ function pwRenderPseudoPills() {
     ];
   } else if (resortKey === 'roundhill') {
     pseudos = [
+      // Summit pill is HOURLY-only: at exactly LOC.summitElev the lapse
+      // interpolation below returns summitTemp (= forecastHours[i].temp), so it
+      // matches the drawer's "Summit Temp" (si-temp) and the Open-Meteo summit
+      // value to the decimal. Hidden in live mode (no reliable summit obs).
+      { elev: LOC.summitElev, lat: -43.820123, lon: 170.652847, label: 'Summit', hourlyOnly: true },
       { elev: 1800, lat: -43.830719, lon: 170.660593, label: 'Base' },
     ];
   } else if (resortKey === 'mtlyford') {
     pseudos = [
+      { elev: LOC.summitElev, lat: -42.443872, lon: 173.143418, label: 'Summit', hourlyOnly: true },
       { elev: 1340, lat: -42.449134, lon: 173.143418, label: 'Base' },
     ];
   }
   if (!pseudos.length) return;
   for (const p of pseudos) {
+    // Summit pseudo pills only make sense against forecast data; skip them in
+    // live/accumulated where there's no per-hour summit temp to sync to.
+    if (p.hourlyOnly && viewMode !== 'hourly') continue;
     // In HOURLY view, use pure forecast data; otherwise use observed
     let t;
     if (viewMode === 'hourly' && forecastHours[currentIndex]) {
