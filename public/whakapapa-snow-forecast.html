@@ -43,7 +43,6 @@
   /* ── Fullscreen map ────────────────────────────────────────────────── */
   #map-screen { position: fixed; inset: 0; z-index: 500; }
   #map { width: 100%; height: 100%; }
-  #wind-canvas { position: absolute; inset: 0; z-index: 4; pointer-events: none; }
 
   /* ── Timeline scrubber (play/pause + draggable slider) ─────────────────── */
   #timeline, #live-timeline {
@@ -114,7 +113,7 @@
   .speed-btn:hover { color: #fff; }
   .speed-btn.active { background: #333; color: #fff; }
 
-  #map-enlarge, #map-close, #wind-toggle, #obs-toggle, #rotate-toggle {
+  #map-enlarge, #map-close, #obs-toggle, #rotate-toggle {
     position: absolute; top: 20px; z-index: 20;
     background: rgba(255,255,255,0.12); color: #fff; border: none;
     width: 40px; height: 40px; border-radius: 50%; font-size: 1.1rem; cursor: pointer;
@@ -130,11 +129,8 @@
   #rotate-toggle.active { background: #333; }
   #rotate-toggle:hover { background: rgba(255,255,255,0.25); }
   #rotate-toggle.active:hover { background: #404040; }
-  #wind-toggle { left: 152px; }
-  #wind-toggle.active { background: #333; }
   #map-close { right: 64px; display: none; }
-  #map-enlarge:hover, #map-close:hover, #wind-toggle:hover { background: rgba(255,255,255,0.25); }
-  #wind-toggle.active:hover { background: #404040; }
+  #map-enlarge:hover, #map-close:hover { background: rgba(255,255,255,0.25); }
   #map-screen.is-fullscreen #map-enlarge { display: none; }
   #map-screen.is-fullscreen #map-close { display: block; }
 
@@ -306,11 +302,10 @@
     .pill-group { overflow-x: auto; }
     .pill-btn { padding: 8px 13px; font-size: 0.74rem; }
 
-    /* Map toggle buttons (live-obs, auto-rotate, wind) tuck under the control rows
+    /* Map toggle buttons (live-obs, auto-rotate) tuck under the control rows
        on the left so nothing collides up top. */
     #obs-toggle { top: 112px; left: 14px; }
     #rotate-toggle { top: 112px; left: 60px; }
-    #wind-toggle { top: 112px; left: 106px; }
     #map-close { top: 14px; right: 14px; }
 
     /* Playback speed: compact, top-right (out of the drawer's way). */
@@ -404,7 +399,6 @@
 
 <div id="map-screen">
   <div id="map"></div>
-  <canvas id="wind-canvas"></canvas>
   <button id="map-enlarge" onclick="enterFullscreenView()" title="Fullscreen">⤢</button>
   <button id="obs-toggle" class="active" onclick="toggleObsLayer()" title="Toggle live observations">
     <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 4v10.54a4 4 0 1 1-4 0V4a2 2 0 0 1 4 0Z"/></svg>
@@ -414,9 +408,6 @@
   </button>
   <button id="map-close" onclick="exitFullscreenView()" title="Close fullscreen">✕</button>
   <div id="map-title"></div>
-  <button id="wind-toggle" class="active" onclick="toggleWindOverlay()" title="Toggle wind streamlines">
-    <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12.8 19.6A2 2 0 1 0 14 16H2" /><path d="M17.5 8a2.5 2.5 0 1 1 2 4H2" /><path d="M9.8 4.4A2 2 0 1 1 11 8H2" /></svg>
-  </button>
 
   <div id="top-controls">
     <div class="pill-group" id="mode-switch">
@@ -749,9 +740,7 @@ function initMap() {
     showClickPopup(e.point.x, e.point.y, `${depthCm.toFixed(1)}cm`);
   });
 
-
   // A user drag/zoom/rotate/pitch invalidates every particle's last screen
-  // position, so pause and clear the wind overlay for the duration rather
   // than let it draw bogus streaks connecting stale to fresh projections.
   // The decorative auto-rotate below also fires movestart/moveend every
   // single frame via setBearing(), but those calls have no originalEvent
@@ -761,12 +750,10 @@ function initMap() {
   map.on('movestart', (e) => {
     if (!e.originalEvent) return;
     windInteractionActive = true;
-    pauseWindOverlay();
   });
   map.on('moveend', () => {
     if (!windInteractionActive) return;
     windInteractionActive = false;
-    resumeWindOverlay();
   });
 
   // Very slow auto-rotate on the initial view, purely decorative — stops for
@@ -807,545 +794,9 @@ function initMap() {
   armInteractionStop();
 }
 
-// ── Wind streamline overlay ───────────────────────────────────────────────
 // Decorative only: applies the single selected hour's wind speed/direction
 // uniformly across the whole view (not a true spatially-varying field), but
 // each particle is tracked as a real lng/lat and projected to screen pixels
-// every frame via Transform#locationToScreenPoint at a fixed altitude
-// (WIND_PLANE_ELEVATION_M), using a fake "terrain" object since MapLibre's
-// own project() always samples the real terrain DEM under the point. That
-// keeps particles on one flat invisible plane above the mountain instead of
-// draping them over the bumpy ground (which made them look like clumps of
-// snow wobbling down the slope), while still inheriting the camera's real
-// perspective (near = big/fast, far = small/slow).
-const WIND_PARTICLE_COUNT = 260;
-const WIND_PLANE_ELEVATION_M = 1600;
-const WIND_SPEED_MULTIPLIER = 10; // visual-only speedup so flow reads at map scale
-const fixedElevationTerrain = { getElevationForLngLat: () => WIND_PLANE_ELEVATION_M };
-
-function projectAtWindPlane(lng, lat) {
-  return map.transform.locationToScreenPoint({ lng, lat }, fixedElevationTerrain);
-}
-let currentWindSpeedKmh = 0;
-let currentWindDirDeg = 0;
-let windParticles = [];
-let windCanvas = null;
-let windCtx = null;
-let windAnimRunning = false;
-let windEnabled = true;
-// While the camera is moving/rotating/zooming, each particle's last drawn
-// screen point is stale relative to the new camera transform, so drawing a
-// line from it to the freshly projected point produces a long bogus streak
-// raked across the view. Pause stepping (and clear) for the duration of any
-// camera interaction, then drop stale screen points on resume so the next
-// frame starts a fresh segment instead of connecting across the jump.
-let windPaused = false;
-
-function pauseWindOverlay() {
-  windPaused = true;
-  if (windCtx && windCanvas) windCtx.clearRect(0, 0, windCanvas.width, windCanvas.height);
-}
-
-function resumeWindOverlay() {
-  windPaused = false;
-  windParticles.forEach((p) => { p.sx = null; p.sy = null; });
-}
-
-let windColumnVisible = false;
-function toggleWindOverlay() {
-  // Only allow wind column in LIVE mode (observed data only)
-  if (viewMode !== 'live') {
-    document.getElementById('wind-toggle').classList.remove('active');
-    return;
-  }
-  windColumnVisible = !windColumnVisible;
-  document.getElementById('wind-toggle').classList.toggle('active', windColumnVisible);
-  if (windColumnVisible) {
-    showWindProfile();
-  } else {
-    hideWindProfile();
-  }
-}
-
-function hideWindProfile() {
-  const el = document.getElementById('wind-profile-panel');
-  if (el) el.remove();
-}
-
-// Catmull-Rom spline interpolation for smooth wind profile curve
-function catmullRom(p0, p1, p2, p3, t) {
-  const t2 = t * t;
-  const t3 = t2 * t;
-  return 0.5 * (
-    2 * p1 +
-    (-p0 + p2) * t +
-    (2 * p0 - 5 * p1 + 4 * p2 - p3) * t2 +
-    (-p0 + 3 * p1 - 3 * p2 + p3) * t3
-  );
-}
-
-// Interpolate wind direction smoothly between points, handling 0°/360° wrap
-function interpolateDirection(dir1, dir2, t) {
-  // Find shortest path around the circle
-  let delta = dir2 - dir1;
-  if (delta > 180) delta -= 360;
-  if (delta < -180) delta += 360;
-  let result = dir1 + delta * t;
-  if (result < 0) result += 360;
-  if (result >= 360) result -= 360;
-  return result;
-}
-
-// Generate SVG path for arrow glyph pointing in given compass bearing
-function generateWindArrow(deg) {
-  // Small arrow: 6px wide, 4px tall
-  const rad = (deg * Math.PI) / 180;
-  const cos = Math.cos(rad);
-  const sin = Math.sin(rad);
-  // Arrow tip pointing in bearing direction
-  const scale = 1.5;
-  return `M0,0 L${-cos * scale},${-sin * scale} L${cos * 0.3 - sin * 0.5},${sin * 0.3 + cos * 0.5} L${cos * 0.3 + sin * 0.5},${sin * 0.3 - cos * 0.5}`;
-}
-
-// Build spline path through data points
-function buildWindSplinePath(data, minElev, maxElev, minSpeed, maxSpeedDisplay, graphWidth, graphHeight, padding) {
-  if (data.length < 2) return null;
-
-  const points = data.map((d) => {
-    const elevFrac = (d.elev - minElev) / (maxElev - minElev);
-    const y = padding.top + graphHeight - elevFrac * graphHeight;
-    const speedFrac = Math.min(d.speed / maxSpeedDisplay, 1);
-    const x = padding.left + speedFrac * graphWidth;
-    return { x, y, d };
-  });
-
-  if (points.length < 2) return null;
-
-  let pathData = '';
-  const resolution = 10; // points per segment
-
-  // For each pair of adjacent data points, use Catmull-Rom spline
-  for (let i = 0; i < points.length - 1; i++) {
-    const p0 = points[i - 1] || points[i]; // mirror first point if at start
-    const p1 = points[i];
-    const p2 = points[i + 1];
-    const p3 = points[i + 2] || points[i + 1]; // mirror last point if at end
-
-    for (let j = 0; j < resolution; j++) {
-      const t = j / resolution;
-      const x = catmullRom(p0.x, p1.x, p2.x, p3.x, t);
-      const y = catmullRom(p0.y, p1.y, p2.y, p3.y, t);
-      pathData += (j === 0 && i === 0 ? 'M' : 'L') + x + ',' + y;
-    }
-  }
-
-  // Add final point
-  const lastPt = points[points.length - 1];
-  pathData += 'L' + lastPt.x + ',' + lastPt.y;
-
-  return { pathData, points };
-}
-
-// Sample wind direction along spline at given x position
-function sampleDirectionAtX(data, x, graphWidth, padding) {
-  if (data.length < 2) return null;
-  // Find which two data points bracket this x
-  const speedFrac = (x - padding.left) / graphWidth;
-  const speed = speedFrac * Math.max(...data.map(d => d.speed)) * 1.2; // approximate
-
-  for (let i = 0; i < data.length - 1; i++) {
-    if (data[i].speed <= speed && data[i + 1].speed >= speed) {
-      const t = (data[i + 1].speed - speed) / (data[i + 1].speed - data[i].speed);
-      return interpolateDirection(data[i].dir, data[i + 1].dir, t);
-    }
-  }
-  return data[data.length - 1].dir;
-}
-
-function showWindProfile() {
-  hideWindProfile();
-
-  // Get observed wind speed/direction from available stations
-  // Use pwDisplayTime if scrubbing through past, otherwise use latest
-  const selectedTime = pwDisplayTime;
-  const elevations = [];
-  const windSpeeds = [];
-  const windDirs = [];
-
-  for (const trackId in pwState) {
-    const st = pwState[trackId];
-    if (!st || !st.series.length || !st.meta.elevM) continue;
-
-    // Get observation at selected time (or latest if viewing live/now)
-    let obs;
-    if (selectedTime == null) {
-      obs = st.series[st.series.length - 1];
-    } else {
-      const series = st.series;
-      if (selectedTime <= series[0].ts) obs = series[0];
-      else if (selectedTime >= series[series.length - 1].ts) obs = series[series.length - 1];
-      else {
-        for (let i = 1; i < series.length; i++) {
-          if (series[i].ts >= selectedTime) {
-            obs = series[i - 1];
-            break;
-          }
-        }
-      }
-    }
-
-    if (!obs || obs.speedKt == null || obs.dir == null) continue;
-    elevations.push(st.meta.elevM);
-    windSpeeds.push(obs.speedKt * KT_TO_KMH);
-    windDirs.push(obs.dir);
-  }
-
-  if (elevations.length === 0) return;
-
-  // Sort by elevation for display
-  const data = elevations.map((e, i) => ({ elev: e, speed: windSpeeds[i], dir: windDirs[i] }))
-    .sort((a, b) => a.elev - b.elev);
-
-  const minElev = LOC.baseElev;
-  const maxElev = LOC.summitElev;
-  const minSpeed = Math.min(...data.map(d => d.speed));
-  const maxSpeed = Math.max(...data.map(d => d.speed)) || 20;
-  const maxSpeedDisplay = Math.max(maxSpeed, 30); // min 30 km/h range for readable scale
-
-  // Create SVG wind profile panel
-  const panelWidth = 280;
-  const panelHeight = 340;
-  const padding = { top: 20, right: 16, bottom: 20, left: 50 };
-  const graphWidth = panelWidth - padding.left - padding.right;
-  const graphHeight = panelHeight - padding.top - padding.bottom;
-
-  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-  svg.setAttribute('viewBox', `0 0 ${panelWidth} ${panelHeight}`);
-  svg.setAttribute('width', panelWidth);
-  svg.setAttribute('height', panelHeight);
-  svg.style.cssText = 'background: rgba(10,20,36,0.88); backdrop-filter: blur(14px); border-radius: 14px; border: 1px solid rgba(255,255,255,0.12);';
-
-  // Add SVG defs for gradients
-  const defs = document.createElementNS('http://www.w3.org/2000/svg', 'defs');
-  const grad = document.createElementNS('http://www.w3.org/2000/svg', 'linearGradient');
-  grad.setAttribute('id', 'wind-speed-gradient');
-  grad.setAttribute('x1', '0%');
-  grad.setAttribute('x2', '100%');
-  const stops = [
-    { offset: '0%', color: '#4a90e2' },   // blue: light wind
-    { offset: '40%', color: '#50c878' },  // green
-    { offset: '60%', color: '#f5d547' },  // yellow
-    { offset: '80%', color: '#ff9500' },  // orange
-    { offset: '100%', color: '#e74c3c' }  // red: strong wind
-  ];
-  stops.forEach(s => {
-    const stop = document.createElementNS('http://www.w3.org/2000/svg', 'stop');
-    stop.setAttribute('offset', s.offset);
-    stop.setAttribute('stop-color', s.color);
-    grad.appendChild(stop);
-  });
-  defs.appendChild(grad);
-  svg.appendChild(defs);
-
-  // Title
-  const title = document.createElementNS('http://www.w3.org/2000/svg', 'text');
-  title.setAttribute('x', padding.left);
-  title.setAttribute('y', 18);
-  title.setAttribute('fill', 'rgba(255,255,255,0.85)');
-  title.setAttribute('font-size', '13');
-  title.setAttribute('font-weight', '600');
-  title.textContent = 'Wind Profile';
-  svg.appendChild(title);
-
-  // Y-axis (elevation)
-  const yAxis = document.createElementNS('http://www.w3.org/2000/svg', 'line');
-  yAxis.setAttribute('x1', padding.left);
-  yAxis.setAttribute('y1', padding.top);
-  yAxis.setAttribute('x2', padding.left);
-  yAxis.setAttribute('y2', padding.top + graphHeight);
-  yAxis.setAttribute('stroke', 'rgba(255,255,255,0.2)');
-  yAxis.setAttribute('stroke-width', '1');
-  svg.appendChild(yAxis);
-
-  // X-axis (wind speed)
-  const xAxis = document.createElementNS('http://www.w3.org/2000/svg', 'line');
-  xAxis.setAttribute('x1', padding.left);
-  xAxis.setAttribute('y1', padding.top + graphHeight);
-  xAxis.setAttribute('x2', padding.left + graphWidth);
-  xAxis.setAttribute('y2', padding.top + graphHeight);
-  xAxis.setAttribute('stroke', 'rgba(255,255,255,0.2)');
-  xAxis.setAttribute('stroke-width', '1');
-  svg.appendChild(xAxis);
-
-  // Build and render interpolated spline curve (if we have enough points)
-  if (data.length >= 2) {
-    const spline = buildWindSplinePath(data, minElev, maxElev, minSpeed, maxSpeedDisplay, graphWidth, graphHeight, padding);
-    if (spline) {
-      // Render shaded area under curve
-      const areaPath = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-      const baselineY = padding.top + graphHeight;
-      const areaD = spline.pathData + ` L${padding.left + graphWidth},${baselineY} L${padding.left},${baselineY} Z`;
-      areaPath.setAttribute('d', areaD);
-      areaPath.setAttribute('fill', 'url(#wind-speed-gradient)');
-      areaPath.setAttribute('opacity', '0.25');
-      svg.appendChild(areaPath);
-
-      // Render curve line
-      const curve = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-      curve.setAttribute('d', spline.pathData);
-      curve.setAttribute('stroke', '#7dd3fc');
-      curve.setAttribute('stroke-width', '2.5');
-      curve.setAttribute('fill', 'none');
-      curve.setAttribute('stroke-linecap', 'round');
-      curve.setAttribute('stroke-linejoin', 'round');
-      svg.appendChild(curve);
-
-      // Render data points as circles
-      spline.points.forEach((pt) => {
-        const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
-        circle.setAttribute('cx', pt.x);
-        circle.setAttribute('cy', pt.y);
-        circle.setAttribute('r', '3.5');
-        circle.setAttribute('fill', '#fff');
-        circle.setAttribute('stroke', '#333');
-        circle.setAttribute('stroke-width', '1.5');
-        svg.appendChild(circle);
-      });
-
-      // Render wind direction arrows along curve
-      const arrowInterval = 50;
-      for (let x = padding.left + arrowInterval; x < padding.left + graphWidth; x += arrowInterval) {
-        const dir = sampleDirectionAtX(data, x, graphWidth, padding);
-        if (dir != null) {
-          // Find corresponding y on the curve
-          let y = null;
-          for (let i = 0; i < spline.points.length - 1; i++) {
-            if (spline.points[i].x <= x && spline.points[i + 1].x >= x) {
-              const t = (x - spline.points[i].x) / (spline.points[i + 1].x - spline.points[i].x);
-              y = spline.points[i].y + (spline.points[i + 1].y - spline.points[i].y) * t;
-              break;
-            }
-          }
-          if (y != null) {
-            const arrowGroup = document.createElementNS('http://www.w3.org/2000/svg', 'g');
-            arrowGroup.setAttribute('transform', `translate(${x},${y})`);
-            const arrowPath = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-            arrowPath.setAttribute('d', generateWindArrow(dir));
-            arrowPath.setAttribute('fill', 'rgba(255,255,255,0.8)');
-            arrowPath.setAttribute('stroke', 'none');
-            arrowGroup.appendChild(arrowPath);
-            svg.appendChild(arrowGroup);
-          }
-        }
-      }
-    }
-  }
-
-  // Render data point bars (reference visualization)
-  const bandHeight = graphHeight / (data.length + 1);
-  for (let i = 0; i < data.length; i++) {
-    const d = data[i];
-    const elevFrac = (d.elev - minElev) / (maxElev - minElev);
-    const y = padding.top + graphHeight - (elevFrac * graphHeight);
-    const windFrac = d.speed / maxSpeedDisplay;
-    const barWidth = windFrac * graphWidth;
-
-    // Color bar based on wind speed
-    let color;
-    if (d.speed < 15) color = '#4a90e2'; // light blue
-    else if (d.speed < 25) color = '#50c878'; // green
-    else if (d.speed < 40) color = '#f5d547'; // yellow
-    else if (d.speed < 55) color = '#ff9500'; // orange
-    else color = '#e74c3c'; // red
-
-    const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
-    rect.setAttribute('x', padding.left);
-    rect.setAttribute('y', y - bandHeight / 2);
-    rect.setAttribute('width', barWidth);
-    rect.setAttribute('height', bandHeight * 0.8);
-    rect.setAttribute('fill', color);
-    rect.setAttribute('opacity', '0.5');
-    svg.appendChild(rect);
-
-    // Elevation label on left
-    const elevLabel = document.createElementNS('http://www.w3.org/2000/svg', 'text');
-    elevLabel.setAttribute('x', padding.left - 8);
-    elevLabel.setAttribute('y', y + 3);
-    elevLabel.setAttribute('text-anchor', 'end');
-    elevLabel.setAttribute('fill', 'rgba(255,255,255,0.6)');
-    elevLabel.setAttribute('font-size', '11');
-    elevLabel.textContent = Math.round(d.elev) + 'm';
-    svg.appendChild(elevLabel);
-
-    // Wind speed label and direction
-    const speedLabel = document.createElementNS('http://www.w3.org/2000/svg', 'text');
-    speedLabel.setAttribute('x', padding.left + barWidth + 4);
-    speedLabel.setAttribute('y', y + 3);
-    speedLabel.setAttribute('fill', '#fff');
-    speedLabel.setAttribute('font-size', '11');
-    speedLabel.setAttribute('font-weight', '600');
-    speedLabel.textContent = Math.round(d.speed) + ' km/h ' + degToCompass(d.dir);
-    svg.appendChild(speedLabel);
-  }
-
-  // X-axis label
-  const xLabel = document.createElementNS('http://www.w3.org/2000/svg', 'text');
-  xLabel.setAttribute('x', padding.left + graphWidth / 2);
-  xLabel.setAttribute('y', panelHeight - 3);
-  xLabel.setAttribute('text-anchor', 'middle');
-  xLabel.setAttribute('fill', 'rgba(255,255,255,0.4)');
-  xLabel.setAttribute('font-size', '10');
-  xLabel.textContent = 'Wind Speed';
-  svg.appendChild(xLabel);
-
-  // Wrap in div for positioning
-  const panel = document.createElement('div');
-  panel.id = 'wind-profile-panel';
-  panel.style.cssText = `
-    position: absolute;
-    bottom: 112px;
-    right: 20px;
-    z-index: 15;
-    pointer-events: auto;
-    box-shadow: 0 4px 24px rgba(0,0,0,0.3);
-  `;
-  panel.appendChild(svg);
-  document.getElementById('map-screen').appendChild(panel);
-}
-
-function degToCompass(deg) {
-  if (deg == null) return '';
-  const dirs = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
-  return dirs[Math.round(deg / 45) % 8];
-}
-
-function resizeWindCanvas() {
-  if (!windCanvas) return;
-  const rect = windCanvas.parentElement.getBoundingClientRect();
-  windCanvas.width = rect.width;
-  windCanvas.height = rect.height;
-}
-
-// Move a lng/lat a given distance (metres) along a compass bearing, using a
-// flat-earth approximation — plenty accurate at single-mountain map scale.
-function destinationPoint(lng, lat, bearingDeg, distanceM) {
-  const R = 6371000;
-  const bearingRad = (bearingDeg * Math.PI) / 180;
-  const dLat = ((distanceM * Math.cos(bearingRad)) / R) * (180 / Math.PI);
-  const dLng = ((distanceM * Math.sin(bearingRad)) / (R * Math.cos((lat * Math.PI) / 180))) * (180 / Math.PI);
-  return [lng + dLng, lat + dLat];
-}
-
-function randomGroundPoint() {
-  const b = map.getBounds();
-  // Spawn slightly beyond the visible bounds too, so particles can be seen
-  // drifting in from just off-screen rather than always popping into view.
-  const lngPad = (b.getEast() - b.getWest()) * 0.15;
-  const latPad = (b.getNorth() - b.getSouth()) * 0.15;
-  return [
-    b.getWest() - lngPad + Math.random() * (b.getEast() - b.getWest() + lngPad * 2),
-    b.getSouth() - latPad + Math.random() * (b.getNorth() - b.getSouth() + latPad * 2)
-  ];
-}
-
-function spawnWindParticle() {
-  const [lng, lat] = randomGroundPoint();
-  return { lng, lat, sx: null, sy: null, life: Math.random() * 40, maxLife: 28 + Math.random() * 24 };
-}
-
-function stepWindParticles() {
-  const w = windCanvas.width;
-  const h = windCanvas.height;
-  if (w === 0 || h === 0 || !map || !windEnabled || windPaused) return;
-
-  // Wind direction is meteorological "from" — particles travel toward dir+180.
-  const travelBearing = (currentWindDirDeg + 180) % 360;
-  const speedMps = (Math.min(currentWindSpeedKmh, 150) / 3.6) * WIND_SPEED_MULTIPLIER;
-  const distancePerFrame = speedMps / 60; // approx metres per animation frame
-
-  windCtx.globalCompositeOperation = 'destination-out';
-  windCtx.fillStyle = 'rgba(0,0,0,0.07)';
-  windCtx.fillRect(0, 0, w, h);
-  windCtx.globalCompositeOperation = 'source-over';
-  windCtx.lineCap = 'round';
-
-  windParticles.forEach((p) => {
-    const [nextLng, nextLat] = destinationPoint(p.lng, p.lat, travelBearing, distancePerFrame);
-    p.lng = nextLng;
-    p.lat = nextLat;
-    p.life += 1;
-
-    const projected = projectAtWindPlane(p.lng, p.lat);
-    const inBounds = isFinite(projected.x) && isFinite(projected.y) &&
-      projected.x > -50 && projected.x < w + 50 && projected.y > -50 && projected.y < h + 50;
-
-    if (!inBounds || p.life > p.maxLife) {
-      Object.assign(p, spawnWindParticle(), { sx: null, sy: null });
-      return;
-    }
-
-    if (p.sx != null) {
-      // Per-frame pixel travel distance is the natural perspective cue —
-      // near (fast-moving-on-screen) particles draw a longer, thicker
-      // streak than distant (slow-moving-on-screen) ones, with no manual
-      // depth bookkeeping needed.
-      const pixelDist = Math.hypot(projected.x - p.sx, projected.y - p.sy);
-      // Points that cross near the camera's clip plane can perspective-
-      // divide into wildly wrong screen coordinates that still happen to
-      // land inside the bounds check, producing a giant spurious line.
-      // Treat any implausibly large per-frame jump as that artifact and
-      // skip drawing it (still update sx/sy so the particle recovers).
-      const isProjectionArtifact = pixelDist > 45;
-      const widthScale = Math.min(1, pixelDist / 6);
-      // Ease in/out over each particle's lifespan so it gently fades up
-      // when spawned and fades back down before respawning, rather than
-      // popping abruptly in/out.
-      const lifeFrac = Math.min(1, p.life / p.maxLife);
-      const fadeIn = Math.min(1, p.life / 8);
-      const fadeOut = Math.min(1, (1 - lifeFrac) * 6);
-      const lifeAlpha = Math.min(fadeIn, fadeOut);
-      if (!isProjectionArtifact) {
-        // Extend the drawn tip one extra delta past the particle's actual
-        // position to double the visible streak length without changing
-        // its real travel speed.
-        const tipX = projected.x + (projected.x - p.sx);
-        const tipY = projected.y + (projected.y - p.sy);
-        windCtx.strokeStyle = `rgba(225,232,240,${(0.25 + widthScale * 0.35) * lifeAlpha})`;
-        windCtx.lineWidth = 1.2 + widthScale * 2.4;
-        windCtx.beginPath();
-        windCtx.moveTo(p.sx, p.sy);
-        windCtx.lineTo(tipX, tipY);
-        windCtx.stroke();
-      }
-    }
-    p.sx = projected.x;
-    p.sy = projected.y;
-  });
-}
-
-function windAnimLoop() {
-  if (!windAnimRunning) return;
-  stepWindParticles();
-  requestAnimationFrame(windAnimLoop);
-}
-
-function startWindOverlay() {
-  windCanvas = document.getElementById('wind-canvas');
-  windCtx = windCanvas.getContext('2d');
-  resizeWindCanvas();
-  window.addEventListener('resize', resizeWindCanvas);
-  if (!windAnimRunning) {
-    windAnimRunning = true;
-    // Particles need real map bounds to spawn into, so wait until the map
-    // (created lazily by openMapView) actually exists.
-    const tryStart = () => {
-      if (!map) { setTimeout(tryStart, 100); return; }
-      windParticles = Array.from({ length: WIND_PARTICLE_COUNT }, () => spawnWindParticle());
-      requestAnimationFrame(windAnimLoop);
-    };
-    tryStart();
-  }
-}
 
 // ── Click-to-probe popup — snow depth + elevation at the clicked point ──────
 let currentSnowLine = null;
@@ -1618,10 +1069,6 @@ function setViewMode(mode) {
   if (mode !== 'live') {
     pwStopLivePlay();
     if (pwDisplayTime != null) { pwDisplayTime = null; for (const id in pwState) pwRenderPill(id); }
-    // Hide wind column when leaving live mode (only available for observed data)
-    windColumnVisible = false;
-    document.getElementById('wind-toggle').classList.remove('active');
-    hideWindColumn();
   }
 
   if (mode === 'hourly') {
@@ -1658,7 +1105,6 @@ function exitFullscreenView() {
 function updateFullscreenUI() {
   const isFs = !!(document.fullscreenElement || document.webkitFullscreenElement || document.msFullscreenElement);
   document.getElementById('map-screen').classList.toggle('is-fullscreen', isFs);
-  setTimeout(resizeWindCanvas, 50);
 }
 ['fullscreenchange', 'webkitfullscreenchange', 'msfullscreenchange'].forEach((evt) =>
   document.addEventListener(evt, updateFullscreenUI)
@@ -1779,8 +1225,7 @@ function restoreViewMode() {
 }
 
 loadForecast();
-// startWindOverlay(); // wind feature temporarily disabled on prod
-
+// 
 // ── Live PredictWind observation stations ──────────────────────────────────
 // PredictWind serves NowCasting stations as packed map-tile JSON (see
 // scripts/predictwind_obs.py for the format). We fetch the tile via the /pw-obs
@@ -2163,7 +1608,6 @@ function toggleObsLayer() {
   }
 }
 
-
 let pwLastError = '';     // last fetch failure, surfaced in the live panel
 let pwHasData = false;    // have we ever successfully loaded ≥1 station?
 
@@ -2185,8 +1629,6 @@ async function pwRefresh(attempt = 0) {
     pwLastError = '';
     pwHasData = true;
     if (typeof pwUpdateTempProfile === 'function') pwUpdateTempProfile();
-    // Update wind column visualization if it's currently visible
-    if (windColumnVisible && viewMode === 'live') showWindProfile();
   } catch (e) {
     pwLastError = e.message;
     console.warn('PredictWind obs fetch failed:', e.message);
@@ -2483,8 +1925,6 @@ function pwApplyLiveAt(idx) {
     (isNow ? 'Now · ' : '') + new Date(t * 1000).toLocaleTimeString('en-NZ', { hour: '2-digit', minute: '2-digit', hour12: false });
   document.getElementById('ltl-prev').disabled = idx <= 0;
   document.getElementById('ltl-next').disabled = idx >= pwLiveGrid.length - 1;
-  // Update wind column visualization if visible
-  if (windColumnVisible) showWindColumn();
 }
 
 function pwStepLive(delta) { pwStopLivePlay(); pwApplyLiveAt(pwLiveIdx + delta); }
