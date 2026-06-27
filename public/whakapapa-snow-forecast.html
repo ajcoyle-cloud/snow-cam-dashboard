@@ -281,6 +281,14 @@
   /* Drawer grab-handle — only shown on mobile (see media query below). */
   #drawer-handle { display: none; }
 
+  /* ── Tablet/iPad layout adjustments for small viewport heights ──────── */
+  @media (max-height: 800px) {
+    /* On iPad or narrow-height viewports, reduce spacing to fit timeline. */
+    #snow-info { bottom: 76px; }
+    #speed-select { bottom: 76px; }
+    #timeline, #live-timeline { bottom: 12px; padding: 8px 14px; }
+  }
+
   /* ── Mobile layout ──────────────────────────────────────────────────── */
   @media (max-width: 700px) {
     /* No zoom buttons, no on-map fullscreen button on mobile. */
