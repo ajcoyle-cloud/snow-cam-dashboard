@@ -17,6 +17,7 @@ const WEATHER_LOCATIONS = {
   'Coronet Peak': { lat: -44.4, lon: 168.8, elevation: 1649 },
   'Loveland': { lat: 39.65, lon: -105.49, elevation: 3290 },
   'Roundhill': { lat: -43.825421, lon: 170.656220, elevation: 1800 },
+  'Mt Vernon': { lat: 39.72011925175132, lon: -105.26872905339022, elevation: 2190 },
 }
 
 const getWeatherIcon = (pictocode) => {
@@ -671,6 +672,7 @@ const RESORTS = {
   loveland: { name: 'Loveland', lat: 39.65, lon: -105.49, summitElev: 3500, baseElev: 3100, timezone: 'America/Denver' },
   mtlyford: { name: 'Mt Lyford', lat: -42.446503, lon: 173.143418, summitElev: 1800, baseElev: 1340, timezone: 'Pacific/Auckland' },
   roundhill: { name: 'Roundhill', lat: -43.825421, lon: 170.656220, summitElev: 2170, baseElev: 1800, timezone: 'Pacific/Auckland', pwObsStations: ['tekapo-balmoral', 'clayton', 'burkes-pass'] },
+  mtvernon: { name: 'Mt Vernon', lat: 39.72011925175132, lon: -105.26872905339022, summitElev: 2190, baseElev: 1800, timezone: 'America/Denver', pwObsStations: ['bjc', 'c99', '0co'] },
 }
 
 // --- MetService freezing-level helpers ---------------------------------------
@@ -2345,6 +2347,7 @@ function ForecastMap3D({ resort, setResort }) {
     cardrona: { name: 'Cardrona' },
     roundhill: { name: 'Roundhill' },
     loveland: { name: 'Loveland' },
+    mtvernon: { name: 'Mt Vernon' },
   }
   const src = `/whakapapa-snow-forecast.html?resort=${resort}`
 

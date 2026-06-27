@@ -524,6 +524,12 @@ const RESORT_CONFIG = {
     lat: -43.825421, lon: 170.656220, summitElev: 2170, baseElev: 1800, timezone: 'Pacific/Auckland',
     topElev: 2270, // approx summit ridge for the colour ramp's upper bound
     center: [170.656220, -43.825421], zoom: 13.4, pitch: 62, bearing: 180
+  },
+  mtvernon: {
+    name: 'Mt Vernon',
+    lat: 39.72011925175132, lon: -105.26872905339022, summitElev: 2190, baseElev: 1800, timezone: 'America/Denver',
+    topElev: 2290, // approx summit ridge for the colour ramp's upper bound
+    center: [-105.26872905339022, 39.72011925175132], zoom: 12.5, pitch: 62, bearing: 180
   }
 };
 
@@ -1314,6 +1320,12 @@ const PW_CONFIG = {
       { trackId: '362952', name: 'Tekapo Balmoral' },    // 854 m
       { trackId: '362869', name: 'Clayton' },             // 945 m
       { trackId: '362923', name: 'Burkes Pass' },         // 654 m
+    ],
+  },
+  mtvernon: {
+    tiles: [[10, 644, 211], [10, 644, 210], [10, 643, 211], [10, 643, 210]],
+    stations: [
+      { trackId: '8408630', name: 'Mt Vernon (BJC/C99/0CO)' },
     ],
   },
 };
@@ -2256,6 +2268,11 @@ function pwRenderPseudoPills() {
     pseudos = [
       { elev: LOC.summitElev, lat: -42.443872, lon: 173.143418, label: 'Summit', hourlyOnly: true },
       { elev: 1340, lat: -42.449134, lon: 173.143418, label: 'Base' },
+    ];
+  } else if (resortKey === 'mtvernon') {
+    pseudos = [
+      { elev: LOC.summitElev, lat: 39.72011925175132, lon: -105.26872905339022, label: 'Summit', hourlyOnly: true },
+      { elev: 1800, lat: 39.71, lon: -105.27, label: 'Base' },
     ];
   }
   if (!pseudos.length) return;
