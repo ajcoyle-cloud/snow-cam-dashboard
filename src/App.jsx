@@ -664,7 +664,21 @@ const RESORTS = {
   ruapehu: { name: 'Whakapapa', lat: -39.28, lon: 175.57, summitElev: 2300, baseElev: 1630, timezone: 'Pacific/Auckland', metservicePath: 'mountains-and-parks/national-parks/tongariro' },
   cardrona: { name: 'Cardrona', lat: -44.76, lon: 169.0, summitElev: 1860, baseElev: 1640, timezone: 'Pacific/Auckland', metservicePath: 'mountains-and-parks/ski-fields/cardrona' },
   loveland: { name: 'Loveland', lat: 39.65, lon: -105.49, summitElev: 3500, baseElev: 3100, timezone: 'America/Denver' },
-  mtlyford: { name: 'Mt Lyford', lat: -42.708, lon: 171.822, summitElev: 1800, baseElev: 1340, timezone: 'Pacific/Auckland' },
+  mtlyford: {
+    name: 'Mt Lyford',
+    lat: -42.446503,
+    lon: 173.143418,
+    summitElev: 1800,
+    baseElev: 1340,
+    timezone: 'Pacific/Auckland',
+    lifts: [
+      { name: 'Terako Rope Tow', lat: -42.443503, lon: 173.131418, type: 'rope-tow' },
+      { name: 'Cloudy T-bar', lat: -42.446503, lon: 173.136418, type: 't-bar' },
+      { name: 'Paradise Valley Platters 1', lat: -42.448503, lon: 173.156418, type: 'platter' },
+      { name: 'Paradise Valley Platters 2', lat: -42.450503, lon: 173.159418, type: 'platter' },
+      { name: 'Learners', lat: -42.444503, lon: 173.163418, type: 'rope-tow' }
+    ]
+  },
 }
 
 // --- MetService freezing-level helpers ---------------------------------------
