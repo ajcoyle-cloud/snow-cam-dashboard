@@ -611,7 +611,7 @@ async function loadForecast() {
         windSpeedKmh: gfs.windspeed_700hPa?.[i] ?? null,
         windDirDeg: gfs.winddirection_700hPa?.[i] ?? null
       };
-    }).filter(r => r.freezingLevel != null);
+    }).filter(r => r.temp != null);
   } catch (err) {
     forecastHours = buildDemoForecast();
   }
@@ -1309,7 +1309,7 @@ const PW_CONFIG = {
     ],
   },
   roundhill: {
-    tiles: [[10, 381, 1016], [10, 381, 1015], [10, 380, 1016], [10, 380, 1015]],
+    tiles: [[10, 373, 996], [10, 373, 997], [10, 374, 996], [10, 374, 997]],
     stations: [
       { trackId: '362952', name: 'Tekapo Balmoral' },    // 854 m
       { trackId: '362869', name: 'Clayton' },             // 945 m
