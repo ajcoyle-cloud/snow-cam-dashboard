@@ -2204,6 +2204,16 @@ function pwRenderPseudoPills() {
       { elev: 3871, lat: 39.673167, lon: -105.926355, label: 'Top' },
       { elev: 3292, lat: 39.680855, lon: -105.898442, label: 'Base' },
     ];
+  } else if (resortKey === 'roundhill') {
+    pseudos = [
+      { elev: 2170, lat: -43.820123, lon: 170.652847, label: 'Summit' },
+      { elev: 1800, lat: -43.830719, lon: 170.660593, label: 'Base' },
+    ];
+  } else if (resortKey === 'mtlyford') {
+    pseudos = [
+      { elev: 1800, lat: -42.443872, lon: 173.139625, label: 'Summit' },
+      { elev: 1340, lat: -42.449134, lon: 173.147211, label: 'Base' },
+    ];
   }
   for (const p of pseudos) {
     // In HOURLY view, use pure forecast data; otherwise use observed
