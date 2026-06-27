@@ -2250,7 +2250,14 @@ function pwRenderPseudoPills() {
       if (summitTemp != null && baseTemp != null && summitTemp !== baseTemp) {
         // Calculate lapse rate from forecast data (no observed data used)
         const forecastLapse = (baseTemp - summitTemp) / (LOC.baseElev - LOC.summitElev);
-        t = summitTemp + forecastLapse * (p.elev - LOC.summitElev);
+        // Sanity check: if lapse rate is positive or very small, use standard instead
+        // (positive lapse would mean temperature increases with elevation, which is unphysical)
+        if (forecastLapse > -0.002) {
+          const stdLapse = -0.0065;
+          t = summitTemp + stdLapse * (p.elev - LOC.summitElev);
+        } else {
+          t = summitTemp + forecastLapse * (p.elev - LOC.summitElev);
+        }
       } else if (summitTemp != null) {
         // Fallback if base temp not available: use a standard lapse rate of 0.0065°C/m
         const stdLapse = -0.0065;
