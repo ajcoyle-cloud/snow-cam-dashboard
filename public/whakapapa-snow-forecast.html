@@ -338,6 +338,14 @@
       touch-action: none;
     }
 
+    /* Override the desktop live-mode lift (line ~173 sets bottom:96px with
+       2-ID+class specificity). Without this, the drawer floats 96px off the
+       screen edge in live mode — leaving a map-gap below it and turning the
+       background-extending padding into visible blank space. Anchor it flush
+       to the bottom so the background reaches the screen edge and the timeline
+       paints on top of it. */
+    #map-screen.live-mode #snow-info { bottom: 0; }
+
     #drawer-handle {
       display: flex; align-items: center; justify-content: center;
       height: 20px; margin: 8px -20px 2px; cursor: grab;
