@@ -1637,12 +1637,35 @@ function SnowfallForecast({ resort, setResort }) {
             const y = snowPadding.top + snowPlotHeight - barHeight
             const isCurrentHour = Math.abs(new Date() - d.datetime) < 3600000
 
+            // Multi-color banding based on snowfall amount (for snow) or precipitation (for rain)
+            let barColor = '#2563eb'
+            let barOpacity = 0.5
+
+            if (isCurrentHour) {
+              barColor = '#ffffff'
+              barOpacity = 1
+            } else if (isSnow) {
+              barOpacity = 1
+              const percentOfMax = displayVal / maxPrecip
+              if (percentOfMax <= 0.2) {
+                barColor = '#bfdbfe' // Light blue: 0-20%
+              } else if (percentOfMax <= 0.4) {
+                barColor = '#60a5fa' // Medium-light blue: 20-40%
+              } else if (percentOfMax <= 0.6) {
+                barColor = '#3b82f6' // Medium blue: 40-60%
+              } else if (percentOfMax <= 0.8) {
+                barColor = '#1d4ed8' // Dark blue: 60-80%
+              } else {
+                barColor = '#1e40af' // Very dark blue: 80-100%
+              }
+            }
+
             return (
               <path
                 key={`bar-${i}`}
                 d={`M ${x} ${y + barHeight} L ${x} ${y} A ${barWidth / 2} ${barWidth / 2} 0 0 1 ${x + barWidth} ${y} L ${x + barWidth} ${y + barHeight} Z`}
-                fill={isCurrentHour ? '#ffffff' : (isSnow ? '#3b82f6' : '#2563eb')}
-                opacity={isCurrentHour ? '1' : (isSnow ? '1' : '0.5')}
+                fill={barColor}
+                opacity={barOpacity}
               />
             )
           })}
