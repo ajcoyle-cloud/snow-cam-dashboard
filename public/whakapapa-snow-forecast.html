@@ -2524,20 +2524,22 @@ function pwTempAtTime(series, ts) {
 }
 
 function pwFreezingSeries(hours = 6) {
-  const stations = Object.values(pwState).filter(s => s.meta.elevM != null && s.series.length >= 2);
-  if (stations.length < 2) return [];
-  const endTs = Math.min(...stations.map(s => s.series[s.series.length - 1].ts));
+  const stationsWithId = Object.entries(pwState)
+    .map(([trackId, s]) => ({ trackId, ...s }))
+    .filter(s => s.meta.elevM != null && s.series.length >= 2);
+  if (stationsWithId.length < 2) return [];
+  const endTs = Math.min(...stationsWithId.map(s => s.series[s.series.length - 1].ts));
   const startTs = endTs - hours * 3600;
   const STEP = 15 * 60;
   const out = [];
   for (let t = startTs; t <= endTs; t += STEP) {
     const pts = [];
     const stationList = [];
-    for (const s of stations) {
+    for (const s of stationsWithId) {
       if (t >= s.series[0].ts) {
         const temp = pwTempAtTime(s.series, t);
         pts.push([s.meta.elevM, temp]);
-        stationList.push({ id: s.trackId || '', elev: s.meta.elevM, temp });
+        stationList.push({ trackId: s.trackId, elev: s.meta.elevM, temp });
       }
     }
     if (pts.length < 2) continue;
@@ -2549,10 +2551,10 @@ function pwFreezingSeries(hours = 6) {
 
       // Ruapehu (Whakapapa): use confirmed station-specific weighting
       if (resortKey === 'ruapehu') {
-        const id = stationList.find(s => s.elev === elev && s.temp === temp)?.id;
-        if (id === '363045' || id === '363044') {  // Whakapapa 2000m + Halidays Hut
+        const station = stationList.find(s => s.elev === elev && Math.abs(s.temp - temp) < 0.01);
+        if (station?.trackId === '363045' || station?.trackId === '363044') {  // Whakapapa 2000m + Halidays Hut
           weight = 1.0;
-        } else if (id === '362779') {  // National Park Township
+        } else if (station?.trackId === '362779') {  // National Park Township
           weight = 0.3;
         }
       } else {
