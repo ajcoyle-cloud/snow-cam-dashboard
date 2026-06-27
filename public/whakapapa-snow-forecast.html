@@ -1392,19 +1392,39 @@ function buildSnowRamp(hour) {
     ];
   }
 
-  // Intensity scales the colour/opacity with forecasted snowfall amount (mm).
+  // Multi-color banding based on elevation to show how snowfall increases with altitude
+  // within the same 1-hour period. Divide the elevation range into 5 bands with progressively
+  // darker blues, simulating the orographic effect where higher elevations receive more snow.
+  const elevRange = TOP_ELEV - snowLine;
+  const band1 = snowLine + elevRange * 0.2;  // 0-20%
+  const band2 = snowLine + elevRange * 0.4;  // 20-40%
+  const band3 = snowLine + elevRange * 0.6;  // 40-60%
+  const band4 = snowLine + elevRange * 0.8;  // 60-80%
+
+  // Intensity scales overall opacity with forecasted snowfall amount (mm)
   const intensity = Math.max(0.65, Math.min(1, hour.snowfallMm / 14));
-  const a1 = (0.85 * intensity).toFixed(2);
-  const a2 = (0.97 * intensity).toFixed(2);
-  const a3 = (1 * intensity).toFixed(2);
-  const midPoint = Math.min(snowLine + 100, TOP_ELEV - 1);
+
+  // Color bands from light to dark blue (matching the bar chart gradation)
+  const colors = [
+    `rgba(191,219,254,${(0.70 * intensity).toFixed(2)})`,      // Light blue (0-20%)
+    `rgba(96,165,250,${(0.78 * intensity).toFixed(2)})`,       // Medium-light blue (20-40%)
+    `rgba(59,130,246,${(0.85 * intensity).toFixed(2)})`,       // Medium blue (40-60%)
+    `rgba(29,78,216,${(0.92 * intensity).toFixed(2)})`,        // Dark blue (60-80%)
+    `rgba(30,64,175,${(0.98 * intensity).toFixed(2)})`         // Very dark blue (80-100%)
+  ];
 
   return [
     'interpolate', ['linear'], ['elevation'],
-    snowLine - 1, 'rgba(205,225,255,0)',
-    snowLine, `rgba(205,225,255,${a1})`,
-    midPoint, `rgba(225,240,255,${a2})`,
-    TOP_ELEV, `rgba(248,251,255,${a3})`
+    snowLine - 1, 'rgba(255,255,255,0)',
+    snowLine, colors[0],
+    band1, colors[0],
+    band2, colors[1],
+    band2 + 1, colors[1],
+    band3, colors[2],
+    band3 + 1, colors[2],
+    band4, colors[3],
+    band4 + 1, colors[3],
+    TOP_ELEV, colors[4]
   ];
 }
 
