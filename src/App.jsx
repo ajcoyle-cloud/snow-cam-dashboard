@@ -512,7 +512,8 @@ function CameraCard({ camera, allCameras = [] }) {
               fontSize: '0.75rem',
               fontWeight: '600',
               pointerEvents: 'none',
-              opacity: 1
+              opacity: 1,
+              zIndex: 10
             }}>
               {calcTempAtElevation(camera.elevation)?.toFixed(1)}°C
             </div>
@@ -626,7 +627,8 @@ function CameraCard({ camera, allCameras = [] }) {
                   fontSize: '0.85rem',
                   fontWeight: '600',
                   pointerEvents: 'none',
-                  opacity: 1
+                  opacity: 1,
+                  zIndex: 10
                 }}>
                   {calcTempAtElevation(activeCam.elevation)?.toFixed(1)}°C
                 </div>
