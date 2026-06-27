@@ -473,6 +473,7 @@
 .resort-selector {
   position: relative;
   display: inline-block;
+  padding-top: 10px;
 }
 
 .resort-button {
