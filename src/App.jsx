@@ -826,6 +826,46 @@ function attachInertiaScroll(el) {
   }
 }
 
+function ResortSelector({ resort, setResort }) {
+  const [isOpen, setIsOpen] = useState(false)
+  const dropdownRef = useRef(null)
+
+  useEffect(() => {
+    const handleClickOutside = (e) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target)) {
+        setIsOpen(false)
+      }
+    }
+    document.addEventListener('click', handleClickOutside)
+    return () => document.removeEventListener('click', handleClickOutside)
+  }, [])
+
+  return (
+    <div className="resort-selector" ref={dropdownRef}>
+      <button className="resort-button" onClick={() => setIsOpen(!isOpen)}>
+        {RESORTS[resort].name}
+        <span className="dropdown-arrow">▼</span>
+      </button>
+      {isOpen && (
+        <div className="resort-dropdown">
+          {Object.entries(RESORTS).map(([key, r]) => (
+            <button
+              key={key}
+              className={`resort-option ${resort === key ? 'active' : ''}`}
+              onClick={() => {
+                setResort(key)
+                setIsOpen(false)
+              }}
+            >
+              {r.name}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
 function SnowfallForecast({ resort, setResort }) {
   const [forecastData, setForecastData] = useState(null)
   const [ecmwfForecastData, setEcmwfForecastData] = useState(null)
@@ -1428,15 +1468,7 @@ function SnowfallForecast({ resort, setResort }) {
   return (
     <div className="forecast-container" ref={containerRef}>
       <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '10px' }}>
-        <div className="elevation-toggle">
-          {Object.entries(RESORTS).map(([key, r]) => (
-            <button
-              key={key}
-              className={`toggle-btn ${resort === key ? 'active' : ''}`}
-              onClick={() => setResort(key)}
-            >{r.name}</button>
-          ))}
-        </div>
+        <ResortSelector resort={resort} setResort={setResort} />
       </div>
 
       <h2>16 Day Forecast</h2>
@@ -2291,13 +2323,7 @@ function ForecastMap3D({ resort, setResort }) {
   return (
     <div className="map-3d-wrap" style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
       <div className="map-resort-switch" style={{ display: 'flex', justifyContent: 'center', padding: '10px 0' }}>
-        <div className="elevation-toggle">
-          {Object.entries(locations).map(([key, l]) => (
-            <button key={key} className={`toggle-btn ${resort === key ? 'active' : ''}`} onClick={() => setResort(key)}>
-              {l.name}
-            </button>
-          ))}
-        </div>
+        <ResortSelector resort={resort} setResort={setResort} />
       </div>
       <iframe
         key={src}
@@ -2338,16 +2364,8 @@ export default function App() {
       <main className={`main-content ${activeTab === 'map' ? 'is-map' : ''}`}>
         {activeTab === 'webcams' && (
           <section className="region-section">
-            <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '4px' }}>
-              <div className="elevation-toggle">
-                {Object.entries(RESORTS).map(([key, r]) => (
-                  <button
-                    key={key}
-                    className={`toggle-btn ${resort === key ? 'active' : ''}`}
-                    onClick={() => setResort(key)}
-                  >{r.name}</button>
-                ))}
-              </div>
+            <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '16px' }}>
+              <ResortSelector resort={resort} setResort={setResort} />
             </div>
             <CameraGrid cameras={orderCamerasByResort(ALL_CAMERAS, resort)} />
           </section>
