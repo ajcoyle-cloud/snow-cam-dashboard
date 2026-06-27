@@ -2211,24 +2211,46 @@ let pwLivePlayTimer = null;
 
 function pwComputeProfile() {
   const pts = [];
+  const weights = [];
   for (const id in pwState) {
     const s = pwState[id];
-    if (s.meta.elevM != null && s.series.length) pts.push([s.meta.elevM, s.series[s.series.length - 1].tempC]);
+    if (s.meta.elevM != null && s.series.length) {
+      pts.push([s.meta.elevM, s.series[s.series.length - 1].tempC]);
+      // Prioritize on-mountain stations, lighter weight for regional stations
+      // Whakapapa 2000m (363045) and Halidays Hut (363044): weight = 1.0
+      // National Park Township (362779): weight = 0.3 (supplementary reference)
+      // All others: weight = 0.1 (regional background, minimal influence)
+      const weight = id === '363045' || id === '363044' ? 1.0 : id === '362779' ? 0.3 : 0.1;
+      weights.push(weight);
+    }
   }
   if (pts.length < 2) return null;
-  const n = pts.length;
-  const sx = pts.reduce((q, p) => q + p[0], 0);
-  const sy = pts.reduce((q, p) => q + p[1], 0);
-  const sxx = pts.reduce((q, p) => q + p[0] * p[0], 0);
-  const sxy = pts.reduce((q, p) => q + p[0] * p[1], 0);
-  const denom = n * sxx - sx * sx;
-  if (Math.abs(denom) < 1e-6) return null;
-  const b = (n * sxy - sx * sy) / denom;
-  const a = (sy - b * sx) / n;
-  return { a, b, pts };
+  return pwWeightedFit(pts, weights);
 }
 
 function pwTempAt(elev) { return pwProfile ? pwProfile.a + pwProfile.b * elev : null; }
+
+// Weighted least-squares fit temp = a + b·elev over [[elev,temp],...] with weights.
+// Higher weights give more influence to those points; used to prioritize on-mountain stations.
+function pwWeightedFit(pts, weights) {
+  const n = pts.length;
+  if (n < 2 || !weights || weights.length !== n) return null;
+
+  const sw = weights.reduce((q, w) => q + w, 0);
+  if (sw === 0) return null;
+
+  const sx = pts.reduce((q, p, i) => q + p[0] * weights[i], 0);
+  const sy = pts.reduce((q, p, i) => q + p[1] * weights[i], 0);
+  const sxx = pts.reduce((q, p, i) => q + p[0] * p[0] * weights[i], 0);
+  const sxy = pts.reduce((q, p, i) => q + p[0] * p[1] * weights[i], 0);
+
+  const den = sw * sxx - sx * sx;
+  if (Math.abs(den) < 1e-6) return null;
+
+  const b = (sw * sxy - sx * sy) / den;
+  const a = (sy - b * sx) / sw;
+  return { a, b, pts };
+}
 
 // Least-squares fit temp = a + b·elev over [[elev,temp],...].
 function pwFit(pts) {
@@ -2242,16 +2264,21 @@ function pwFit(pts) {
   return { a, b, pts };
 }
 
-// Profile fitted to each station's temperature at a past time `t`.
+// Profile fitted to each station's temperature at a past time `t` with weighted fitting.
 function pwComputeProfileAt(t) {
   const pts = [];
+  const weights = [];
   for (const id in pwState) {
     const s = pwState[id];
     if (s.meta.elevM != null && s.series.length >= 2 && t >= s.series[0].ts) {
       pts.push([s.meta.elevM, pwTempAtTime(s.series, t)]);
+      // Apply same weighting as pwComputeProfile
+      const weight = id === '363045' || id === '363044' ? 1.0 : id === '362779' ? 0.3 : 0.1;
+      weights.push(weight);
     }
   }
-  return pwFit(pts);
+  if (pts.length < 2) return null;
+  return pwWeightedFit(pts, weights);
 }
 
 // Discrete temperature bands (°C). Each band is a solid colour with a hard
