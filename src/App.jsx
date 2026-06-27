@@ -63,11 +63,11 @@ const getWindArrow = (degrees) => {
 }
 
 const NORTH_ISLAND = [
-  { name: 'RSC Lodge', url: 'https://www.rsc.org.nz/latest.jpg', location: 'Whakapapa' },
+  { name: 'RSC Lodge', url: 'https://www.rsc.org.nz/latest.jpg', location: 'Whakapapa', elevation: 1750 },
   { name: 'Happy Valley', url: 'https://webcams.whakapapa.com/hvfromskywaka/latest.jpg', archiveBase: 'hvfromskywaka', location: 'Whakapapa', elevation: 1620 },
-  { name: 'The Pinnacles', url: 'https://www.mountainwatch.com/Resort/Whakapapa-the-pinnacles/LiveStill.jpg', location: 'Whakapapa' },
-  { name: 'Staircase Slopes', url: 'https://www.mountainwatch.com/Resort/Whakapapa-staircase-slpes/LiveStill.jpg', location: 'Whakapapa' },
-  { name: 'Te Heuheu Valley', url: 'https://www.mountainwatch.com/Resort/Whakapapa-the-heuheu-valey/LiveStill.jpg', location: 'Whakapapa' },
+  { name: 'The Pinnacles', url: 'https://www.mountainwatch.com/Resort/Whakapapa-the-pinnacles/LiveStill.jpg', location: 'Whakapapa', elevation: 2000 },
+  { name: 'Staircase Slopes', url: 'https://www.mountainwatch.com/Resort/Whakapapa-staircase-slpes/LiveStill.jpg', location: 'Whakapapa', elevation: 1750 },
+  { name: 'Te Heuheu Valley', url: 'https://www.mountainwatch.com/Resort/Whakapapa-the-heuheu-valey/LiveStill.jpg', location: 'Whakapapa', elevation: 2000 },
   { name: 'Hut Flat', url: 'https://webcams.whakapapa.com/hutflat/latest.jpg', location: 'Whakapapa', elevation: 1750 },
   { name: 'Far West T-Bar', url: 'https://webcams.whakapapa.com/farwesttbar/latest.jpg', location: 'Whakapapa', elevation: 2200 },
   { name: 'Turoa - Camera 1', url: 'https://s128.ipcamlive.com/streams_timeshift/80bze0dwhrnofue8a/snapshot.jpg', location: 'Turoa' },
@@ -509,9 +509,8 @@ function CameraCard({ camera, allCameras = [] }) {
               top: '8px',
               right: '8px',
               color: '#fff',
-              fontSize: '0.9rem',
+              fontSize: '0.75rem',
               fontWeight: '600',
-              textShadow: '1px 1px 2px rgba(0,0,0,0.5)',
               pointerEvents: 'none'
             }}>
               {calcTempAtElevation(camera.elevation)?.toFixed(1)}°C
@@ -623,9 +622,8 @@ function CameraCard({ camera, allCameras = [] }) {
                   top: '12px',
                   right: '12px',
                   color: '#fff',
-                  fontSize: '1.1rem',
+                  fontSize: '0.85rem',
                   fontWeight: '600',
-                  textShadow: '1px 1px 3px rgba(0,0,0,0.6)',
                   pointerEvents: 'none'
                 }}>
                   {calcTempAtElevation(activeCam.elevation)?.toFixed(1)}°C
