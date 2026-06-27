@@ -925,6 +925,8 @@ function openMapView(index) {
   // Render freezing level overlay for hourly view
   if (viewMode === 'hourly') {
     pwRenderFreezingOverlay();
+    // Update observation pills to show forecasted temperature
+    for (const id in pwState) pwRenderPill(id);
   }
 
   setTimeout(() => map.resize(), 60);
@@ -1584,7 +1586,15 @@ function pwRenderPill(trackId) {
   const lastTs = st.series[st.series.length - 1].ts;
   // pwDisplayTime !== null when scrubbing the live time slider into the past
   const live = pwDisplayTime == null;
-  const tempC = live ? st.series[st.series.length - 1].tempC : pwTempAtTime(st.series, pwDisplayTime);
+
+  // In HOURLY view, show forecasted temperature; otherwise show observed
+  let tempC;
+  if (viewMode === 'hourly' && forecastHours[currentIndex]) {
+    tempC = forecastHours[currentIndex].temp;
+  } else {
+    tempC = live ? st.series[st.series.length - 1].tempC : pwTempAtTime(st.series, pwDisplayTime);
+  }
+
   const ageMin = (Date.now() / 1000 - lastTs) / 60;
   let el = st.marker && st.marker.getElement();
   if (!el) {
