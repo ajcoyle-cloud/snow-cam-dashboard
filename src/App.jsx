@@ -1592,8 +1592,8 @@ function SnowfallForecast({ resort, setResort }) {
             )
           })}
 
-          {/* Altitude reference lines */}
-          {[Math.round(RESORTS[resort].baseElev / 2 / 100) * 100, RESORTS[resort].baseElev, RESORTS[resort].summitElev].map((elev) => {
+          {/* Altitude reference lines - only base and summit (not intermediate) */}
+          {[RESORTS[resort].baseElev, RESORTS[resort].summitElev].map((elev) => {
             const y = freezingLevelScale(elev)
             const clampedY = Math.min(y, snowPadding.top + snowPlotHeight)
             return (
