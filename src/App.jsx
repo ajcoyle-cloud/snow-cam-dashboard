@@ -1637,7 +1637,7 @@ function SnowfallForecast({ resort, setResort }) {
             const y = snowPadding.top + snowPlotHeight - barHeight
             const isCurrentHour = Math.abs(new Date() - d.datetime) < 3600000
 
-            // Multi-color banding based on snowfall amount (for snow) or precipitation (for rain)
+            // Single blue color for snowfall bars, regardless of amount
             let barColor = '#2563eb'
             let barOpacity = 0.5
 
@@ -1645,19 +1645,8 @@ function SnowfallForecast({ resort, setResort }) {
               barColor = '#ffffff'
               barOpacity = 1
             } else if (isSnow) {
+              barColor = '#2563eb' // Consistent blue for all snowfall amounts
               barOpacity = 1
-              const percentOfMax = displayVal / maxPrecip
-              if (percentOfMax <= 0.2) {
-                barColor = '#bfdbfe' // Light blue: 0-20%
-              } else if (percentOfMax <= 0.4) {
-                barColor = '#60a5fa' // Medium-light blue: 20-40%
-              } else if (percentOfMax <= 0.6) {
-                barColor = '#3b82f6' // Medium blue: 40-60%
-              } else if (percentOfMax <= 0.8) {
-                barColor = '#1d4ed8' // Dark blue: 60-80%
-              } else {
-                barColor = '#1e40af' // Very dark blue: 80-100%
-              }
             }
 
             return (
