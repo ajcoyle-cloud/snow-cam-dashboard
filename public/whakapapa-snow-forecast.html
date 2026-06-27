@@ -2103,7 +2103,13 @@ function pwRenderFreezingOverlay() {
         if (summitTemp != null && baseTemp != null && summitTemp !== baseTemp) {
           // Use forecast-based lapse rate
           const forecastLapse = (baseTemp - summitTemp) / (LOC.baseElev - LOC.summitElev);
-          freezeElev = (0 - summitTemp) / forecastLapse + LOC.summitElev;
+          // Sanity check: if lapse rate is positive or very small, use standard instead
+          if (forecastLapse > -0.002) {
+            const stdLapse = -0.0065;
+            freezeElev = (0 - summitTemp) / stdLapse + LOC.summitElev;
+          } else {
+            freezeElev = (0 - summitTemp) / forecastLapse + LOC.summitElev;
+          }
         } else if (summitTemp != null) {
           // Fallback: standard lapse rate if base temp not available
           const stdLapse = -0.0065;
@@ -2139,7 +2145,13 @@ function pwRenderFreezingOverlay() {
       const baseTemp = currentHour.baseTemp;
       if (summitTemp != null && baseTemp != null && summitTemp !== baseTemp) {
         const forecastLapse = (baseTemp - summitTemp) / (LOC.baseElev - LOC.summitElev);
-        flValue = (0 - summitTemp) / forecastLapse + LOC.summitElev;
+        // Sanity check: if lapse rate is positive or very small, use standard instead
+        if (forecastLapse > -0.002) {
+          const stdLapse = -0.0065;
+          flValue = (0 - summitTemp) / stdLapse + LOC.summitElev;
+        } else {
+          flValue = (0 - summitTemp) / forecastLapse + LOC.summitElev;
+        }
       } else if (summitTemp != null) {
         const stdLapse = -0.0065;
         flValue = (0 - summitTemp) / stdLapse + LOC.summitElev;
