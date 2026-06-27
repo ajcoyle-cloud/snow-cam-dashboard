@@ -927,6 +927,8 @@ function openMapView(index) {
     pwRenderFreezingOverlay();
     // Update observation pills to show forecasted temperature
     for (const id in pwState) pwRenderPill(id);
+    // Update pseudo pills to show forecasted temperature
+    pwRenderPseudoPills();
   }
 
   setTimeout(() => map.resize(), 60);
@@ -2152,7 +2154,15 @@ function pwRenderPseudoPills() {
     ];
   }
   for (const p of pseudos) {
-    const t = pwTempAt(p.elev);
+    // In HOURLY view, use forecasted temperature; otherwise use observed
+    let t;
+    if (viewMode === 'hourly' && forecastHours[currentIndex]) {
+      const forecastSummitTemp = forecastHours[currentIndex].temp;
+      // Apply observed lapse rate to forecasted summit temperature
+      t = forecastSummitTemp + pwProfile.b * (p.elev - LOC.summitElev);
+    } else {
+      t = pwTempAt(p.elev);
+    }
     if (t == null) continue;
     const el = document.createElement('div');
     el.className = 'station-pill pseudo-pill';
