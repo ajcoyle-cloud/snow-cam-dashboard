@@ -1355,7 +1355,7 @@ function SnowfallForecast({ resort, setResort }) {
   // Table columns: in fit mode each column = FIT_GROUP bars wide (aligned); hourly = 1 bar each
   const tableCellWidth = viewMode === 'fit' ? FIT_GROUP * cellWidth : cellWidth
 
-  const maxPrecip = Math.max(
+  let maxPrecip = Math.max(
     ...displayData.map((d, idx) => {
       const val = Math.max(
         d.summit.precipitation,
@@ -1375,6 +1375,9 @@ function SnowfallForecast({ resort, setResort }) {
       )
     ) : [0])
   ) || 1
+
+  // Add 20% padding to top of chart for better use of vertical space
+  maxPrecip *= 1.2
 
   console.log(`maxPrecip: ${maxPrecip}mm`)
 
