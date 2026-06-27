@@ -2043,7 +2043,7 @@ function pwRenderFreezingOverlay() {
 
   // HOURLY mode: use forecast data - show full 16-day forecast with marker
   if (viewMode === 'hourly') {
-    if (!forecastHours || forecastHours.length < 2) { host.style.display = 'none'; return; }
+    if (!forecastHours || forecastHours.length < 2 || !pwProfile) { host.style.display = 'none'; return; }
 
     host.style.display = 'block';
     const W = host.clientWidth || 280, H = host.clientHeight || 162;
@@ -2052,9 +2052,15 @@ function pwRenderFreezingOverlay() {
 
     if (pw <= 0 || ph <= 0) { host.style.display = 'none'; return; }
 
-    // Use full forecast period, filtering out null freezing levels
+    // Calculate freezing level for each hour using observed lapse rate with forecasted summit temp
+    // This ensures consistency with the pseudo pill temperatures
     const flData = forecastHours
-      .map((h, idx) => h.freezingLevel != null && typeof h.freezingLevel === 'number' ? { ts: idx, fl: h.freezingLevel } : null)
+      .map((h, idx) => {
+        if (h.temp == null) return null;
+        // Calculate elevation where temp = 0 using observed lapse rate
+        const freezeElev = (0 - h.temp) / pwProfile.b + LOC.summitElev;
+        return { ts: idx, fl: freezeElev };
+      })
       .filter(p => p != null);
 
     if (flData.length < 2) { host.style.display = 'none'; return; }
@@ -2076,8 +2082,13 @@ function pwRenderFreezingOverlay() {
     // Marker at the currently selected hour
     const currentHour = forecastHours[currentIndex];
     const markX = X(currentIndex);
-    const markY = currentHour && currentHour.freezingLevel != null ? Y(currentHour.freezingLevel) : P.t + ph / 2;
-    const flValue = currentHour && currentHour.freezingLevel != null ? currentHour.freezingLevel : lo + (hi - lo) / 2;
+    let flValue = null;
+    if (currentHour && currentHour.temp != null) {
+      flValue = (0 - currentHour.temp) / pwProfile.b + LOC.summitElev;
+    } else {
+      flValue = lo + (hi - lo) / 2;
+    }
+    const markY = Y(flValue);
 
     const svg = host.querySelector('svg');
     svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
