@@ -16,6 +16,7 @@ const WEATHER_LOCATIONS = {
   'The Remarkables': { lat: -44.4, lon: 168.7, elevation: 1960 },
   'Coronet Peak': { lat: -44.4, lon: 168.8, elevation: 1649 },
   'Loveland': { lat: 39.65, lon: -105.49, elevation: 3290 },
+  'Roundhill': { lat: -43.825421, lon: 170.656220, elevation: 1800 },
 }
 
 const getWeatherIcon = (pictocode) => {
@@ -122,15 +123,17 @@ function cameraRegion(cam) {
   if (cam.location === 'Whakapapa') return 'whakapapa'
   if (cam.location === 'Turoa' || cam.location === 'Ruapehu') return 'northisland'
   if (cam.location === 'Cardrona') return 'cardrona'
+  if (cam.location === 'Roundhill') return 'roundhill'
   return 'southisland' // Treble Cone, The Remarkables, Coronet Peak, Mt Hutt
 }
 
 // Per-resort priority of region buckets. Buckets not listed fall to the end.
 const CAMERA_REGION_ORDER = {
-  ruapehu: ['whakapapa', 'northisland', 'cardrona', 'southisland', 'loveland'],
-  cardrona: ['cardrona', 'southisland', 'whakapapa', 'northisland', 'loveland'],
-  loveland: ['loveland', 'whakapapa', 'northisland', 'cardrona', 'southisland'],
-  mtlyford: ['southisland', 'cardrona', 'whakapapa', 'northisland', 'loveland'],
+  ruapehu: ['whakapapa', 'northisland', 'cardrona', 'southisland', 'roundhill', 'loveland'],
+  cardrona: ['cardrona', 'southisland', 'roundhill', 'whakapapa', 'northisland', 'loveland'],
+  roundhill: ['roundhill', 'cardrona', 'southisland', 'whakapapa', 'northisland', 'loveland'],
+  loveland: ['loveland', 'whakapapa', 'northisland', 'cardrona', 'roundhill', 'southisland'],
+  mtlyford: ['southisland', 'roundhill', 'cardrona', 'whakapapa', 'northisland', 'loveland'],
 }
 
 // Stable sort keeps original within-bucket order; unknown buckets sort last.
@@ -665,6 +668,7 @@ const RESORTS = {
   cardrona: { name: 'Cardrona', lat: -44.76, lon: 169.0, summitElev: 1860, baseElev: 1640, timezone: 'Pacific/Auckland', metservicePath: 'mountains-and-parks/ski-fields/cardrona' },
   loveland: { name: 'Loveland', lat: 39.65, lon: -105.49, summitElev: 3500, baseElev: 3100, timezone: 'America/Denver' },
   mtlyford: { name: 'Mt Lyford', lat: -42.446503, lon: 173.143418, summitElev: 1800, baseElev: 1340, timezone: 'Pacific/Auckland' },
+  roundhill: { name: 'Roundhill', lat: -43.825421, lon: 170.656220, summitElev: 2170, baseElev: 1800, timezone: 'Pacific/Auckland', pwObsStations: ['tekapo-balmoral', 'clayton', 'burkes-pass'] },
 }
 
 // --- MetService freezing-level helpers ---------------------------------------
@@ -2318,6 +2322,7 @@ function ForecastMap3D({ resort, setResort }) {
   const locations = {
     ruapehu: { name: 'Whakapapa' },
     cardrona: { name: 'Cardrona' },
+    roundhill: { name: 'Roundhill' },
     loveland: { name: 'Loveland' },
   }
   const src = `/whakapapa-snow-forecast.html?resort=${resort}`
