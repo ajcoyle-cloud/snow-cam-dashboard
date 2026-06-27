@@ -2232,17 +2232,26 @@ function pwComputeProfile() {
   }
   if (pts.length < 2) return null;
 
-  // Automatically prioritize highest-elevation stations (on-mountain) over lower ones (regional).
-  // Weight by elevation rank: top 2 elevations get weight 1.0, middle gets 0.3, rest get 0.1.
-  const sorted = stations.slice().sort((a, b) => b.elev - a.elev);
-  const maxElev = sorted[0]?.elev;
-
+  // Apply resort-specific or elevation-based weighting
   for (const [elev, temp] of pts) {
     let weight = 0.1;
-    if (elev === sorted[0].elev || (sorted[1] && elev === sorted[1].elev)) {
-      weight = 1.0;  // Top 2 highest elevations
-    } else if (sorted[2] && elev === sorted[2].elev) {
-      weight = 0.3;  // 3rd highest elevation (supplementary reference)
+
+    // Ruapehu (Whakapapa): use confirmed station-specific weighting
+    if (resortKey === 'ruapehu') {
+      const id = stations.find(s => s.elev === elev && s.temp === temp)?.id;
+      if (id === '363045' || id === '363044') {  // Whakapapa 2000m + Halidays Hut
+        weight = 1.0;
+      } else if (id === '362779') {  // National Park Township
+        weight = 0.3;
+      }
+    } else {
+      // Other resorts: automatically prioritize highest-elevation stations
+      const sorted = stations.slice().sort((a, b) => b.elev - a.elev);
+      if (elev === sorted[0].elev || (sorted[1] && elev === sorted[1].elev)) {
+        weight = 1.0;  // Top 2 highest elevations
+      } else if (sorted[2] && elev === sorted[2].elev) {
+        weight = 0.3;  // 3rd highest elevation
+      }
     }
     weights.push(weight);
   }
@@ -2302,16 +2311,26 @@ function pwComputeProfileAt(t) {
   }
   if (pts.length < 2) return null;
 
-  // Automatically prioritize highest-elevation stations (on-mountain) over lower ones (regional).
-  // Weight by elevation rank: top 2 elevations get weight 1.0, middle gets 0.3, rest get 0.1.
-  const sorted = stations.slice().sort((a, b) => b.elev - a.elev);
-
+  // Apply resort-specific or elevation-based weighting
   for (const [elev, temp] of pts) {
     let weight = 0.1;
-    if (elev === sorted[0].elev || (sorted[1] && elev === sorted[1].elev)) {
-      weight = 1.0;  // Top 2 highest elevations
-    } else if (sorted[2] && elev === sorted[2].elev) {
-      weight = 0.3;  // 3rd highest elevation (supplementary reference)
+
+    // Ruapehu (Whakapapa): use confirmed station-specific weighting
+    if (resortKey === 'ruapehu') {
+      const id = stations.find(s => s.elev === elev && s.temp === temp)?.id;
+      if (id === '363045' || id === '363044') {  // Whakapapa 2000m + Halidays Hut
+        weight = 1.0;
+      } else if (id === '362779') {  // National Park Township
+        weight = 0.3;
+      }
+    } else {
+      // Other resorts: automatically prioritize highest-elevation stations
+      const sorted = stations.slice().sort((a, b) => b.elev - a.elev);
+      if (elev === sorted[0].elev || (sorted[1] && elev === sorted[1].elev)) {
+        weight = 1.0;  // Top 2 highest elevations
+      } else if (sorted[2] && elev === sorted[2].elev) {
+        weight = 0.3;  // 3rd highest elevation
+      }
     }
     weights.push(weight);
   }
