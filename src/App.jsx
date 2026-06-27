@@ -1475,8 +1475,27 @@ function SnowfallForecast({ resort, setResort }) {
 
   return (
     <div className="forecast-container" ref={containerRef}>
-      <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '10px' }}>
-        <ResortSelector resort={resort} setResort={setResort} />
+      {/* Mobile: Top bar with selector (left) and view mode toggle (right) */}
+      <div className="forecast-top-bar">
+        <div className="forecast-top-bar-left">
+          <ResortSelector resort={resort} setResort={setResort} />
+        </div>
+        <div className="forecast-top-bar-right">
+          <div className="elevation-toggle">
+            <button
+              className={`toggle-btn ${viewMode === 'hourly' ? 'active' : ''}`}
+              onClick={() => setViewMode('hourly')}
+            >
+              Hourly
+            </button>
+            <button
+              className={`toggle-btn ${viewMode === 'fit' ? 'active' : ''}`}
+              onClick={() => setViewMode('fit')}
+            >
+              Fit to Screen
+            </button>
+          </div>
+        </div>
       </div>
 
       <h2>16 Day Forecast</h2>
@@ -1485,8 +1504,8 @@ function SnowfallForecast({ resort, setResort }) {
       </div>
 
       <div style={{ display: 'flex', gap: '20px', justifyContent: 'center', marginBottom: '12px', flexWrap: 'wrap' }}>
-        {/* View mode toggle */}
-        <div className="elevation-toggle">
+        {/* View mode toggle - hidden on mobile, shown on desktop */}
+        <div className="elevation-toggle forecast-view-mode-desktop">
           <button
             className={`toggle-btn ${viewMode === 'hourly' ? 'active' : ''}`}
             onClick={() => setViewMode('hourly')}

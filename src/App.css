@@ -755,7 +755,35 @@
   }
 
   .forecast-container {
-    padding: 12px 10px;
+    padding: 10px 10px 12px 10px;
+  }
+
+  /* Mobile: Top bar layout - selector left, toggle right */
+  .forecast-top-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 10px;
+  }
+
+  .forecast-top-bar-left,
+  .forecast-top-bar-right {
+    display: flex;
+    align-items: center;
+  }
+
+  .forecast-top-bar-left .resort-selector {
+    padding-top: 0;
+  }
+
+  .forecast-top-bar-right .elevation-toggle {
+    margin: 0;
+  }
+
+  /* Hide desktop view mode toggle on mobile */
+  .forecast-view-mode-desktop {
+    display: none;
   }
 
   /* Mobile resort selector */
@@ -787,5 +815,16 @@
   .resort-option {
     padding: 10px 14px;
     font-size: 0.85em;
+  }
+}
+
+/* Desktop: Hide mobile top bar, show centered layout */
+@media (min-width: 701px) {
+  .forecast-top-bar {
+    display: none;
+  }
+
+  .forecast-view-mode-desktop {
+    display: inline-flex !important;
   }
 }
