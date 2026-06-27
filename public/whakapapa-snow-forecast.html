@@ -1536,6 +1536,11 @@ function pwOpenModal(data) {
   const tLo = Math.min(...day.map(r => r.tempC)), tHi = Math.max(...day.map(r => r.tempC));
   const agoTxt = pwAgo(last.ts);
 
+  // In HOURLY view, show forecasted temperature; otherwise show observed
+  const displayTemp = viewMode === 'hourly' && forecastHours[currentIndex]
+    ? forecastHours[currentIndex].temp
+    : last.tempC;
+
   const back = document.createElement('div');
   back.className = 'obs-modal-backdrop';
   back.innerHTML = `
@@ -1545,7 +1550,7 @@ function pwOpenModal(data) {
       <h2>${meta.name}</h2>
       <div class="sub">${meta.elevM ? meta.elevM + ' m · ' : ''}${meta.lat.toFixed(4)}, ${meta.lon.toFixed(4)}${meta.provider ? ' · ' + meta.provider : ''}</div>
       <div class="obs-now">
-        <div class="big" style="color:${pwTempColor(last.tempC)}">${last.tempC.toFixed(1)}°C</div>
+        <div class="big" style="color:${pwTempColor(displayTemp)}">${displayTemp.toFixed(1)}°C</div>
         <div class="now-wind">
           Wind ${(last.speedKt * KT_TO_KMH).toFixed(1)} km/h<br>
           Gust ${(last.gustKt * KT_TO_KMH).toFixed(1)} km/h<br>
