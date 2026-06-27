@@ -2532,16 +2532,45 @@ function pwFreezingSeries(hours = 6) {
   const out = [];
   for (let t = startTs; t <= endTs; t += STEP) {
     const pts = [];
-    for (const s of stations) if (t >= s.series[0].ts) pts.push([s.meta.elevM, pwTempAtTime(s.series, t)]);
+    const stationList = [];
+    for (const s of stations) {
+      if (t >= s.series[0].ts) {
+        const temp = pwTempAtTime(s.series, t);
+        pts.push([s.meta.elevM, temp]);
+        stationList.push({ id: s.trackId || '', elev: s.meta.elevM, temp });
+      }
+    }
     if (pts.length < 2) continue;
-    const n = pts.length;
-    const sx = pts.reduce((q, p) => q + p[0], 0), sy = pts.reduce((q, p) => q + p[1], 0);
-    const sxx = pts.reduce((q, p) => q + p[0] * p[0], 0), sxy = pts.reduce((q, p) => q + p[0] * p[1], 0);
-    const den = n * sxx - sx * sx;
-    if (Math.abs(den) < 1e-6) continue;
-    const b = (n * sxy - sx * sy) / den, a = (sy - b * sx) / n;
-    if (b >= 0) continue;
-    out.push({ ts: t, fl: -a / b });
+
+    // Apply resort-specific or elevation-based weighting (same as pwComputeProfileAt)
+    const weights = [];
+    for (const [elev, temp] of pts) {
+      let weight = 0.1;
+
+      // Ruapehu (Whakapapa): use confirmed station-specific weighting
+      if (resortKey === 'ruapehu') {
+        const id = stationList.find(s => s.elev === elev && s.temp === temp)?.id;
+        if (id === '363045' || id === '363044') {  // Whakapapa 2000m + Halidays Hut
+          weight = 1.0;
+        } else if (id === '362779') {  // National Park Township
+          weight = 0.3;
+        }
+      } else {
+        // Other resorts: automatically prioritize highest-elevation stations
+        const sorted = stationList.slice().sort((a, b) => b.elev - a.elev);
+        if (elev === sorted[0].elev || (sorted[1] && elev === sorted[1].elev)) {
+          weight = 1.0;  // Top 2 highest elevations
+        } else if (sorted[2] && elev === sorted[2].elev) {
+          weight = 0.3;  // 3rd highest elevation
+        }
+      }
+      weights.push(weight);
+    }
+
+    const fit = pwWeightedFit(pts, weights);
+    if (fit && fit.b < 0) {
+      out.push({ ts: t, fl: -fit.a / fit.b });
+    }
   }
   return out;
 }
