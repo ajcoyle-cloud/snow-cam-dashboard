@@ -292,15 +292,23 @@
     #map-enlarge { display: none !important; }
     .maplibregl-ctrl-bottom-right { opacity: 0.5; transform: scale(0.85); transform-origin: bottom right; }
 
-    /* The mode/period switch drops below the (parent) location switcher
-       so the two rows never overlap. */
+    /* Mode toggle (LIVE/HOURLY/ACCUMULATED) pinned to the TOP-RIGHT, on the
+       same row as the location switcher (which floats top-left from the React
+       layer). Reserve ~152px on the left for that switcher so the two never
+       collide. In accumulated mode the extra 5/10/15 period group wraps to a
+       second right-aligned row rather than growing left into the switcher. */
     #top-controls {
-      top: 64px;
+      top: 14px;
+      left: auto;
+      right: 12px;
+      transform: none;
       width: max-content;
-      max-width: calc(100vw - 24px);
+      max-width: calc(100vw - 152px);
+      flex-wrap: wrap;
+      justify-content: flex-end;
     }
     .pill-group { overflow-x: auto; }
-    .pill-btn { padding: 8px 13px; font-size: 0.74rem; }
+    .pill-btn { padding: 7px 12px; font-size: 0.72rem; }
 
     /* Map toggle buttons (live-obs, auto-rotate) tuck under the control rows
        on the left so nothing collides up top. */

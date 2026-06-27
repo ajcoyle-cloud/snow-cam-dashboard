@@ -730,13 +730,17 @@
     font-size: 34px;
   }
 
-  /* Location switcher floats over the top of the fullscreen 3D map. */
+  /* Location switcher floats over the TOP-LEFT of the fullscreen 3D map.
+     The LIVE/HOURLY/ACCUMULATED toggle (#top-controls, inside the iframe)
+     sits top-right on the same row — mirroring the Forecast tab's top bar.
+     justify-content override beats the inline `center` set in App.jsx. */
   .map-resort-switch {
     position: absolute;
     top: 0;
     left: 0;
     right: 0;
-    padding: 12px 0 !important;
+    padding: 12px 0 12px 12px !important;
+    justify-content: flex-start !important;
     z-index: 30;
     pointer-events: none;
   }
