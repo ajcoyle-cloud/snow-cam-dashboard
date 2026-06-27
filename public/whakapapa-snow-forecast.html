@@ -501,14 +501,7 @@ const RESORT_CONFIG = {
     name: 'Mt Lyford',
     lat: -42.446503, lon: 173.143418, summitElev: 1800, baseElev: 1340, timezone: 'Pacific/Auckland',
     topElev: 1900, // approx summit ridge for the colour ramp's upper bound
-    center: [173.143418, -42.446503], zoom: 13.2, pitch: 62, bearing: 180,
-    lifts: [
-      { name: 'Terako Rope Tow', lat: -42.443503, lon: 173.131418 },
-      { name: 'Cloudy T-bar', lat: -42.446503, lon: 173.136418 },
-      { name: 'Paradise Valley Platters 1', lat: -42.448503, lon: 173.156418 },
-      { name: 'Paradise Valley Platters 2', lat: -42.450503, lon: 173.159418 },
-      { name: 'Learners', lat: -42.444503, lon: 173.163418 }
-    ]
+    center: [173.143418, -42.446503], zoom: 13.2, pitch: 62, bearing: 180
   }
 };
 
@@ -524,8 +517,6 @@ const WHAKAPAPA_LIFTS = {"type":"FeatureCollection","features":[{"type":"Feature
 
 // Cardrona Alpine Resort lift lines (chairlifts, T-bar, platters, carpets)
 // sourced from OpenStreetMap aerialway data — drawn only for the cardrona resort.
-const MT_LYFORD_LIFTS = {"type":"FeatureCollection","features":[{"type":"Feature","geometry":{"type":"LineString","coordinates":[[173.131418,-42.443503],[173.125418,-42.425503]]},"properties":{"aerialway":"rope_tow","name":"Terako Rope Tow"}},{"type":"Feature","geometry":{"type":"LineString","coordinates":[[173.136418,-42.446503],[173.136418,-42.415503]]},"properties":{"aerialway":"t-bar","name":"Cloudy T-bar"}},{"type":"Feature","geometry":{"type":"LineString","coordinates":[[173.156418,-42.448503],[173.165418,-42.420503]]},"properties":{"aerialway":"platter","name":"Paradise Valley Platters 1"}},{"type":"Feature","geometry":{"type":"LineString","coordinates":[[173.159418,-42.450503],[173.168418,-42.420503]]},"properties":{"aerialway":"platter","name":"Paradise Valley Platters 2"}},{"type":"Feature","geometry":{"type":"LineString","coordinates":[[173.163418,-42.444503],[173.173418,-42.420503]]},"properties":{"aerialway":"rope_tow","name":"Learners"}}]};
-
 const CARDRONA_LIFTS = {"type":"FeatureCollection","features":[{"type":"Feature","geometry":{"type":"LineString","coordinates":[[168.9484964,-44.8721681],[168.9481359,-44.8713524],[168.9476175,-44.8702402],[168.9469242,-44.8687899],[168.9462821,-44.8673993],[168.9455976,-44.8659418],[168.9451723,-44.8650015],[168.9450033,-44.8646423]]},"properties":{"aerialway":"chair_lift","aerialway:occupancy":"6","name":"McDougall's Chondola"}},{"type":"Feature","geometry":{"type":"LineString","coordinates":[[168.9631767,-44.8752863],[168.9630087,-44.8751792],[168.9626278,-44.8749353],[168.9616983,-44.8743425],[168.9609936,-44.8738897],[168.9601547,-44.8733587],[168.9593796,-44.8728661],[168.9586788,-44.8724245],[168.9580384,-44.872017],[168.9573855,-44.8715943],[168.9567977,-44.8712201],[168.9566051,-44.8710944],[168.9564485,-44.8709986]]},"properties":{"aerialway":"chair_lift","aerialway:occupancy":"4","name":"Valley View"}},{"type":"Feature","geometry":{"type":"LineString","coordinates":[[168.9571541,-44.862396],[168.9569154,-44.8623286],[168.9564133,-44.8621744],[168.9557669,-44.8619866],[168.954866,-44.8617108],[168.9540838,-44.8614766],[168.9527419,-44.8610684],[168.9519762,-44.8608507],[168.9506525,-44.8604514],[168.9497525,-44.8601785],[168.9489013,-44.8599287],[168.9482096,-44.8597158],[168.9468077,-44.8593006],[168.9464468,-44.8591938],[168.9456036,-44.8589351],[168.9452471,-44.8588274],[168.9450026,-44.8587529]]},"properties":{"aerialway":"chair_lift","aerialway:occupancy":"4","name":"Captain's Express"}},{"type":"Feature","geometry":{"type":"LineString","coordinates":[[168.955326,-44.8734705],[168.9551633,-44.8733088],[168.9551052,-44.8732412],[168.954781,-44.8729883],[168.954243,-44.872494],[168.9538297,-44.8720926],[168.9530013,-44.8713425],[168.9525177,-44.8708966],[168.9519657,-44.8703972],[168.9509173,-44.8694379],[168.9504055,-44.868967],[168.9497452,-44.8683627],[168.948819,-44.8675145],[168.9481268,-44.8668925],[168.9473845,-44.8662049],[168.9464567,-44.8653657],[168.946084,-44.8650249],[168.9458644,-44.8648266]]},"properties":{"aerialway":"chair_lift","aerialway:occupancy":"4","name":"Whitestar Express"}},{"type":"Feature","geometry":{"type":"LineString","coordinates":[[168.9482363,-44.8723506],[168.9476355,-44.8709307]]},"properties":{"aerialway":"magic_carpet","name":"Covered Conveyor Lift"}},{"type":"Feature","geometry":{"type":"LineString","coordinates":[[168.9467646,-44.8709938],[168.9461994,-44.8706507],[168.9456981,-44.8703464],[168.945281,-44.8700932],[168.9448088,-44.8698065],[168.9445947,-44.8696765]]},"properties":{"aerialway":"platter","name":"Wells Pipe"}},{"type":"Feature","geometry":{"type":"LineString","coordinates":[[168.9481581,-44.8728721],[168.9479976,-44.872778]]},"properties":{"aerialway":"magic_carpet","name":"Kindy Conveyor"}},{"type":"Feature","geometry":{"type":"LineString","coordinates":[[168.9434112,-44.8792329],[168.944509,-44.8729027]]},"properties":{"aerialway":"chair_lift","aerialway:occupancy":"4","name":"Willows Quad"}},{"type":"Feature","geometry":{"type":"LineString","coordinates":[[168.9485655,-44.8695692],[168.9456948,-44.8649603]]},"properties":{"aerialway":"t-bar","name":"T-Bar"}},{"type":"Feature","geometry":{"type":"LineString","coordinates":[[168.9310855,-44.8625476],[168.9455306,-44.8565637]]},"properties":{"aerialway":"chair_lift","aerialway:occupancy":"6","name":"Soho Express"}}]};
 
 // Loveland Ski Area lift lines (chairlifts + magic carpets) sourced from
@@ -701,7 +692,6 @@ function initMap() {
     const liftData = resortKey === 'ruapehu' ? WHAKAPAPA_LIFTS
       : resortKey === 'cardrona' ? CARDRONA_LIFTS
       : resortKey === 'loveland' ? LOVELAND_LIFTS
-      : resortKey === 'mtlyford' ? MT_LYFORD_LIFTS
       : null;
     if (liftData) {
       map.addSource('resort-lifts', { type: 'geojson', data: liftData });
