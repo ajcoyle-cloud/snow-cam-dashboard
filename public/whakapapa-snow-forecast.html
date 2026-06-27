@@ -130,9 +130,9 @@
   #rotate-toggle.active { background: #333; }
   #rotate-toggle:hover { background: rgba(255,255,255,0.25); }
   #rotate-toggle.active:hover { background: #404040; }
-  #map-close { right: 64px; display: none; }
-  #wind-toggle { right: 108px; display: none; } /* wind feature temporarily hidden on prod */
+  #wind-toggle { left: 152px; }
   #wind-toggle.active { background: #333; }
+  #map-close { right: 64px; display: none; }
   #map-enlarge:hover, #map-close:hover, #wind-toggle:hover { background: rgba(255,255,255,0.25); }
   #wind-toggle.active:hover { background: #404040; }
   #map-screen.is-fullscreen #map-enlarge { display: none; }
@@ -298,10 +298,11 @@
     .pill-group { overflow-x: auto; }
     .pill-btn { padding: 8px 13px; font-size: 0.74rem; }
 
-    /* Map toggle buttons (live-obs, auto-rotate) tuck under the control rows
+    /* Map toggle buttons (live-obs, auto-rotate, wind) tuck under the control rows
        on the left so nothing collides up top. */
     #obs-toggle { top: 112px; left: 14px; }
     #rotate-toggle { top: 112px; left: 60px; }
+    #wind-toggle { top: 112px; left: 106px; }
     #map-close { top: 14px; right: 14px; }
 
     /* Playback speed: compact, top-right (out of the drawer's way). */
@@ -842,14 +843,147 @@ function resumeWindOverlay() {
   windParticles.forEach((p) => { p.sx = null; p.sy = null; });
 }
 
+let windColumnVisible = false;
 function toggleWindOverlay() {
-  windEnabled = !windEnabled;
-  document.getElementById('wind-toggle').classList.toggle('active', windEnabled);
-  if (!windEnabled) {
-    if (windCtx && windCanvas) windCtx.clearRect(0, 0, windCanvas.width, windCanvas.height);
-  } else {
-    resumeWindOverlay();
+  // Only allow wind column in LIVE mode (observed data only)
+  if (viewMode !== 'live') {
+    document.getElementById('wind-toggle').classList.remove('active');
+    return;
   }
+  windColumnVisible = !windColumnVisible;
+  document.getElementById('wind-toggle').classList.toggle('active', windColumnVisible);
+  if (windColumnVisible) {
+    showWindColumn();
+  } else {
+    hideWindColumn();
+  }
+}
+
+function hideWindColumn() {
+  if (map.getLayer('wind-column-layer')) map.removeLayer('wind-column-layer');
+  if (map.getSource('wind-column-source')) map.removeSource('wind-column-source');
+}
+
+function showWindColumn() {
+  hideWindColumn();
+
+  // Get observed wind speed/direction from available stations
+  // Use pwDisplayTime if scrubbing through past, otherwise use latest
+  const selectedTime = pwDisplayTime;
+  let avgSpeedKmh = 0;
+  let avgDirDeg = 0;
+  let count = 0;
+
+  for (const trackId in pwState) {
+    const st = pwState[trackId];
+    if (!st || !st.series.length) continue;
+
+    // Get observation at selected time (or latest if viewing live/now)
+    let obs;
+    if (selectedTime == null) {
+      // Viewing live/now — use latest observation
+      obs = st.series[st.series.length - 1];
+    } else {
+      // Viewing past — find observation at that time
+      // Simple linear interpolation
+      const series = st.series;
+      if (selectedTime <= series[0].ts) obs = series[0];
+      else if (selectedTime >= series[series.length - 1].ts) obs = series[series.length - 1];
+      else {
+        for (let i = 1; i < series.length; i++) {
+          if (series[i].ts >= selectedTime) {
+            obs = series[i - 1]; // Use the earlier observation
+            break;
+          }
+        }
+      }
+    }
+
+    if (!obs || !obs.speedKt || !obs.dir) continue;
+    avgSpeedKmh += obs.speedKt * KT_TO_KMH;
+    avgDirDeg += obs.dir;
+    count++;
+  }
+
+  if (count === 0) {
+    // No observation data available
+    hideWindColumn();
+    return;
+  }
+
+  avgSpeedKmh /= count;
+  avgDirDeg /= count;
+
+  // Create wind column at the summit location
+  const summitLng = LOC.center[0];
+  const summitLat = LOC.center[1];
+  const summitElev = LOC.summitElev;
+  const baseElev = LOC.baseElev;
+  const elevRange = summitElev - baseElev;
+
+  // Create wind column as a series of stacked polygons showing wind speed gradient
+  // Each band represents 200m elevation, colored by wind speed intensity
+  const bands = Math.ceil(elevRange / 200);
+  const features = [];
+
+  for (let i = 0; i < bands; i++) {
+    const bandElev = baseElev + (i * elevRange / bands);
+    // Simulate wind speed variation with elevation (wind typically increases with altitude)
+    const elevFrac = i / bands;
+    const elevWindBoost = 1 + elevFrac * 0.5; // up to 50% stronger at summit
+    const bandWindSpeed = Math.min(avgSpeedKmh * elevWindBoost, 80);
+
+    // Create a small circle representing this elevation band
+    // Radius represents wind speed magnitude
+    const radiusM = 80 + (bandWindSpeed / 80) * 220; // 80-300m radius based on wind
+
+    // Create offset polygon corners (square rotated by wind direction)
+    const angle = (avgDirDeg + 45) * Math.PI / 180;
+    const corners = [];
+    for (let c = 0; c < 4; c++) {
+      const cornerAngle = angle + (c * Math.PI / 2);
+      const lng = summitLng + (radiusM / 111000) * Math.cos(cornerAngle);
+      const lat = summitLat + (radiusM / 111000) * Math.sin(cornerAngle);
+      corners.push([lng, lat]);
+    }
+    corners.push(corners[0]); // close polygon
+
+    // Color based on wind speed: blue (light) -> yellow -> red (strong)
+    let color;
+    if (bandWindSpeed < 15) color = '#4a90e2'; // light blue
+    else if (bandWindSpeed < 30) color = '#f5d547'; // yellow
+    else if (bandWindSpeed < 50) color = '#ff9500'; // orange
+    else color = '#e74c3c'; // red
+
+    features.push({
+      type: 'Feature',
+      properties: {
+        elevation: bandElev,
+        windSpeed: bandWindSpeed,
+        color: color
+      },
+      geometry: {
+        type: 'Polygon',
+        coordinates: [corners]
+      }
+    });
+  }
+
+  // Add wind column source and layer
+  map.addSource('wind-column-source', {
+    type: 'geojson',
+    data: { type: 'FeatureCollection', features }
+  });
+
+  map.addLayer({
+    id: 'wind-column-layer',
+    type: 'fill',
+    source: 'wind-column-source',
+    paint: {
+      'fill-color': ['get', 'color'],
+      'fill-opacity': 0.6
+    }
+  }, 'resort-lifts-line'); // Insert before the lifts so it doesn't cover them
 }
 
 function degToCompass(deg) {
@@ -1250,6 +1384,10 @@ function setViewMode(mode) {
     document.getElementById('fl-overlay').style.display = 'none';
     pwStopLivePlay();
     if (pwDisplayTime != null) { pwDisplayTime = null; for (const id in pwState) pwRenderPill(id); }
+    // Hide wind column when leaving live mode (only available for observed data)
+    windColumnVisible = false;
+    document.getElementById('wind-toggle').classList.remove('active');
+    hideWindColumn();
   }
 
   if (mode === 'hourly') {
@@ -1812,6 +1950,8 @@ async function pwRefresh(attempt = 0) {
     pwLastError = '';
     pwHasData = true;
     if (typeof pwUpdateTempProfile === 'function') pwUpdateTempProfile();
+    // Update wind column visualization if it's currently visible
+    if (windColumnVisible && viewMode === 'live') showWindColumn();
   } catch (e) {
     pwLastError = e.message;
     console.warn('PredictWind obs fetch failed:', e.message);
@@ -2032,6 +2172,8 @@ function pwApplyLiveAt(idx) {
     (isNow ? 'Now · ' : '') + new Date(t * 1000).toLocaleTimeString('en-NZ', { hour: '2-digit', minute: '2-digit', hour12: false });
   document.getElementById('ltl-prev').disabled = idx <= 0;
   document.getElementById('ltl-next').disabled = idx >= pwLiveGrid.length - 1;
+  // Update wind column visualization if visible
+  if (windColumnVisible) showWindColumn();
 }
 
 function pwStepLive(delta) { pwStopLivePlay(); pwApplyLiveAt(pwLiveIdx + delta); }
