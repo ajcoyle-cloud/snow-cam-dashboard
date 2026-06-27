@@ -831,4 +831,9 @@
   .forecast-view-mode-desktop {
     display: inline-flex !important;
   }
+
+  /* Desktop map view: location switcher centered */
+  .map-resort-switch {
+    justify-content: center !important;
+  }
 }
