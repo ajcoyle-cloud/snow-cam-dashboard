@@ -2181,7 +2181,6 @@ function pwRenderFreezingOverlay() {
 
 // Render pseudo temperature pills for ski field elevations (resort-specific).
 function pwRenderPseudoPills() {
-  if (!pwProfile) return;
   // Remove existing pseudo pills
   for (const el of document.querySelectorAll('.pseudo-pill')) {
     if (el.marker) el.marker.remove();
@@ -2215,6 +2214,7 @@ function pwRenderPseudoPills() {
       { elev: 1340, lat: -42.449134, lon: 173.147211, label: 'Base' },
     ];
   }
+  if (!pseudos.length) return;
   for (const p of pseudos) {
     // In HOURLY view, use pure forecast data; otherwise use observed
     let t;
@@ -2232,7 +2232,7 @@ function pwRenderPseudoPills() {
         const stdLapse = -0.0065;
         t = summitTemp + stdLapse * (p.elev - LOC.summitElev);
       }
-    } else {
+    } else if (pwProfile) {
       t = pwTempAt(p.elev);
     }
     if (t == null) continue;
