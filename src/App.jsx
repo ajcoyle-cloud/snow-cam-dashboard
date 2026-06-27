@@ -88,6 +88,8 @@ const NORTH_ISLAND = [
 ]
 
 const SOUTH_ISLAND = [
+  { name: 'Roundhill - Webcam 1', url: 'https://snowgrass.nz/cust/roundhill/images/webcam_1.jpg', location: 'Roundhill' },
+  { name: 'Roundhill - Webcam 6', url: 'https://snowgrass.nz/cust/roundhill/images/webcam_6.jpg', location: 'Roundhill' },
   { name: 'Cardrona - Main Basin', url: 'https://webcams.cardrona.com/new-webcam-page/image/?view=1', location: 'Cardrona' },
   { name: 'Cardrona - Captains', url: 'https://webcams.cardrona.com/new-webcam-page/image/?view=2', location: 'Cardrona' },
   { name: 'Cardrona - Soho', url: 'https://webcams.cardrona.com/new-webcam-page/image/?view=13', location: 'Cardrona' },
