@@ -502,6 +502,12 @@ const RESORT_CONFIG = {
     lat: -42.446503, lon: 173.143418, summitElev: 1800, baseElev: 1340, timezone: 'Pacific/Auckland',
     topElev: 1900, // approx summit ridge for the colour ramp's upper bound
     center: [173.143418, -42.446503], zoom: 13.2, pitch: 62, bearing: 180
+  },
+  roundhill: {
+    name: 'Roundhill Ski Area',
+    lat: -43.825421, lon: 170.656220, summitElev: 2170, baseElev: 1800, timezone: 'Pacific/Auckland',
+    topElev: 2270, // approx summit ridge for the colour ramp's upper bound
+    center: [170.656220, -43.825421], zoom: 13.4, pitch: 62, bearing: 180
   }
 };
 
@@ -1282,6 +1288,15 @@ const PW_CONFIG = {
       { trackId: '222441', name: 'Leadville (LXV)' },  // 3026 m, ~62 km away
       { trackId: '221922', name: 'Granby (GNB)' },     // 2501 m, ~46 km away
       { trackId: '1142', name: 'Kremmling (K20V)' },   // 2259 m, ~58 km away
+    ],
+  },
+  roundhill: {
+    tiles: [[10, 381, 1016], [10, 381, 1015], [10, 380, 1016], [10, 380, 1015]],
+    stations: [
+      // Tekapo area observation stations (use ./scripts/roundhill_obs.py to discover trackIds)
+      // { trackId: 'TBD', name: 'Tekapo Balmoral' },
+      // { trackId: 'TBD', name: 'Clayton' },
+      // { trackId: 'TBD', name: 'Burkes Pass' },
     ],
   },
 };
