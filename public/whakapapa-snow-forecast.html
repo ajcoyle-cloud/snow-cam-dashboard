@@ -572,9 +572,11 @@ async function loadForecast() {
         : null;
       const ecmwfTemp = ecmwfSummit?.temperature_2m?.[i] ?? null;
 
+      const baseT = ecmwfBase?.temperature_2m?.[i] ?? null;
       return {
         time: t,
         temp: ecmwfTemp != null ? (gfsTemp + ecmwfTemp) / 2 : gfsTemp,
+        baseTemp: baseT,  // for HOURLY view lapse rate calculation (forecast-based)
         precip: gfs.precipitation[i],
         snowfallMm: ecmwfSnowMm != null ? (gfsSnowMm + ecmwfSnowMm) / 2 : gfsSnowMm,
         freezingLevel: ecmwfFL != null ? (gfsFL + ecmwfFL) / 2 : gfsFL,
@@ -2041,9 +2043,9 @@ function pwFreezingSeries(hours = 6) {
 function pwRenderFreezingOverlay() {
   const host = document.getElementById('fl-overlay');
 
-  // HOURLY mode: use forecast data - show full 16-day forecast with marker
+  // HOURLY mode: use pure forecast data - show full 16-day forecast with marker
   if (viewMode === 'hourly') {
-    if (!forecastHours || forecastHours.length < 2 || !pwProfile) { host.style.display = 'none'; return; }
+    if (!forecastHours || forecastHours.length < 2) { host.style.display = 'none'; return; }
 
     host.style.display = 'block';
     const W = host.clientWidth || 280, H = host.clientHeight || 162;
@@ -2052,14 +2054,27 @@ function pwRenderFreezingOverlay() {
 
     if (pw <= 0 || ph <= 0) { host.style.display = 'none'; return; }
 
-    // Calculate freezing level for each hour using observed lapse rate with forecasted summit temp
-    // This ensures consistency with the pseudo pill temperatures
+    // Calculate freezing level for each hour using only forecast data
+    // (summit temp and base temp from Open-Meteo)
     const flData = forecastHours
       .map((h, idx) => {
         if (h.temp == null) return null;
-        // Calculate elevation where temp = 0 using observed lapse rate
-        const freezeElev = (0 - h.temp) / pwProfile.b + LOC.summitElev;
-        return { ts: idx, fl: freezeElev };
+        let freezeElev = null;
+
+        const summitTemp = h.temp;
+        const baseTemp = h.baseTemp;
+
+        if (summitTemp != null && baseTemp != null && summitTemp !== baseTemp) {
+          // Use forecast-based lapse rate
+          const forecastLapse = (baseTemp - summitTemp) / (LOC.baseElev - LOC.summitElev);
+          freezeElev = (0 - summitTemp) / forecastLapse + LOC.summitElev;
+        } else if (summitTemp != null) {
+          // Fallback: standard lapse rate if base temp not available
+          const stdLapse = -0.0065;
+          freezeElev = (0 - summitTemp) / stdLapse + LOC.summitElev;
+        }
+
+        return freezeElev != null ? { ts: idx, fl: freezeElev } : null;
       })
       .filter(p => p != null);
 
@@ -2084,10 +2099,17 @@ function pwRenderFreezingOverlay() {
     const markX = X(currentIndex);
     let flValue = null;
     if (currentHour && currentHour.temp != null) {
-      flValue = (0 - currentHour.temp) / pwProfile.b + LOC.summitElev;
-    } else {
-      flValue = lo + (hi - lo) / 2;
+      const summitTemp = currentHour.temp;
+      const baseTemp = currentHour.baseTemp;
+      if (summitTemp != null && baseTemp != null && summitTemp !== baseTemp) {
+        const forecastLapse = (baseTemp - summitTemp) / (LOC.baseElev - LOC.summitElev);
+        flValue = (0 - summitTemp) / forecastLapse + LOC.summitElev;
+      } else if (summitTemp != null) {
+        const stdLapse = -0.0065;
+        flValue = (0 - summitTemp) / stdLapse + LOC.summitElev;
+      }
     }
+    if (flValue == null) flValue = lo + (hi - lo) / 2;
     const markY = Y(flValue);
 
     const svg = host.querySelector('svg');
@@ -2165,12 +2187,22 @@ function pwRenderPseudoPills() {
     ];
   }
   for (const p of pseudos) {
-    // In HOURLY view, use forecasted temperature; otherwise use observed
+    // In HOURLY view, use pure forecast data; otherwise use observed
     let t;
     if (viewMode === 'hourly' && forecastHours[currentIndex]) {
-      const forecastSummitTemp = forecastHours[currentIndex].temp;
-      // Apply observed lapse rate to forecasted summit temperature
-      t = forecastSummitTemp + pwProfile.b * (p.elev - LOC.summitElev);
+      const hour = forecastHours[currentIndex];
+      const summitTemp = hour.temp;
+      const baseTemp = hour.baseTemp;
+
+      if (summitTemp != null && baseTemp != null && summitTemp !== baseTemp) {
+        // Calculate lapse rate from forecast data (no observed data used)
+        const forecastLapse = (baseTemp - summitTemp) / (LOC.baseElev - LOC.summitElev);
+        t = summitTemp + forecastLapse * (p.elev - LOC.summitElev);
+      } else if (summitTemp != null) {
+        // Fallback if base temp not available: use a standard lapse rate of 0.0065°C/m
+        const stdLapse = -0.0065;
+        t = summitTemp + stdLapse * (p.elev - LOC.summitElev);
+      }
     } else {
       t = pwTempAt(p.elev);
     }
