@@ -739,10 +739,24 @@
     top: 0;
     left: 0;
     right: 0;
-    padding: 12px 0 12px 12px !important;
+    /* Item 1: align the switcher with the iframe's top-right LIVE/HOURLY toggle
+       (#top-controls, top:14px). Match the top offset and height so both sit on
+       the same horizontal line. */
+    padding: 14px 0 0 12px !important;
     justify-content: flex-start !important;
     z-index: 30;
     pointer-events: none;
+  }
+
+  .map-resort-switch .resort-selector {
+    padding-top: 0 !important;
+  }
+
+  .map-resort-switch .resort-button {
+    height: 38px;
+    padding: 0 16px;
+    display: inline-flex;
+    align-items: center;
   }
 
   .map-resort-switch .elevation-toggle {
@@ -781,8 +795,24 @@
     padding-top: 0;
   }
 
+  /* Item 3: a single location switcher on mobile. The forecast top-bar already
+     supplies the top-left one, so hide the desktop-only centered selector.
+     (!important beats the element's inline display:flex.) */
+  .forecast-selector-desktop {
+    display: none !important;
+  }
+
+  /* Item 1: the switcher (left) and the view-mode toggle (right) sit on the same
+     horizontal line with equal heights. */
+  .forecast-top-bar-left .resort-button,
   .forecast-top-bar-right .elevation-toggle {
+    height: 38px;
+    display: inline-flex;
+    align-items: center;
     margin: 0;
+  }
+  .forecast-top-bar-left .resort-button {
+    padding: 0 16px;
   }
 
   /* Hide desktop view mode toggle on mobile */

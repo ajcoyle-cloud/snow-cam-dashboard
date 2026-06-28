@@ -2414,7 +2414,10 @@ export default function App() {
 
         {activeTab === 'forecast' && (
           <section className="region-section forecast-section">
-            <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '16px' }}>
+            {/* Desktop-only centered selector. On mobile the SnowfallForecast
+                top-bar already provides a single top-left selector, so this is
+                hidden there to avoid showing two switchers. */}
+            <div className="forecast-selector-desktop" style={{ display: 'flex', justifyContent: 'center', marginBottom: '16px' }}>
               <ResortSelector resort={resort} setResort={setResort} />
             </div>
             <SnowfallForecast resort={resort} setResort={setResort} />
