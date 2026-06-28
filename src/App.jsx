@@ -899,6 +899,7 @@ function SnowfallForecast({ resort, setResort }) {
   const [hoverLineX, setHoverLineX] = useState(null)
   const [containerWidth, setContainerWidth] = useState(() => window.innerWidth - 40)
   const [windowHeight, setWindowHeight] = useState(() => window.innerHeight)
+  const [isMobile, setIsMobile] = useState(() => window.innerWidth <= 700)
   const chartRef = useRef(null)
   const tableRef = useRef(null)
   const svgRef = useRef(null)
@@ -1233,7 +1234,7 @@ function SnowfallForecast({ resort, setResort }) {
     // available width instead of overflowing into a horizontal scrollbar.
     const el = containerRef.current
     const updateWidth = () => setContainerWidth((el ? el.clientWidth : window.innerWidth) - 40)
-    const updateHeight = () => setWindowHeight(window.innerHeight)
+    const updateHeight = () => { setWindowHeight(window.innerHeight); setIsMobile(window.innerWidth <= 700) }
     updateWidth()
     updateHeight()
     window.addEventListener('resize', updateHeight)
@@ -1393,10 +1394,19 @@ function SnowfallForecast({ resort, setResort }) {
 
   // Snowfall chart dimensions for hourly data
   const snowChartHeight = viewMode === 'fit' ? Math.max(220, Math.min(430, windowHeight * 0.42)) : 430
+  const snowPadding = { top: 60, right: isMobile ? 18 : 40, bottom: 38, left: isMobile ? 70 : 95 }
+  // On mobile, "Fit to Screen" must NOT squash 16 day-columns into ~360px — that
+  // makes values wrap to stacked digits and the date labels collide. Instead
+  // enforce a comfortable minimum width per day-column and let the chart + table
+  // scroll horizontally together (they're scroll-synced). Desktop keeps the true
+  // fit-to-container behaviour.
+  const MIN_MOBILE_DAY_COL = 52
+  const fitChartWidth = isMobile
+    ? Math.max(containerWidth, snowPadding.left + snowPadding.right + tableData.length * MIN_MOBILE_DAY_COL)
+    : containerWidth
   const snowChartWidth = viewMode === 'fit'
-    ? containerWidth
+    ? fitChartWidth
     : Math.max(1200, displayData.length * 40)
-  const snowPadding = { top: 60, right: 40, bottom: 38, left: 95 }
   const snowPlotWidth = snowChartWidth - snowPadding.left - snowPadding.right
   const snowPlotHeight = snowChartHeight - snowPadding.top - snowPadding.bottom
   const cellWidth = snowPlotWidth / displayData.length

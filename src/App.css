@@ -820,6 +820,51 @@
     padding: 10px 14px;
     font-size: 0.85em;
   }
+
+  /* ── Mobile forecast graph + table readability ──────────────────────── */
+  /* Tighten the control cluster so the toggles don't eat vertical space. */
+  .forecast-container > div[style*="flex-wrap"] {
+    gap: 8px !important;
+    margin-bottom: 8px !important;
+  }
+  .forecast-container .toggle-btn {
+    padding: 7px 12px;
+  }
+
+  /* The chart + table scroll horizontally together (scroll-synced in JS).
+     Momentum scroll + a clear edge so it reads as swipeable. */
+  .forecast-chart,
+  .forecast-data-table {
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior-x: contain;
+  }
+
+  /* Larger, single-line data cells so values stop wrapping into stacked
+     digits. Row-label (first) column stays sticky and may wrap to 2 lines. */
+  .forecast-data-table table {
+    font-size: 12px;
+  }
+  .forecast-data-table td,
+  .forecast-data-table th {
+    font-size: 0.82em;
+    padding: 3px 2px;
+  }
+  .forecast-data-table td:not(:first-child),
+  .forecast-data-table th:not(:first-child) {
+    white-space: nowrap;
+  }
+  .forecast-data-table td:first-child,
+  .forecast-data-table th:first-child {
+    font-size: 0.72em;
+    line-height: 1.05;
+    white-space: normal;
+    padding-right: 4px;
+  }
+
+  /* The "16 Day Forecast" subtitle wraps awkwardly; keep it compact. */
+  .forecast-container > h2 {
+    font-size: 1.1em;
+  }
 }
 
 /* Desktop: Hide mobile top bar, show centered layout */
