@@ -307,7 +307,9 @@
       flex-wrap: wrap;
       justify-content: flex-end;
     }
-    .pill-group { overflow-x: auto; }
+    /* Height matched to the React-layer location switcher (.map-resort-switch
+       .resort-button, 38px) so the two sit on the same horizontal line. */
+    .pill-group { overflow-x: auto; min-height: 38px; align-items: center; }
     .pill-btn { padding: 7px 12px; font-size: 0.72rem; }
 
     /* Map toggle buttons (live-obs, auto-rotate) tuck under the control rows
@@ -1329,17 +1331,26 @@ const PW_CONFIG = {
     ],
   },
   roundhill: {
-    tiles: [[10, 373, 996], [10, 373, 997], [10, 374, 996], [10, 374, 997]],
+    // Tiles re-discovered from the live PredictWind index — the old tiles
+    // (ytms 373/374) sat one row south of where these stations actually live
+    // (ytms 371/372), so all three resolved to "not found". trackIds unchanged.
+    tiles: [[10, 372, 996], [10, 372, 997], [10, 372, 998], [10, 371, 997]],
     stations: [
-      { trackId: '362952', name: 'Tekapo Balmoral' },    // 854 m
-      { trackId: '362869', name: 'Clayton' },             // 945 m
-      { trackId: '362923', name: 'Burkes Pass' },         // 654 m
+      { trackId: '362952', name: 'Tekapo Balmoral' },    // 854 m, tile 372/996
+      { trackId: '362869', name: 'Clayton' },             // 945 m, tile 372/998
+      { trackId: '362923', name: 'Burkes Pass' },         // 654 m, tile 371/997
     ],
   },
   mtvernon: {
-    tiles: [[10, 644, 211], [10, 644, 210], [10, 643, 211], [10, 643, 210]],
+    // Front-range Colorado AWOS stations (same network Loveland uses), discovered
+    // live from the PredictWind tile index. The old tiles returned HTTP 204
+    // (empty) — calling .json() on an empty body throws "The string did not match
+    // the expected pattern" in Safari — and the single trackId was a placeholder.
+    tiles: [[10, 635, 211], [10, 635, 212]],
     stations: [
-      { trackId: '8408630', name: 'Mt Vernon (BJC/C99/0CO)' },
+      { trackId: '220846', name: 'BJC' },   // 1724 m, ~25 km
+      { trackId: '220910', name: 'C99' },   // 3319 m, ~29 km
+      { trackId: '220562', name: '0CO' },   // 3792 m, ~43 km
     ],
   },
 };
@@ -1787,6 +1798,34 @@ function pwComputeProfile() {
 }
 
 function pwTempAt(elev) { return pwProfile ? pwProfile.a + pwProfile.b * elev : null; }
+
+// Piecewise-linear live temperature at an arbitrary elevation, interpolated
+// between the two nearest REAL stations that bracket it by height. Unlike the
+// global lapse fit (pwTempAt), this keeps the interpolated "pseudo" pills
+// consistently ordered with the real-station pills around them: a pill lower on
+// the mountain never reads colder than a real station above it. (The global fit
+// could do exactly that when a real station's reading sat above the average
+// line — e.g. Whakapapa-2000m reading warmer than the fitted lapse predicted,
+// leaving the interpolated Mid/Base pills just below it looking colder.)
+function pwTempPiecewise(elev) {
+  const pts = [];
+  for (const id in pwState) {
+    const s = pwState[id];
+    if (s.meta && s.meta.elevM != null && s.series && s.series.length) {
+      pts.push([s.meta.elevM, s.series[s.series.length - 1].tempC]);
+    }
+  }
+  if (pts.length < 2) return pwTempAt(elev); // not enough stations — fall back to the global fit
+  pts.sort((a, b) => a[0] - b[0]); // ascending by elevation
+  const lerp = (a, b) => a[1] + (b[1] - a[1]) * (elev - a[0]) / ((b[0] - a[0]) || 1);
+  // Below the lowest / above the highest station: extrapolate along the nearest segment.
+  if (elev <= pts[0][0]) return lerp(pts[0], pts[1]);
+  if (elev >= pts[pts.length - 1][0]) return lerp(pts[pts.length - 2], pts[pts.length - 1]);
+  for (let i = 0; i < pts.length - 1; i++) {
+    if (elev >= pts[i][0] && elev <= pts[i + 1][0]) return lerp(pts[i], pts[i + 1]);
+  }
+  return pwTempAt(elev);
+}
 
 // Weighted least-squares fit temp = a + b·elev over [[elev,temp],...] with weights.
 // Higher weights give more influence to those points; used to prioritize on-mountain stations.
@@ -2318,7 +2357,9 @@ function pwRenderPseudoPills() {
         t = summitTemp + stdLapse * (p.elev - LOC.summitElev);
       }
     } else if (pwProfile) {
-      t = pwTempAt(p.elev);
+      // Live/observed: interpolate piecewise between the bracketing real stations
+      // so pseudo pills stay ordered with the real pills (see pwTempPiecewise).
+      t = pwTempPiecewise(p.elev);
     }
     if (t == null) continue;
     const el = document.createElement('div');
