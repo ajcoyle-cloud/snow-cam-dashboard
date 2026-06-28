@@ -1648,10 +1648,12 @@ function pwOpenModal(data) {
   const tLo = Math.min(...day.map(r => r.tempC)), tHi = Math.max(...day.map(r => r.tempC));
   const agoTxt = pwAgo(last.ts);
 
-  // In HOURLY view, show forecasted temperature; otherwise show observed
-  const displayTemp = viewMode === 'hourly' && forecastHours[currentIndex]
-    ? forecastHours[currentIndex].temp
-    : last.tempC;
+  // This modal is the "Live Weather" readout — wind, gust, 24h range and the 12h
+  // chart are all observed, so the big temperature must be the observed reading
+  // too. (It previously showed the forecast summit temp in hourly view, which
+  // could read e.g. -12°C on a station whose live temp was ~4°C and whose own
+  // 24h range was -1 to 8°C — clearly wrong.)
+  const displayTemp = last.tempC;
 
   const back = document.createElement('div');
   back.className = 'obs-modal-backdrop';
