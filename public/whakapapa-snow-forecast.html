@@ -532,6 +532,12 @@ const RESORT_CONFIG = {
     lat: 39.72011925175132, lon: -105.26872905339022, summitElev: 2190, baseElev: 1800, timezone: 'America/Denver',
     topElev: 3000, // colour ramp upper bound — must sit at/above the highest terrain in view (DEM reaches ~2920m here) or terrain above it gets painted the clamped last-stop colour
     center: [-105.26872905339022, 39.72011925175132], zoom: 12.5, pitch: 62, bearing: 180
+  },
+  treblecone: {
+    name: 'Treble Cone',
+    lat: -44.633063, lon: 168.896105, summitElev: 2088, baseElev: 1260, timezone: 'Pacific/Auckland',
+    topElev: 2500, // colour ramp upper bound — above the highest terrain in view (DEM reaches ~2400m here)
+    center: [168.884, -44.634], zoom: 13.5, pitch: 62, bearing: 290
   }
 };
 
@@ -558,6 +564,9 @@ const MTLYFORD_LIFTS = {"type":"FeatureCollection","features":[{"type":"Feature"
 // Roundhill Ski Area lift lines (T-bars, platter, the long Heritage rope tow)
 // sourced from OpenStreetMap aerialway data — drawn only for the roundhill resort.
 const ROUNDHILL_LIFTS = {"type":"FeatureCollection","features":[{"type":"Feature","geometry":{"type":"LineString","coordinates":[[170.6556881,-43.8250478],[170.6652227,-43.8167436]]},"properties":{"aerialway":"t-bar"}},{"type":"Feature","geometry":{"type":"LineString","coordinates":[[170.6557483,-43.8269347],[170.6566471,-43.8264643],[170.6571354,-43.8262532],[170.6577927,-43.8259667],[170.6592309,-43.8254206]]},"properties":{"aerialway":"platter"}},{"type":"Feature","geometry":{"type":"LineString","coordinates":[[170.6657145,-43.8211229],[170.6788681,-43.8284976]]},"properties":{"aerialway":"rope_tow","name":"Heritage Express Rope Tow"}},{"type":"Feature","geometry":{"type":"LineString","coordinates":[[170.6659498,-43.8209239],[170.6663253,-43.8204827],[170.6668725,-43.8198789],[170.6673768,-43.8193138],[170.6679025,-43.8186945],[170.6683745,-43.8181604],[170.6689539,-43.8175178]]},"properties":{"aerialway":"t-bar","name":"T2"}}]};
+// Treble Cone lift lines (chairs + platter) sourced from OpenStreetMap aerialway
+// data — drawn only for the treblecone resort.
+const TREBLE_CONE_LIFTS = {"type":"FeatureCollection","features":[{"type":"Feature","geometry":{"type":"LineString","coordinates":[[168.8842195,-44.6399205],[168.8840606,-44.6398716],[168.8831527,-44.6395732],[168.8824596,-44.6393399],[168.8816335,-44.6390587],[168.8810363,-44.6388673],[168.8797283,-44.6384313],[168.8784335,-44.638],[168.8773005,-44.6376231],[168.8759854,-44.6371853],[168.8747324,-44.6367756],[168.874081,-44.6365603],[168.8736136,-44.6363963],[168.8733784,-44.6363174]]},"properties":{"aerialway":"chair_lift","name":"Saddle Basin Quad"}},{"type":"Feature","geometry":{"type":"LineString","coordinates":[[168.8960699,-44.6325287],[168.8953184,-44.6323167],[168.8937711,-44.6318949],[168.8923507,-44.6315052],[168.8911583,-44.6311769],[168.8900228,-44.630867],[168.8888877,-44.6305491],[168.8877161,-44.6302293],[168.88657,-44.6299143],[168.8852175,-44.6295423],[168.8837441,-44.629134],[168.8835469,-44.6290823],[168.8832294,-44.629002],[168.8831705,-44.6289838],[168.8828629,-44.628894]]},"properties":{"aerialway":"chair_lift","name":"Home Basin Express"}},{"type":"Feature","geometry":{"type":"LineString","coordinates":[[168.8965305,-44.6323902],[168.8967432,-44.6319803],[168.8973499,-44.6308114],[168.8977584,-44.6300242],[168.8978679,-44.6298133],[168.8980509,-44.6294607]]},"properties":{"aerialway":"platter","name":"Nice ‘n’ Easy Platter"}}]};
 const TOP_ELEV = LOC.topElev;
 const SNOW_OFFSET = 300; // snow falls to 300m below the freezing level
 
@@ -730,6 +739,7 @@ function initMap() {
       : resortKey === 'loveland' ? LOVELAND_LIFTS
       : resortKey === 'mtlyford' ? MTLYFORD_LIFTS
       : resortKey === 'roundhill' ? ROUNDHILL_LIFTS
+      : resortKey === 'treblecone' ? TREBLE_CONE_LIFTS
       : null;
     if (liftData) {
       map.addSource('resort-lifts', { type: 'geojson', data: liftData });
@@ -1365,6 +1375,15 @@ const PW_CONFIG = {
       { trackId: '220846', name: 'BJC' },   // 1724 m, ~25 km
       { trackId: '220910', name: 'C99' },   // 3319 m, ~29 km
       { trackId: '220562', name: '0CO' },   // 3792 m, ~43 km
+    ],
+  },
+  treblecone: {
+    // Both stations sit in tile 10/369/992 (the Wanaka/Cardrona block); good
+    // elevation spread (1058 m valley → 1791 m mid-mountain) for the lapse fit.
+    tiles: [[10, 369, 992], [10, 368, 992], [10, 369, 993]],
+    stations: [
+      { trackId: '362870', name: 'Pub Corner' },    // 1058 m
+      { trackId: '363167', name: 'Treble Cone' },   // 1791 m
     ],
   },
 };
@@ -2340,6 +2359,14 @@ function pwRenderPseudoPills() {
     pseudos = [
       { elev: LOC.summitElev, lat: 39.72011925175132, lon: -105.26872905339022, label: 'Summit', hourlyOnly: true },
       { elev: 1800, lat: 39.71, lon: -105.27, label: 'Base' },
+    ];
+  } else if (resortKey === 'treblecone') {
+    pseudos = [
+      // Summit pill at the Saddle Basin top (~2088 m, up-slope/west); base pill at
+      // the Home Basin base (~1260 m, down-slope/east) so they sit at clearly
+      // different heights. Summit is hourly-only (synced to the forecast summit temp).
+      { elev: LOC.summitElev, lat: -44.6363, lon: 168.8734, label: 'Summit', hourlyOnly: true },
+      { elev: 1260, lat: -44.6325, lon: 168.8961, label: 'Base' },
     ];
   }
   if (!pseudos.length) return;

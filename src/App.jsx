@@ -108,7 +108,6 @@ const SOUTH_ISLAND = [
   { name: 'Coronet Peak – Base Area', url: 'https://www.queenstown.com/cams/coronetpeak3.jpg', location: 'Coronet Peak' },
   { name: 'Coronet Peak – Top Station', url: 'https://www.queenstown.com/cams/coronetpeak2.jpg', location: 'Coronet Peak' },
   { name: 'Coronet Peak – Coronet Express', url: 'https://www.queenstown.com/cams/coronetpeak4.jpg', location: 'Coronet Peak' },
-  { name: 'Coronet Peak - Summit', url: 'https://www.mountainwatch.com/Resort/Coronet-Peak-Coronet-Peak-Summit/LiveStill.jpg', location: 'Coronet Peak' },
 ]
 
 const USA_RESORTS = [
@@ -673,6 +672,7 @@ const RESORTS = {
   mtlyford: { name: 'Mt Lyford', lat: -42.446503, lon: 173.143418, summitElev: 1800, baseElev: 1340, timezone: 'Pacific/Auckland' },
   roundhill: { name: 'Roundhill', lat: -43.825421, lon: 170.656220, summitElev: 2170, baseElev: 1800, timezone: 'Pacific/Auckland', pwObsStations: ['tekapo-balmoral', 'clayton', 'burkes-pass'] },
   mtvernon: { name: 'Mt Vernon', lat: 39.72011925175132, lon: -105.26872905339022, summitElev: 2190, baseElev: 1800, timezone: 'America/Denver', pwObsStations: ['bjc', 'c99', '0co'] },
+  treblecone: { name: 'Treble Cone', lat: -44.633063, lon: 168.896105, summitElev: 2088, baseElev: 1260, timezone: 'Pacific/Auckland', pwObsStations: ['pub-corner', 'treble-cone'] },
 }
 
 // --- MetService freezing-level helpers ---------------------------------------
@@ -2358,6 +2358,7 @@ function ForecastMap3D({ resort, setResort }) {
     roundhill: { name: 'Roundhill' },
     loveland: { name: 'Loveland' },
     mtvernon: { name: 'Mt Vernon' },
+    treblecone: { name: 'Treble Cone' },
   }
   const src = `/whakapapa-snow-forecast.html?resort=${resort}`
 
