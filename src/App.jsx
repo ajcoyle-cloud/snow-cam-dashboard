@@ -2404,6 +2404,9 @@ export default function App() {
 
         {activeTab === 'forecast' && (
           <section className="region-section forecast-section">
+            <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '16px' }}>
+              <ResortSelector resort={resort} setResort={setResort} />
+            </div>
             <SnowfallForecast resort={resort} setResort={setResort} />
           </section>
         )}
