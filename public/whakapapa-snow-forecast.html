@@ -528,7 +528,7 @@ const RESORT_CONFIG = {
   mtvernon: {
     name: 'Mt Vernon',
     lat: 39.72011925175132, lon: -105.26872905339022, summitElev: 2190, baseElev: 1800, timezone: 'America/Denver',
-    topElev: 2290, // approx summit ridge for the colour ramp's upper bound
+    topElev: 3000, // colour ramp upper bound — must sit at/above the highest terrain in view (DEM reaches ~2920m here) or terrain above it gets painted the clamped last-stop colour
     center: [-105.26872905339022, 39.72011925175132], zoom: 12.5, pitch: 62, bearing: 180
   }
 };
@@ -875,11 +875,25 @@ function showClickPopup(x, y, text) {
 const SNOWFALL_THRESHOLD_MM = 0.1;
 
 function buildSnowRamp(hour) {
+  const rawSnowLine = hour.freezingLevel - SNOW_OFFSET;
+
+  // When the snow line sits above the entire displayed terrain there is no snow
+  // zone to paint — e.g. a resort in its warm off-season, with the freezing
+  // level forecasting kilometres above the peak. Paint a flat transparent ramp
+  // rather than the static blue cap the clamp below would otherwise pin to the
+  // summit (which never moves as you scrub the timeline). This is the previous
+  // bug: the clamped snow line made every off-season hour render identically.
+  if (rawSnowLine >= TOP_ELEV) {
+    return [
+      'interpolate', ['linear'], ['elevation'],
+      0, 'rgba(255,255,255,0)',
+      TOP_ELEV, 'rgba(255,255,255,0)'
+    ];
+  }
+
   // Clamp below TOP_ELEV so the ramp's stops stay strictly ascending even
-  // when the freezing level forecasts above the resort's summit (e.g. a
-  // Northern Hemisphere resort like Loveland queried in southern winter,
-  // or any resort in its own off-season).
-  const snowLine = Math.min(hour.freezingLevel - SNOW_OFFSET, TOP_ELEV - 2);
+  // when the freezing level forecasts above the resort's summit.
+  const snowLine = Math.min(rawSnowLine, TOP_ELEV - 2);
 
   if (hour.snowfallMm < SNOWFALL_THRESHOLD_MM) {
     // Blue freezing-level overlay (no active snowfall). Opacity halved 0.4 → 0.2
