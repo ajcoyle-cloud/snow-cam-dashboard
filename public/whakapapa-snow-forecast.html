@@ -1913,44 +1913,40 @@ function pwWeightedFit(pts, weights) {
 }
 
 // Inversion-aware lapse/freezing model (ported from the reference algorithm).
-// Derives the real-time lapse from the two highest (mountain) stations; if a
-// valley inversion is active (the lower mountain station reads warmer than the
-// averaged valley stations), it drops the cold-pooled valley data and projects
-// from the top mountain station, otherwise it anchors on the valley average.
-// Returns { a, b } for temp = a + b·elev (b < 0), or null when the station
-// structure (≥2 "mountain" + ≥1 "valley") isn't present (caller then falls back
-// to the weighted least-squares fit). pts: [{ elev, temp }].
+// Derives the real-time lapse from the two highest (mountain) stations and
+// anchors the profile ON those mountain stations (their midpoint), so the
+// freezing level always stays consistent with the actual on-mountain readings
+// and is never dragged off by cold-pooled valley stations. (A previous version
+// anchored on the valley average and projected up at a fixed lapse, which on a
+// mild/inverted night put the 0°C level ~1000 m below where the summit sensors
+// actually sat — e.g. drawer 0°C ≈ 1065 m while the 2000 m station read +0.9°C.)
+// Returns { a, b } for temp = a + b·elev (b < 0), or null when there aren't ≥2
+// stations (caller then falls back to the weighted least-squares fit).
+// pts: [{ elev, temp }].
 function pwLapseProfile(pts) {
-  if (!pts || pts.length < 3) return null;          // need 2 mountain + ≥1 valley
+  if (!pts || pts.length < 2) return null;
   const sorted = pts.slice().sort((a, b) => a.elev - b.elev);
-  const valleys = sorted.slice(0, -2);
-  const lowMtn = sorted[sorted.length - 2];
+  const lowMtn = sorted[sorted.length - 2];          // two highest = mountain stations
   const highMtn = sorted[sorted.length - 1];
-  if (!valleys.length) return null;
 
-  // 1. Real-time lapse from the two mountain stations, with a physical sanity gate.
-  const DEFAULT_LAPSE = 0.0065;                      // 6.5 °C/1000m environmental fallback
+  // Real-time lapse from the two mountain stations, with a physical sanity gate.
+  // A short station baseline can read super-adiabatic/inverted from noise, so we
+  // only trust rates within 3.0–9.8 °C/km; otherwise use the standard rate.
+  const DEFAULT_LAPSE = 0.0065;                       // 6.5 °C/1000m environmental fallback
   let lapse = DEFAULT_LAPSE;
   const altGap = highMtn.elev - lowMtn.elev;
-  const tempGap = lowMtn.temp - highMtn.temp;        // > 0 = cooling with height
+  const tempGap = lowMtn.temp - highMtn.temp;         // > 0 = cooling with height
   if (altGap > 0 && tempGap >= 0) {
     const calc = tempGap / altGap;
     if (calc >= 0.0030 && calc <= 0.0098) lapse = calc; // moist 3.0 .. dry 9.8 °C/km
   }
 
-  // 2. Regional valley baseline.
-  const avgValleyTemp = valleys.reduce((q, v) => q + v.temp, 0) / valleys.length;
-  const avgValleyAlt = valleys.reduce((q, v) => q + v.elev, 0) / valleys.length;
-
-  // 3. Inversion detection + bypass: if the lower mountain station is warmer than
-  //    the averaged valleys, the valleys are cold-pooled — project from the top
-  //    mountain station instead of the valley baseline.
-  const inversion = lowMtn.temp > avgValleyTemp;
-  const baseTemp = inversion ? highMtn.temp : avgValleyTemp;
-  const baseAlt = inversion ? highMtn.elev : avgValleyAlt;
-
+  // Anchor on the mountain stations' midpoint (the on-mountain truth), not the
+  // valley — valleys cold-pool and would pull the 0°C level far below the summit.
+  const baseAlt = (lowMtn.elev + highMtn.elev) / 2;
+  const baseTemp = (lowMtn.temp + highMtn.temp) / 2;
   const b = -lapse;
-  return { a: baseTemp - b * baseAlt, b, inversion };
+  return { a: baseTemp - b * baseAlt, b };
 }
 
 // Fallback weighting used when pwLapseProfile can't apply (too few stations).
@@ -2392,7 +2388,7 @@ function pwRenderFreezingOverlay() {
     mx = X(proj.nowTs); my = Y(proj.projFl); flMark = proj.projFl; markColor = '#fbbf24';
     extra =
       `<circle cx="${lx.toFixed(1)}" cy="${ly.toFixed(1)}" r="2.5" fill="#fff" opacity="0.55"/>
-       <path d="M${lx.toFixed(1)},${ly.toFixed(1)} L${mx.toFixed(1)},${my.toFixed(1)}" fill="none" stroke="${markColor}" stroke-width="3" stroke-linecap="round" stroke-dasharray="2 4" stroke-opacity="0.95"/>`;
+       <path d="M${lx.toFixed(1)},${ly.toFixed(1)} L${mx.toFixed(1)},${my.toFixed(1)}" fill="none" stroke="${markColor}" stroke-width="1.5" stroke-linecap="round" stroke-dasharray="2 4" stroke-opacity="0.95"/>`;
   } else {
     // Scrubbing: marker at the selected time (latest sample when at "now").
     const markTs = pwDisplayTime != null ? pwDisplayTime : fl[fl.length - 1].ts;
@@ -2412,7 +2408,7 @@ function pwRenderFreezingOverlay() {
     `<defs><filter id="fl-text-shadow" x="-30%" y="-40%" width="160%" height="180%">
        <feDropShadow dx="0" dy="1" stdDeviation="1.3" flood-color="#000" flood-opacity="0.9"/>
      </filter></defs>
-     <path d="${d}" fill="none" stroke="#fff" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round" stroke-opacity="0.6"/>
+     <path d="${d}" fill="none" stroke="#fff" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" stroke-opacity="0.6"/>
      ${extra}
      <line x1="${mx.toFixed(1)}" y1="${P.t}" x2="${mx.toFixed(1)}" y2="${(P.t + ph).toFixed(1)}" stroke="rgba(255,255,255,0.3)" stroke-width="1"/>
      <circle cx="${mx.toFixed(1)}" cy="${my.toFixed(1)}" r="3.5" fill="${markColor}" opacity="0.9"/>
