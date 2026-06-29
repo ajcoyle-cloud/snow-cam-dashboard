@@ -2416,7 +2416,7 @@ function pwRenderFreezingOverlay() {
      ${extra}
      <line x1="${mx.toFixed(1)}" y1="${P.t}" x2="${mx.toFixed(1)}" y2="${(P.t + ph).toFixed(1)}" stroke="rgba(255,255,255,0.3)" stroke-width="1"/>
      <circle cx="${mx.toFixed(1)}" cy="${my.toFixed(1)}" r="3.5" fill="${markColor}" opacity="0.9"/>
-     <text x="${(mx - 8).toFixed(1)}" y="${(my - 6).toFixed(1)}" text-anchor="end" font-size="12" font-weight="700" fill="${markColor}" opacity="0.95" filter="url(#fl-text-shadow)">${Math.round(flMark)} m</text>`;
+     <text x="${(mx - 8).toFixed(1)}" y="${(my - 6).toFixed(1)}" text-anchor="end" font-size="12" font-weight="700" fill="${markColor}" opacity="0.95" filter="url(#fl-text-shadow)">${flMark.toFixed(1)} m</text>`;
   document.getElementById('fl-caption').textContent = proj ? 'Freezing Level · now' : 'Freezing Level';
 }
 
