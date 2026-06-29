@@ -327,14 +327,14 @@
     .pill-group { overflow-x: auto; min-height: 38px; align-items: center; }
     .pill-btn { padding: 7px 12px; font-size: 0.72rem; }
 
-    /* Map toggle buttons (live-obs, auto-rotate) tuck under the control rows
-       on the left so nothing collides up top. */
-    #obs-toggle { top: 112px; left: 14px; }
-    #rotate-toggle { top: 112px; left: 60px; }
+    /* Map toggle buttons (live-obs, auto-rotate) tuck just under the top control
+       row (top row sits at 14px and is ~38px tall, ending ~52px). */
+    #obs-toggle { top: 60px; left: 14px; }
+    #rotate-toggle { top: 60px; left: 60px; }
     #map-close { top: 14px; right: 14px; }
 
-    /* Playback speed: compact, top-right (out of the drawer's way). */
-    #speed-select { top: 112px; bottom: auto; right: 12px; padding: 4px; }
+    /* Playback speed: compact, top-right, on the same second row. */
+    #speed-select { top: 60px; bottom: auto; right: 12px; padding: 4px; }
     .speed-btn { padding: 6px 8px; font-size: 0.66rem; }
 
     /* Freezing-level sparkline: overlay it across the bottom of the map, but only
