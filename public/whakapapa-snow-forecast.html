@@ -2420,6 +2420,8 @@ function pwRenderPseudoPills() {
     ];
   }
   if (!pseudos.length) return;
+  // First pass: compute each pseudo pill's temperature.
+  const items = [];
   for (const p of pseudos) {
     // Summit pseudo pills only make sense against forecast data; skip them in
     // live/accumulated where there's no per-hour summit temp to sync to.
@@ -2453,6 +2455,23 @@ function pwRenderPseudoPills() {
       t = pwTempPiecewise(p.elev);
     }
     if (t == null) continue;
+    items.push({ p, t });
+  }
+  // Live/observed guard: interpolated obs (esp. extrapolated above the top
+  // station) can invert — an upper pill reading warmer than a lower one. Walk
+  // from the lowest pill up and cap each higher pill at the one below it minus a
+  // standard lapse, so summit always reads colder than base (hourly has its own
+  // inversion guard above). A naturally steeper real gradient is left intact.
+  if (viewMode !== 'hourly' && items.length > 1) {
+    const STD_LAPSE = -0.0065;
+    const asc = items.slice().sort((a, b) => a.p.elev - b.p.elev);
+    for (let i = 1; i < asc.length; i++) {
+      const cap = asc[i - 1].t + STD_LAPSE * (asc[i].p.elev - asc[i - 1].p.elev);
+      if (asc[i].t > cap) asc[i].t = cap;
+    }
+  }
+  // Second pass: render each pill with its (possibly guarded) temperature.
+  for (const { p, t } of items) {
     const el = document.createElement('div');
     el.className = 'station-pill pseudo-pill';
     el.style.background = pwTempColor(t);
