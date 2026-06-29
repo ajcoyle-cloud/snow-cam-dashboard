@@ -107,7 +107,7 @@ const SOUTH_ISLAND = [
   // The old queenstown.com/cams/coronetpeak*.jpg stills stopped updating. Coronet
   // Peak (NZSki) publishes live frames on the same Azure CDN/manifest scheme as
   // Mt Hutt; only the ExpressCamera/Angle-3 feed is confirmed so far.
-  { name: 'Coronet Peak – Coronet Express', nzSkiCam: { resort: 'CoronetPeak', cameraKey: 'ExpressCamera', angle: 'Angle-3' }, location: 'Coronet Peak' },
+  { name: 'Coronet Peak – Coronet Express', nzSkiCam: { resort: 'CoronetPeak', cameraKey: 'ExpressCamera', angle: 'Angle3' }, location: 'Coronet Peak' },
 ]
 
 const USA_RESORTS = [
@@ -341,7 +341,16 @@ function fetchNzSkiData(manifestUrl) {
 }
 
 function nzSkiLatestUrl(data, cameraKey, angle = 'Angle1', width = 1280) {
-  const frames = data?.[cameraKey]?.[angle]
+  const cam = data?.[cameraKey]
+  if (!cam) return null
+  let frames = cam[angle]
+  if (!Array.isArray(frames) || frames.length === 0) {
+    // Angle key not found (the JSON key is e.g. 'Angle1', though the frame path
+    // it points to uses 'Angle-1') — fall back to the first angle with frames so
+    // a key-format mismatch never blanks the camera.
+    const firstAngle = Object.keys(cam).find((a) => Array.isArray(cam[a]) && cam[a].length)
+    frames = firstAngle ? cam[firstAngle] : null
+  }
   if (!Array.isArray(frames) || frames.length === 0) return null
   const path = frames[frames.length - 1].Url
   if (!path) return null
