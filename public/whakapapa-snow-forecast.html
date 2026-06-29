@@ -322,8 +322,12 @@
     #speed-select { top: 112px; bottom: auto; right: 12px; padding: 4px; }
     .speed-btn { padding: 6px 8px; font-size: 0.66rem; }
 
-    /* Decorative freezing-level sparkline would fight the drawer — hide it. */
-    #fl-overlay { display: none !important; }
+    /* Freezing-level sparkline: overlay it across the bottom of the map, but only
+       while the drawer is minimised (it would fight the open drawer otherwise).
+       JS sets its inline display per mode/data; we only force-hide it when the
+       drawer is open (that !important beats the inline display:block). */
+    #fl-overlay { left: 12px; right: 12px; bottom: 64px; height: 100px; }
+    #snow-info:not(.drawer-min) ~ #fl-overlay { display: none !important; }
 
     /* Timeline pinned to the very bottom, painted above the drawer's
        background layer (which extends down behind it — see below). */
@@ -1166,6 +1170,8 @@ function setViewMode(mode) {
     stopPlay();
     renderAccumulatedView();
   }
+  // Tick the real-time freezing-level nowcast only while in live view.
+  if (mode === 'live') pwStartNowcast(); else pwStopNowcast();
 }
 
 function setPeriod(days) {
@@ -2154,6 +2160,48 @@ function pwStopLivePlay() {
   if (btn) btn.textContent = '▶';
 }
 
+// ── Real-time freezing-level nowcast ────────────────────────────────────────
+// Station obs are sparse and lagging (a sample every ~10-30 min, and the series
+// ends at the oldest "latest" sample across stations). Between real points we
+// project the freezing level forward from its recent trend to the current
+// wall-clock time, so the graph/number tick over second-by-second. The projected
+// part is drawn in amber until the next real observation snaps it back to white.
+let pwNowcastTimer = null;
+
+function pwProjectedFreezing(fl) {
+  if (!fl || fl.length < 2) return null;
+  const last = fl[fl.length - 1];
+  const now = Date.now() / 1000;
+  if (now <= last.ts) return null; // no gap to project across yet
+  // Least-squares slope (m/s) over the last ~90 min of freezing-level points.
+  const recent = fl.filter(p => p.ts >= last.ts - 90 * 60);
+  const pts = recent.length >= 2 ? recent : fl.slice(-2);
+  const n = pts.length;
+  const sx = pts.reduce((q, p) => q + p.ts, 0);
+  const sy = pts.reduce((q, p) => q + p.fl, 0);
+  const sxx = pts.reduce((q, p) => q + p.ts * p.ts, 0);
+  const sxy = pts.reduce((q, p) => q + p.ts * p.fl, 0);
+  const den = n * sxx - sx * sx;
+  let slope = Math.abs(den) < 1e-6 ? 0 : (n * sxy - sx * sy) / den;
+  const MAX_SLOPE = 500 / 3600;   // cap trend at ±500 m/hr so noise can't run away
+  slope = Math.max(-MAX_SLOPE, Math.min(MAX_SLOPE, slope));
+  const MAX_HORIZON = 30 * 60;    // never extrapolate more than 30 min past last obs
+  const horizon = Math.min(now - last.ts, MAX_HORIZON);
+  return { lastTs: last.ts, lastFl: last.fl, nowTs: last.ts + horizon, projFl: last.fl + slope * horizon };
+}
+
+function pwStartNowcast() {
+  if (pwNowcastTimer) return;
+  pwNowcastTimer = setInterval(() => {
+    // Only tick when viewing live "now" and not scrubbing/playing history.
+    if (viewMode === 'live' && pwDisplayTime == null && !pwLivePlayTimer) pwRenderFreezingOverlay();
+  }, 1000);
+}
+
+function pwStopNowcast() {
+  if (pwNowcastTimer) { clearInterval(pwNowcastTimer); pwNowcastTimer = null; }
+}
+
 // ── Freezing-level history sparkline ───────────────────────────────────────
 // Reconstruct the 0°C level over the past few hours by refitting the lapse rate
 // at each past timestep from the stations' temperature histories, then draw it
@@ -2340,32 +2388,47 @@ function pwRenderFreezingOverlay() {
   const W = host.clientWidth, H = host.clientHeight;
   const P = { l: 12, r: 12, t: 18, b: 8 };
   const pw = W - P.l - P.r, ph = H - P.t - P.b;
-  const t0 = fl[0].ts, t1 = fl[fl.length - 1].ts;
-  let lo = Math.min(...fl.map(p => p.fl)), hi = Math.max(...fl.map(p => p.fl));
+  // Real-time nowcast only when viewing "now" (not scrubbing the slider).
+  const proj = pwDisplayTime == null ? pwProjectedFreezing(fl) : null;
+  const t0 = fl[0].ts, t1 = Math.max(fl[fl.length - 1].ts, proj ? proj.nowTs : 0);
+  const flVals = fl.map(p => p.fl); if (proj) flVals.push(proj.projFl);
+  let lo = Math.min(...flVals), hi = Math.max(...flVals);
   if (hi - lo < 150) { const m = (hi + lo) / 2; lo = m - 75; hi = m + 75; }
   const padv = (hi - lo) * 0.25; lo -= padv; hi += padv;
   const X = (ts) => P.l + (t1 === t0 ? 0 : (ts - t0) / (t1 - t0)) * pw;
   const Y = (v) => P.t + ph - ((v - lo) / (hi - lo)) * ph;
   const d = fl.map((p, i) => `${i ? 'L' : 'M'}${X(p.ts).toFixed(1)},${Y(p.fl).toFixed(1)}`).join(' ');
-  // marker at the selected time (or the latest sample when showing "now")
-  const markTs = pwDisplayTime != null ? pwDisplayTime : fl[fl.length - 1].ts;
-  let flMark = fl[fl.length - 1].fl;
-  for (let i = 1; i < fl.length; i++) {
-    if (fl[i].ts >= markTs) {
-      const a = fl[i - 1], b = fl[i];
-      flMark = a.fl + (b.fl - a.fl) * (markTs - a.ts) / ((b.ts - a.ts) || 1);
-      break;
+
+  let extra = '', mx, my, flMark, markColor;
+  if (proj) {
+    // Amber dashed projection from the last real obs forward to "now".
+    const lx = X(proj.lastTs), ly = Y(proj.lastFl);
+    mx = X(proj.nowTs); my = Y(proj.projFl); flMark = proj.projFl; markColor = '#fbbf24';
+    extra =
+      `<circle cx="${lx.toFixed(1)}" cy="${ly.toFixed(1)}" r="2.5" fill="#fff" opacity="0.55"/>
+       <path d="M${lx.toFixed(1)},${ly.toFixed(1)} L${mx.toFixed(1)},${my.toFixed(1)}" fill="none" stroke="${markColor}" stroke-width="3" stroke-linecap="round" stroke-dasharray="2 4" stroke-opacity="0.95"/>`;
+  } else {
+    // Scrubbing: marker at the selected time (latest sample when at "now").
+    const markTs = pwDisplayTime != null ? pwDisplayTime : fl[fl.length - 1].ts;
+    flMark = fl[fl.length - 1].fl;
+    for (let i = 1; i < fl.length; i++) {
+      if (fl[i].ts >= markTs) {
+        const a = fl[i - 1], b = fl[i];
+        flMark = a.fl + (b.fl - a.fl) * (markTs - a.ts) / ((b.ts - a.ts) || 1);
+        break;
+      }
     }
+    mx = X(markTs); my = Y(flMark); markColor = '#fff';
   }
-  const mx = X(markTs), my = Y(flMark);
   const svg = host.querySelector('svg');
   svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
   svg.innerHTML =
     `<path d="${d}" fill="none" stroke="#fff" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round" stroke-opacity="0.6"/>
+     ${extra}
      <line x1="${mx.toFixed(1)}" y1="${P.t}" x2="${mx.toFixed(1)}" y2="${(P.t + ph).toFixed(1)}" stroke="rgba(255,255,255,0.3)" stroke-width="1"/>
-     <circle cx="${mx.toFixed(1)}" cy="${my.toFixed(1)}" r="3.5" fill="#fff" opacity="0.6"/>
-     <text x="${(mx - 8).toFixed(1)}" y="${(my - 6).toFixed(1)}" text-anchor="end" font-size="12" font-weight="700" fill="#fff" opacity="0.6">${Math.round(flMark)} m</text>`;
-  document.getElementById('fl-caption').textContent = 'Freezing Level';
+     <circle cx="${mx.toFixed(1)}" cy="${my.toFixed(1)}" r="3.5" fill="${markColor}" opacity="0.9"/>
+     <text x="${(mx - 8).toFixed(1)}" y="${(my - 6).toFixed(1)}" text-anchor="end" font-size="12" font-weight="700" fill="${markColor}" opacity="0.95">${Math.round(flMark)} m</text>`;
+  document.getElementById('fl-caption').textContent = proj ? 'Freezing Level · now' : 'Freezing Level';
 }
 
 // Render pseudo temperature pills for ski field elevations (resort-specific).
