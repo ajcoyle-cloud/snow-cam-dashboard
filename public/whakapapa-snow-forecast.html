@@ -1850,44 +1850,14 @@ let pwLivePlayTimer = null;
 
 function pwComputeProfile() {
   const pts = [];
-  const weights = [];
-  const stations = [];
   for (const id in pwState) {
     const s = pwState[id];
     if (s.meta.elevM != null && s.series.length) {
-      const elev = s.meta.elevM;
-      const temp = s.series[s.series.length - 1].tempC;
-      pts.push([elev, temp]);
-      stations.push({ id, elev, temp });
+      pts.push({ id, elev: s.meta.elevM, temp: s.series[s.series.length - 1].tempC });
     }
   }
   if (pts.length < 2) return null;
-
-  // Apply resort-specific or elevation-based weighting
-  for (const [elev, temp] of pts) {
-    let weight = 0.1;
-
-    // Ruapehu (Whakapapa): use confirmed station-specific weighting
-    if (resortKey === 'ruapehu') {
-      const id = stations.find(s => s.elev === elev && s.temp === temp)?.id;
-      if (id === '363045' || id === '363044') {  // Whakapapa 2000m + Halidays Hut
-        weight = 1.0;
-      } else if (id === '362779') {  // National Park Township
-        weight = 0.3;
-      }
-    } else {
-      // Other resorts: automatically prioritize highest-elevation stations
-      const sorted = stations.slice().sort((a, b) => b.elev - a.elev);
-      if (elev === sorted[0].elev || (sorted[1] && elev === sorted[1].elev)) {
-        weight = 1.0;  // Top 2 highest elevations
-      } else if (sorted[2] && elev === sorted[2].elev) {
-        weight = 0.3;  // 3rd highest elevation
-      }
-    }
-    weights.push(weight);
-  }
-
-  return pwWeightedFit(pts, weights);
+  return pwLapseProfile(pts) || pwWeightedFitStations(pts);
 }
 
 function pwTempAt(elev) { return pwProfile ? pwProfile.a + pwProfile.b * elev : null; }
@@ -1942,6 +1912,64 @@ function pwWeightedFit(pts, weights) {
   return { a, b, pts };
 }
 
+// Inversion-aware lapse/freezing model (ported from the reference algorithm).
+// Derives the real-time lapse from the two highest (mountain) stations; if a
+// valley inversion is active (the lower mountain station reads warmer than the
+// averaged valley stations), it drops the cold-pooled valley data and projects
+// from the top mountain station, otherwise it anchors on the valley average.
+// Returns { a, b } for temp = a + b·elev (b < 0), or null when the station
+// structure (≥2 "mountain" + ≥1 "valley") isn't present (caller then falls back
+// to the weighted least-squares fit). pts: [{ elev, temp }].
+function pwLapseProfile(pts) {
+  if (!pts || pts.length < 3) return null;          // need 2 mountain + ≥1 valley
+  const sorted = pts.slice().sort((a, b) => a.elev - b.elev);
+  const valleys = sorted.slice(0, -2);
+  const lowMtn = sorted[sorted.length - 2];
+  const highMtn = sorted[sorted.length - 1];
+  if (!valleys.length) return null;
+
+  // 1. Real-time lapse from the two mountain stations, with a physical sanity gate.
+  const DEFAULT_LAPSE = 0.0065;                      // 6.5 °C/1000m environmental fallback
+  let lapse = DEFAULT_LAPSE;
+  const altGap = highMtn.elev - lowMtn.elev;
+  const tempGap = lowMtn.temp - highMtn.temp;        // > 0 = cooling with height
+  if (altGap > 0 && tempGap >= 0) {
+    const calc = tempGap / altGap;
+    if (calc >= 0.0030 && calc <= 0.0098) lapse = calc; // moist 3.0 .. dry 9.8 °C/km
+  }
+
+  // 2. Regional valley baseline.
+  const avgValleyTemp = valleys.reduce((q, v) => q + v.temp, 0) / valleys.length;
+  const avgValleyAlt = valleys.reduce((q, v) => q + v.elev, 0) / valleys.length;
+
+  // 3. Inversion detection + bypass: if the lower mountain station is warmer than
+  //    the averaged valleys, the valleys are cold-pooled — project from the top
+  //    mountain station instead of the valley baseline.
+  const inversion = lowMtn.temp > avgValleyTemp;
+  const baseTemp = inversion ? highMtn.temp : avgValleyTemp;
+  const baseAlt = inversion ? highMtn.elev : avgValleyAlt;
+
+  const b = -lapse;
+  return { a: baseTemp - b * baseAlt, b, inversion };
+}
+
+// Fallback weighting used when pwLapseProfile can't apply (too few stations).
+// pts: [{ id, elev, temp }] -> weighted least-squares { a, b }.
+function pwWeightedFitStations(pts) {
+  const sortedDesc = pts.slice().sort((a, b) => b.elev - a.elev);
+  const weights = pts.map(s => {
+    if (resortKey === 'ruapehu') {
+      if (s.id === '363045' || s.id === '363044') return 1.0; // Whakapapa 2000m + Halidays Hut
+      if (s.id === '362779') return 0.3;                       // National Park Township
+      return 0.1;
+    }
+    if (s.elev === sortedDesc[0].elev || (sortedDesc[1] && s.elev === sortedDesc[1].elev)) return 1.0;
+    if (sortedDesc[2] && s.elev === sortedDesc[2].elev) return 0.3;
+    return 0.1;
+  });
+  return pwWeightedFit(pts.map(s => [s.elev, s.temp]), weights);
+}
+
 // Least-squares fit temp = a + b·elev over [[elev,temp],...].
 function pwFit(pts) {
   const n = pts.length;
@@ -1957,44 +1985,14 @@ function pwFit(pts) {
 // Profile fitted to each station's temperature at a past time `t` with weighted fitting.
 function pwComputeProfileAt(t) {
   const pts = [];
-  const weights = [];
-  const stations = [];
   for (const id in pwState) {
     const s = pwState[id];
     if (s.meta.elevM != null && s.series.length >= 2 && t >= s.series[0].ts) {
-      const elev = s.meta.elevM;
-      const temp = pwTempAtTime(s.series, t);
-      pts.push([elev, temp]);
-      stations.push({ id, elev, temp });
+      pts.push({ id, elev: s.meta.elevM, temp: pwTempAtTime(s.series, t) });
     }
   }
   if (pts.length < 2) return null;
-
-  // Apply resort-specific or elevation-based weighting
-  for (const [elev, temp] of pts) {
-    let weight = 0.1;
-
-    // Ruapehu (Whakapapa): use confirmed station-specific weighting
-    if (resortKey === 'ruapehu') {
-      const id = stations.find(s => s.elev === elev && s.temp === temp)?.id;
-      if (id === '363045' || id === '363044') {  // Whakapapa 2000m + Halidays Hut
-        weight = 1.0;
-      } else if (id === '362779') {  // National Park Township
-        weight = 0.3;
-      }
-    } else {
-      // Other resorts: automatically prioritize highest-elevation stations
-      const sorted = stations.slice().sort((a, b) => b.elev - a.elev);
-      if (elev === sorted[0].elev || (sorted[1] && elev === sorted[1].elev)) {
-        weight = 1.0;  // Top 2 highest elevations
-      } else if (sorted[2] && elev === sorted[2].elev) {
-        weight = 0.3;  // 3rd highest elevation
-      }
-    }
-    weights.push(weight);
-  }
-
-  return pwWeightedFit(pts, weights);
+  return pwLapseProfile(pts) || pwWeightedFitStations(pts);
 }
 
 // Discrete temperature bands (°C). Each band is a solid colour with a hard
@@ -2247,42 +2245,13 @@ function pwFreezingSeries(hours = 6) {
   const out = [];
   for (let t = startTs; t <= endTs; t += STEP) {
     const pts = [];
-    const stationList = [];
     for (const s of stationsWithId) {
       if (t >= s.series[0].ts) {
-        const temp = pwTempAtTime(s.series, t);
-        pts.push([s.meta.elevM, temp]);
-        stationList.push({ trackId: s.trackId, elev: s.meta.elevM, temp });
+        pts.push({ id: s.trackId, elev: s.meta.elevM, temp: pwTempAtTime(s.series, t) });
       }
     }
     if (pts.length < 2) continue;
-
-    // Apply resort-specific or elevation-based weighting (same as pwComputeProfileAt)
-    const weights = [];
-    for (const [elev, temp] of pts) {
-      let weight = 0.1;
-
-      // Ruapehu (Whakapapa): use confirmed station-specific weighting
-      if (resortKey === 'ruapehu') {
-        const station = stationList.find(s => s.elev === elev && Math.abs(s.temp - temp) < 0.01);
-        if (station?.trackId === '363045' || station?.trackId === '363044') {  // Whakapapa 2000m + Halidays Hut
-          weight = 1.0;
-        } else if (station?.trackId === '362779') {  // National Park Township
-          weight = 0.3;
-        }
-      } else {
-        // Other resorts: automatically prioritize highest-elevation stations
-        const sorted = stationList.slice().sort((a, b) => b.elev - a.elev);
-        if (elev === sorted[0].elev || (sorted[1] && elev === sorted[1].elev)) {
-          weight = 1.0;  // Top 2 highest elevations
-        } else if (sorted[2] && elev === sorted[2].elev) {
-          weight = 0.3;  // 3rd highest elevation
-        }
-      }
-      weights.push(weight);
-    }
-
-    const fit = pwWeightedFit(pts, weights);
+    const fit = pwLapseProfile(pts) || pwWeightedFitStations(pts);
     if (fit && fit.b < 0) {
       out.push({ ts: t, fl: -fit.a / fit.b });
     }
