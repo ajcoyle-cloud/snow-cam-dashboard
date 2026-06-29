@@ -106,8 +106,11 @@ const SOUTH_ISLAND = [
   { name: 'The Remarkables - Sugar Bowl from Base', url: 'https://www.queenstown.com/cams/remarkables2.jpg', location: 'The Remarkables' },
   // The old queenstown.com/cams/coronetpeak*.jpg stills stopped updating. Coronet
   // Peak (NZSki) publishes live frames on the same Azure CDN/manifest scheme as
-  // Mt Hutt; only the ExpressCamera/Angle-3 feed is confirmed so far.
-  { name: 'Coronet Peak – Coronet Express', nzSkiCam: { resort: 'CoronetPeak', cameraKey: 'ExpressCamera', angle: 'Angle3' }, location: 'Coronet Peak' },
+  // Mt Hutt. CoronetPeak.json holds a single ExpressCamera with three angles
+  // (manifest keys Angle1/2/3; the frame paths use Angle-1/2/3) — one tile each.
+  { name: 'Coronet Peak – Express (View 1)', nzSkiCam: { resort: 'CoronetPeak', cameraKey: 'ExpressCamera', angle: 'Angle1' }, location: 'Coronet Peak' },
+  { name: 'Coronet Peak – Express (View 2)', nzSkiCam: { resort: 'CoronetPeak', cameraKey: 'ExpressCamera', angle: 'Angle2' }, location: 'Coronet Peak' },
+  { name: 'Coronet Peak – Express (View 3)', nzSkiCam: { resort: 'CoronetPeak', cameraKey: 'ExpressCamera', angle: 'Angle3' }, location: 'Coronet Peak' },
 ]
 
 const USA_RESORTS = [
