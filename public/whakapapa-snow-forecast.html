@@ -1366,20 +1366,20 @@ const PW_CONFIG = {
     ],
   },
   mtlyford: {
-    // Mt Lyford has no on-mountain PredictWind station, so we pull three nearby
-    // North Canterbury stations spanning a wide elevation range for the lapse
-    // fit: Hanmer Springs (valley township, SW), Upper Clarence Valley (inland)
-    // and Pudding Hill (high country on Molesworth Station, N). They're keyed by
-    // a name substring matched against the tile tracks rather than hardcoded
-    // trackIds (the trackIds couldn't be discovered from this environment).
-    // All three sit well outside the zoomed map view, so they feed the
-    // temperature profile that drives the Summit/Base pseudo pills rather than
-    // appearing as on-map pills themselves.
-    tiles: [[10, 379, 1003], [10, 379, 1004], [10, 380, 1003], [10, 380, 1004], [10, 381, 1003], [10, 381, 1004]],
+    // Mt Lyford has no on-mountain PredictWind station, so we pull the nearest
+    // tracks with enough of an elevation spread to fit a lapse rate. Pudding Hill
+    // (high country on Molesworth Station) anchors the top at 1277 m; St Arnaud,
+    // Ngaruru and Western Boundary anchor the low end (~540-620 m). (Hanmer
+    // Springs / Upper Clarence Valley aren't PredictWind tracks in these tiles.)
+    // They sit well outside the zoomed map view, so they feed the temperature
+    // profile that drives the Summit/Base pseudo pills rather than showing as
+    // on-map pills themselves.
+    tiles: [[10, 379, 1004], [10, 380, 1003], [10, 381, 1004], [10, 381, 1003]],
     stations: [
-      { match: 'hanmer', name: 'Hanmer Springs' },
-      { match: 'clarence', name: 'Upper Clarence Valley' },
-      { match: 'pudding', name: 'Pudding Hill' },
+      { trackId: '362938', name: 'Pudding Hill' },       // 1277 m, ~27 km
+      { trackId: '362883', name: 'St Arnaud' },          // 618 m, ~75 km
+      { trackId: '362936', name: 'Ngaruru' },            // 621 m, ~84 km
+      { trackId: '363040', name: 'Western Boundary' },   // 539 m, ~106 km
     ],
   },
   mtvernon: {
