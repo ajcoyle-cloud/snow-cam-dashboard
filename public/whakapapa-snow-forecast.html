@@ -221,7 +221,7 @@
   .station-pill.stale { opacity: 0.55; }
 
   /* ── Snowfall pin + black pill (hourly + accumulated maps) ──────────────── */
-  .snowfall-marker { display: flex; flex-direction: column; align-items: center; pointer-events: none; }
+  .snowfall-marker { display: flex; flex-direction: column; align-items: center; pointer-events: none; transition: opacity 0.5s ease; }
   .snowfall-marker .sf-pill {
     background: #000; color: #fff; font-weight: 700; font-size: 0.8rem; line-height: 1;
     padding: 5px 10px; border-radius: 999px; white-space: nowrap;
@@ -825,7 +825,13 @@ function initMap() {
     // popup never shows an impossible elevation.
     const elev = Math.min(rawElev, TOP_ELEV);
     const depthCm = getDepthAtElevation(elev);
-    showClickPopup(e.point.x, e.point.y, `${depthCm.toFixed(1)}cm`);
+    if (viewMode === 'accumulated') {
+      // Move the black snowfall pill to the tapped point (depth there) and
+      // restart its 4s fade — the pill is the readout on the accumulated map.
+      flashSnowfallMarker(e.lngLat, `❄ ${depthCm.toFixed(1)} cm`);
+    } else {
+      showClickPopup(e.point.x, e.point.y, `${depthCm.toFixed(1)}cm`);
+    }
   });
 
   // A user drag/zoom/rotate/pitch invalidates every particle's last screen
@@ -1013,20 +1019,47 @@ function applyRampWhenReady(rampArray) {
   tryApply();
 }
 
-// Pin + black pill at the ski field. Shown on the hourly map (this hour's
-// snowfall rate) and the accumulated map (window total). An empty label hides it.
+// Pin + black pill at a map point. On the HOURLY map it sits persistently at the
+// field (this hour's snowfall rate). On the ACCUMULATED map it opens at the field
+// (window total), fades out after 4s, and tapping the map moves it to that point
+// and restarts the fade.
 let snowfallMarker = null;
-function showSnowfallMarker(label) {
-  if (!label) { if (snowfallMarker) { snowfallMarker.remove(); snowfallMarker = null; } return; }
-  const lngLat = LOC.center || [LOC.lon, LOC.lat];
+let snowfallFadeTimer = null;
+
+function ensureSnowfallMarker(lngLat, label) {
   if (!snowfallMarker) {
     const el = document.createElement('div');
     el.className = 'snowfall-marker';
     el.innerHTML = '<div class="sf-pill"></div><div class="sf-stem"></div><div class="sf-dot"></div>';
     snowfallMarker = new maplibregl.Marker({ element: el, anchor: 'bottom' }).setLngLat(lngLat).addTo(map);
   }
-  snowfallMarker.getElement().querySelector('.sf-pill').textContent = label;
+  const el = snowfallMarker.getElement();
+  el.querySelector('.sf-pill').textContent = label;
   snowfallMarker.setLngLat(lngLat);
+  el.style.opacity = '1';
+  return el;
+}
+
+function removeSnowfallMarker() {
+  if (snowfallFadeTimer) { clearTimeout(snowfallFadeTimer); snowfallFadeTimer = null; }
+  if (snowfallMarker) { snowfallMarker.remove(); snowfallMarker = null; }
+}
+
+// Hourly: persistent pill at the field (no fade). Empty label hides it.
+function showSnowfallMarker(label) {
+  if (!label) { removeSnowfallMarker(); return; }
+  if (snowfallFadeTimer) { clearTimeout(snowfallFadeTimer); snowfallFadeTimer = null; }
+  ensureSnowfallMarker(LOC.center || [LOC.lon, LOC.lat], label);
+}
+
+// Accumulated: pill at lngLat that fades out after 4s. Empty label hides it.
+function flashSnowfallMarker(lngLat, label) {
+  if (!label) { removeSnowfallMarker(); return; }
+  ensureSnowfallMarker(lngLat, label);
+  if (snowfallFadeTimer) clearTimeout(snowfallFadeTimer);
+  snowfallFadeTimer = setTimeout(() => {
+    if (snowfallMarker) snowfallMarker.getElement().style.opacity = '0';
+  }, 4000);
 }
 
 let currentIndex = -1;
@@ -1155,8 +1188,10 @@ function renderAccumulatedView() {
   document.getElementById('accum-snowline').textContent = Math.round(snowLine) + ' m';
   renderDepthLegend(band);
   updateAccumMinSummary();
-  // Snowfall pin/pill at the field — window total for the accumulated map.
-  showSnowfallMarker(totalCm >= 0.1 ? `❄ ${totalCm.toFixed(0)} cm` : '');
+  // Snowfall pin/pill — opens at the field with the window total, then fades
+  // after 4s. Tapping the map moves it (see the map click handler).
+  if (totalCm >= 0.1) flashSnowfallMarker(LOC.center || [LOC.lon, LOC.lat], `❄ ${totalCm.toFixed(0)} cm`);
+  else removeSnowfallMarker();
 
   setTimeout(() => map.resize(), 60);
 }
