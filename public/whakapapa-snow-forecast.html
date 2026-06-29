@@ -366,27 +366,20 @@
     #tl-label, #ltl-label { min-width: 0; font-size: 0.7rem; }
 
     /* ── Bottom-sheet drawer ──────────────────────────────────────────── */
-    /* The outer panel always sits flush with the bottom of the screen and
-       carries a tall bottom padding, so its background extends behind the
-       timeline down to the screen edge in BOTH expanded and minimised
-       states — only #drawer-scroll's height changes between the two,
-       which only affects how far up the visible content reaches. */
+    /* The open drawer floats just above the timeslider (bottom: 68px) so it no
+       longer overlaps it. The hidden state slides it fully off-screen (see the
+       .drawer-min transform, which accounts for this bottom offset). */
     #snow-info {
-      left: 0; right: 0; bottom: 0;
+      left: 0; right: 0; bottom: 68px;
       min-width: 0; width: 100%;
       border-radius: 18px 18px 0 0;
-      padding: 0 20px calc(18px + 84px);
+      padding: 0 20px 16px;
       touch-action: none;
       transition: transform 0.3s cubic-bezier(0.32, 0.72, 0, 1);
     }
 
-    /* Override the desktop live-mode lift (line ~173 sets bottom:96px with
-       2-ID+class specificity). Without this, the drawer floats 96px off the
-       screen edge in live mode — leaving a map-gap below it and turning the
-       background-extending padding into visible blank space. Anchor it flush
-       to the bottom so the background reaches the screen edge and the timeline
-       paints on top of it. */
-    #map-screen.live-mode #snow-info { bottom: 0; }
+    /* Same lift in live mode (overrides the desktop live-mode bottom:96px). */
+    #map-screen.live-mode #snow-info { bottom: 68px; }
 
     #drawer-handle {
       display: flex; align-items: center; justify-content: center;
@@ -406,7 +399,8 @@
        peeking bar) so it never covers the freezing-level graph. Reopen via the
        #drawer-launch button. */
     #snow-info.drawer-min {
-      transform: translateY(100%);
+      /* Move down by full height + the 68px bottom offset so it's fully hidden. */
+      transform: translateY(calc(100% + 84px));
       pointer-events: none;
     }
     #snow-info.drawer-min #drawer-scroll { overflow: hidden; }
