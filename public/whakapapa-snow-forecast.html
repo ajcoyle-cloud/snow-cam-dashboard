@@ -2520,17 +2520,16 @@ function pwRenderPseudoPills() {
     if (t == null) continue;
     items.push({ p, t });
   }
-  // Live/observed guard: interpolated obs (esp. extrapolated above the top
-  // station) can invert — an upper pill reading warmer than a lower one. Walk
-  // from the lowest pill up and cap each higher pill at the one below it minus a
-  // standard lapse, so summit always reads colder than base (hourly has its own
-  // inversion guard above). A naturally steeper real gradient is left intact.
+  // Live/observed guard: interpolated/extrapolated obs can invert — an upper pill
+  // reading warmer than a lower one. Clamp each higher pill to be no warmer than
+  // the pill below it so they never visually invert. We deliberately do NOT force
+  // a full standard lapse: that fabricated large cold offsets over big elevation
+  // gaps, dragging mid pills colder than the real stations above them. pwTempPiecewise
+  // already keeps pills ordered with the real station pills around them.
   if (viewMode !== 'hourly' && items.length > 1) {
-    const STD_LAPSE = -0.0065;
     const asc = items.slice().sort((a, b) => a.p.elev - b.p.elev);
     for (let i = 1; i < asc.length; i++) {
-      const cap = asc[i - 1].t + STD_LAPSE * (asc[i].p.elev - asc[i - 1].p.elev);
-      if (asc[i].t > cap) asc[i].t = cap;
+      if (asc[i].t > asc[i - 1].t) asc[i].t = asc[i - 1].t;
     }
   }
   // Second pass: render each pill with its (possibly guarded) temperature.
