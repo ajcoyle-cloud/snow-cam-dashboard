@@ -2408,8 +2408,26 @@ const NAV_ITEMS = [
 ]
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState('webcams')
-  const [resort, setResort] = useState('ruapehu')
+  // Restore the last-viewed tab and resort from localStorage so reopening the
+  // app returns the user to where they left off. (The map view mode itself is
+  // remembered separately inside the forecast-map iframe.)
+  const [activeTab, setActiveTab] = useState(() => {
+    try {
+      const t = localStorage.getItem('sc-active-tab')
+      if (t && NAV_ITEMS.some(n => n.id === t)) return t
+    } catch (e) {}
+    return 'webcams'
+  })
+  const [resort, setResort] = useState(() => {
+    try {
+      const r = localStorage.getItem('sc-resort')
+      if (r && RESORTS[r]) return r
+    } catch (e) {}
+    return 'ruapehu'
+  })
+
+  useEffect(() => { try { localStorage.setItem('sc-active-tab', activeTab) } catch (e) {} }, [activeTab])
+  useEffect(() => { try { localStorage.setItem('sc-resort', resort) } catch (e) {} }, [resort])
 
   return (
     <div className="app-layout">
