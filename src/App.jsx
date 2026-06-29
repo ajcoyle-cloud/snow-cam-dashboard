@@ -104,10 +104,10 @@ const SOUTH_ISLAND = [
   { name: 'Treble Cone - Base Building', url: 'https://webcams.cardrona.com/new-webcam-page/image/?view=7', location: 'Treble Cone' },
   { name: 'The Remarkables - Mountain View', url: 'https://www.queenstown.com/cams/aspen.jpg', location: 'The Remarkables' },
   { name: 'The Remarkables - Sugar Bowl from Base', url: 'https://www.queenstown.com/cams/remarkables2.jpg', location: 'The Remarkables' },
-  { name: 'Coronet Peak – Meadow Base', url: 'https://www.queenstown.com/cams/coronetpeak1.jpg', location: 'Coronet Peak' },
-  { name: 'Coronet Peak – Base Area', url: 'https://www.queenstown.com/cams/coronetpeak3.jpg', location: 'Coronet Peak' },
-  { name: 'Coronet Peak – Top Station', url: 'https://www.queenstown.com/cams/coronetpeak2.jpg', location: 'Coronet Peak' },
-  { name: 'Coronet Peak – Coronet Express', url: 'https://www.queenstown.com/cams/coronetpeak4.jpg', location: 'Coronet Peak' },
+  // The old queenstown.com/cams/coronetpeak*.jpg stills stopped updating. Coronet
+  // Peak (NZSki) publishes live frames on the same Azure CDN/manifest scheme as
+  // Mt Hutt; only the ExpressCamera/Angle-3 feed is confirmed so far.
+  { name: 'Coronet Peak – Coronet Express', nzSkiCam: { resort: 'CoronetPeak', cameraKey: 'ExpressCamera', angle: 'Angle-3' }, location: 'Coronet Peak' },
 ]
 
 const USA_RESORTS = [
@@ -313,34 +313,34 @@ function CameraHistory({ archiveBase, refreshKey }) {
   )
 }
 
-// Mt Hutt publishes webcam frames via a JSON manifest rather than a stable
-// "latest.jpg" URL. Each frame is listed as /Webcams/<Cam>/<Angle>/<ts>.jpg;
-// the served CDN image lives at /webcams-frames/... with a _<width> size
-// suffix before the extension. We fetch the manifest, take the newest frame
-// for the requested camera, and build that CDN URL. A module-level cache
-// (60s TTL) is shared by every Mt Hutt camera/thumbnail so they don't each
-// hammer the manifest endpoint.
-const MTHUTT_HOST = 'https://webcams-awb2e0ceg7cccsba.a02.azurefd.net'
-const MTHUTT_JSON = `${MTHUTT_HOST}/webcams-json/MtHutt.json`
-let mtHuttCache = { data: null, fetchedAt: 0, promise: null }
+// NZSki resorts (Mt Hutt, Coronet Peak, …) publish webcam frames via per-resort
+// JSON manifests on a shared Azure CDN rather than a stable "latest.jpg" URL.
+// Each frame is listed as /Webcams/<Resort>/<Cam>/<Angle>/<ts>.jpg; the served
+// CDN image lives at /webcams-frames/... with a _<width> size suffix before the
+// extension. We fetch the manifest, take the newest frame for the requested
+// camera/angle, and build that CDN URL. A per-manifest cache (60s TTL) is shared
+// by every camera/thumbnail of a resort so they don't each hammer the endpoint.
+const NZSKI_HOST = 'https://webcams-awb2e0ceg7cccsba.a02.azurefd.net'
+const MTHUTT_JSON = `${NZSKI_HOST}/webcams-json/MtHutt.json`
+const nzSkiCache = {} // manifestUrl -> { data, fetchedAt, promise }
 
-function fetchMtHuttData() {
+function fetchNzSkiData(manifestUrl) {
   const now = Date.now()
-  if (mtHuttCache.data && now - mtHuttCache.fetchedAt < 60000) {
-    return Promise.resolve(mtHuttCache.data)
-  }
-  if (mtHuttCache.promise) return mtHuttCache.promise
-  mtHuttCache.promise = fetch(MTHUTT_JSON)
+  const c = nzSkiCache[manifestUrl]
+  if (c && c.data && now - c.fetchedAt < 60000) return Promise.resolve(c.data)
+  if (c && c.promise) return c.promise
+  const promise = fetch(manifestUrl)
     .then((r) => r.json())
     .then((data) => {
-      mtHuttCache = { data, fetchedAt: Date.now(), promise: null }
+      nzSkiCache[manifestUrl] = { data, fetchedAt: Date.now(), promise: null }
       return data
     })
-    .catch((e) => { mtHuttCache.promise = null; throw e })
-  return mtHuttCache.promise
+    .catch((e) => { if (nzSkiCache[manifestUrl]) nzSkiCache[manifestUrl].promise = null; throw e })
+  nzSkiCache[manifestUrl] = { data: c && c.data, fetchedAt: c ? c.fetchedAt : 0, promise }
+  return promise
 }
 
-function mtHuttLatestUrl(data, cameraKey, angle = 'Angle1', width = 1280) {
+function nzSkiLatestUrl(data, cameraKey, angle = 'Angle1', width = 1280) {
   const frames = data?.[cameraKey]?.[angle]
   if (!Array.isArray(frames) || frames.length === 0) return null
   const path = frames[frames.length - 1].Url
@@ -348,20 +348,31 @@ function mtHuttLatestUrl(data, cameraKey, angle = 'Angle1', width = 1280) {
   const cdn = path
     .replace(/^\/Webcams\//, '/webcams-frames/')
     .replace(/\.jpg$/i, `_${width}.jpg`)
-  return MTHUTT_HOST + cdn
+  return NZSKI_HOST + cdn
 }
 
-function MtHuttCamera({ cameraKey, alt, onError, style }) {
+// Resolve a camera's NZSki feed from either the nzSkiCam object
+// ({ resort, cameraKey, angle }) or the legacy mtHuttCam string shorthand.
+function nzSkiConfig(cam) {
+  if (cam.nzSkiCam) {
+    const { resort, cameraKey, angle } = cam.nzSkiCam
+    return { manifest: `${NZSKI_HOST}/webcams-json/${resort}.json`, cameraKey, angle: angle || 'Angle1' }
+  }
+  if (cam.mtHuttCam) return { manifest: MTHUTT_JSON, cameraKey: cam.mtHuttCam, angle: 'Angle1' }
+  return null
+}
+
+function NzSkiCamera({ manifest, cameraKey, angle = 'Angle1', alt, onError, style }) {
   const [src, setSrc] = useState(null)
   useEffect(() => {
     let cancelled = false
-    const load = () => fetchMtHuttData()
-      .then((data) => { if (!cancelled) setSrc(mtHuttLatestUrl(data, cameraKey)) })
+    const load = () => fetchNzSkiData(manifest)
+      .then((data) => { if (!cancelled) setSrc(nzSkiLatestUrl(data, cameraKey, angle)) })
       .catch(() => { if (!cancelled && onError) onError() })
     load()
     const t = setInterval(load, 120000) // frames update ~every 10 min; poll every 2
     return () => { cancelled = true; clearInterval(t) }
-  }, [cameraKey])
+  }, [manifest, cameraKey, angle])
   if (!src) return null
   return <img src={src} alt={alt} onError={onError} style={style} />
 }
@@ -388,7 +399,7 @@ function CameraCard({ camera, allCameras = [] }) {
   const safeIndex = Math.min(cameraIndex, Math.max(activeCameras.length - 1, 0))
   const isYouTube = activeCam.isYouTube || false
   const isVideo = activeCam.isVideo || (isMultiCamera ? activeCameras[safeIndex]?.isVideo : false)
-  const mtHuttCam = activeCam.mtHuttCam || null
+  const nzCam = nzSkiConfig(activeCam)
   const displayUrl = isMultiCamera ? activeCameras[safeIndex]?.url : activeCam.url
   const displayName = isMultiCamera ? `${activeCam.name} - ${activeCameras[safeIndex]?.name}` : activeCam.name
 
@@ -495,9 +506,9 @@ function CameraCard({ camera, allCameras = [] }) {
             </div>
           ) : isVideo ? (
             <VideoPlayer url={displayUrl} />
-          ) : mtHuttCam ? (
-            <MtHuttCamera
-              cameraKey={mtHuttCam}
+          ) : nzCam ? (
+            <NzSkiCamera
+              {...nzCam}
               alt={camera.name}
               onError={() => setBroken(true)}
               style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
@@ -564,9 +575,9 @@ function CameraCard({ camera, allCameras = [] }) {
                       position: 'relative'
                     }}
                   >
-                    {cam.mtHuttCam ? (
-                      <MtHuttCamera
-                        cameraKey={cam.mtHuttCam}
+                    {nzSkiConfig(cam) ? (
+                      <NzSkiCamera
+                        {...nzSkiConfig(cam)}
                         alt={cam.name}
                         onError={() => setBrokenSidebar(prev => new Set([...prev, cam.name]))}
                         style={thumbStyle}
@@ -610,9 +621,9 @@ function CameraCard({ camera, allCameras = [] }) {
                 <VideoPlayer url={displayUrl} />
               ) : activeCam.archiveBase && !isMultiCamera ? (
                 <CameraHistory archiveBase={activeCam.archiveBase} refreshKey={refreshKey} />
-              ) : mtHuttCam ? (
-                <MtHuttCamera
-                  cameraKey={mtHuttCam}
+              ) : nzCam ? (
+                <NzSkiCamera
+                  {...nzCam}
                   alt={displayName}
                   onError={(e) => { if (e?.target) e.target.style.opacity = '0.2' }}
                   style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }}
