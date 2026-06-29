@@ -2394,14 +2394,14 @@ function pwRenderPseudoPills() {
       { elev: 1800, lat: -43.8250478, lon: 170.6556881, label: 'Base' },
     ];
   } else if (resortKey === 'mtlyford') {
-    // Summit pill at the top of the Terako Extension rope tow (the top lift,
-    // up at the Terako peak ~1800m); base pill at the bottom of the Learner's
+    // Summit pill at the top of the Terako Rope Tow (its southern terminal —
+    // the highest lift-served point); base pill at the bottom of the Learner's
     // drag lift (the bottom lift, down at the field base ~1340m). The summit
     // pill keeps elev = LOC.summitElev so its temp syncs exactly to the forecast
     // summit value; since 1800 > 1340 and the lapse is forced negative (see the
     // inversion guard below), the higher pill always reads colder than the lower.
     pseudos = [
-      { elev: LOC.summitElev, lat: -42.4366248, lon: 173.1532998, label: 'Summit', hourlyOnly: true },
+      { elev: LOC.summitElev, lat: -42.4469023, lon: 173.1531393, label: 'Summit', hourlyOnly: true },
       { elev: 1340, lat: -42.4481499, lon: 173.1444332, label: 'Base' },
     ];
   } else if (resortKey === 'mtvernon') {
