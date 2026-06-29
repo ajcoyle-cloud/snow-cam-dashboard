@@ -1365,6 +1365,23 @@ const PW_CONFIG = {
       { trackId: '362923', name: 'Burkes Pass' },         // 654 m, tile 371/997
     ],
   },
+  mtlyford: {
+    // Mt Lyford has no on-mountain PredictWind station, so we pull three nearby
+    // North Canterbury stations spanning a wide elevation range for the lapse
+    // fit: Hanmer Springs (valley township, SW), Upper Clarence Valley (inland)
+    // and Pudding Hill (high country on Molesworth Station, N). They're keyed by
+    // a name substring matched against the tile tracks rather than hardcoded
+    // trackIds (the trackIds couldn't be discovered from this environment).
+    // All three sit well outside the zoomed map view, so they feed the
+    // temperature profile that drives the Summit/Base pseudo pills rather than
+    // appearing as on-map pills themselves.
+    tiles: [[10, 379, 1003], [10, 379, 1004], [10, 380, 1003], [10, 380, 1004], [10, 381, 1003], [10, 381, 1004]],
+    stations: [
+      { match: 'hanmer', name: 'Hanmer Springs' },
+      { match: 'clarence', name: 'Upper Clarence Valley' },
+      { match: 'pudding', name: 'Pudding Hill' },
+    ],
+  },
   mtvernon: {
     // Front-range Colorado AWOS stations (same network Loveland uses), discovered
     // live from the PredictWind tile index. The old tiles returned HTTP 204
@@ -1751,17 +1768,29 @@ let pwHasData = false;    // have we ever successfully loaded ≥1 station?
 async function pwRefresh(attempt = 0) {
   try {
     const tile = await pwFetchTiles();
+    const tracks = tile.tracks || {};
     for (const s of PW_STATIONS) {
-      const tr = tile.tracks && tile.tracks[s.trackId];
-      if (!tr) { console.warn('PredictWind: track', s.trackId, 'not in tiles'); continue; }
-      const prev = pwState[s.trackId] || {};
-      pwState[s.trackId] = {
+      // A station is identified either by an exact trackId or, when the trackId
+      // isn't known, by a case-insensitive substring of its name (matched
+      // against the fetched tile tracks). Resolve to a concrete trackId first.
+      let trackId = s.trackId;
+      if (!trackId && s.match) {
+        const needle = s.match.toLowerCase();
+        trackId = Object.keys(tracks).find((id) => {
+          const nm = pwParseMeta(tracks[id].t).name;
+          return nm && nm.toLowerCase().includes(needle);
+        });
+      }
+      const tr = trackId && tracks[trackId];
+      if (!tr) { console.warn('PredictWind: station', s.name || s.match || s.trackId, 'not in tiles'); continue; }
+      const prev = pwState[trackId] || {};
+      pwState[trackId] = {
         marker: prev.marker || null,
         meta: pwParseMeta(tr.t),
         series: pwDecodeSeries(tr.s),
         updated: tile.updated,
       };
-      pwRenderPill(s.trackId);
+      pwRenderPill(trackId);
     }
     pwLastError = '';
     pwHasData = true;
