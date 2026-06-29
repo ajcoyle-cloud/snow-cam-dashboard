@@ -2398,10 +2398,11 @@ function pwRenderPseudoPills() {
     // the highest lift-served point); base pill at the bottom of the Learner's
     // drag lift (the bottom lift, down at the field base ~1340m). The summit
     // pill keeps elev = LOC.summitElev so its temp syncs exactly to the forecast
-    // summit value; since 1800 > 1340 and the lapse is forced negative (see the
-    // inversion guard below), the higher pill always reads colder than the lower.
+    // summit value in hourly view. Both pills show in every view (no hourlyOnly):
+    // in live they take interpolated observation temps via pwTempPiecewise, which
+    // extrapolates above the top station so summit still reads colder than base.
     pseudos = [
-      { elev: LOC.summitElev, lat: -42.4469023, lon: 173.1531393, label: 'Summit', hourlyOnly: true },
+      { elev: LOC.summitElev, lat: -42.4469023, lon: 173.1531393, label: 'Summit' },
       { elev: 1340, lat: -42.4481499, lon: 173.1444332, label: 'Base' },
     ];
   } else if (resortKey === 'mtvernon') {
