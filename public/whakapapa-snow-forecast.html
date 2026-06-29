@@ -220,22 +220,7 @@
   }
   .station-pill.stale { opacity: 0.55; }
 
-  /* ── Accumulation colour-scheme trial picker (accumulated map only) ─────── */
-  #scheme-switch { display: none; }
-  #map-screen.accum-mode #scheme-switch {
-    position: absolute; left: 14px; top: 50%; transform: translateY(-50%);
-    display: flex; flex-direction: column; gap: 8px; z-index: 12;
-  }
-  .scheme-btn {
-    width: 34px; height: 34px; border-radius: 50%; padding: 0; cursor: pointer;
-    background: rgba(0,0,0,0.5); border: 1px solid rgba(255,255,255,0.3);
-    display: flex; align-items: center; justify-content: center;
-    box-shadow: 0 2px 6px rgba(0,0,0,0.45); transition: border-color 0.15s, box-shadow 0.15s;
-  }
-  .scheme-btn .sw { width: 18px; height: 18px; border-radius: 50%; display: block; }
-  .scheme-btn.active { border-color: #fff; box-shadow: 0 0 0 2px rgba(255,255,255,0.45); }
-
-  /* ── Snowfall pin + black pill (hourly map, while snow is falling) ───────── */
+  /* ── Snowfall pin + black pill (hourly + accumulated maps) ──────────────── */
   .snowfall-marker { display: flex; flex-direction: column; align-items: center; pointer-events: none; }
   .snowfall-marker .sf-pill {
     background: #000; color: #fff; font-weight: 700; font-size: 0.8rem; line-height: 1;
@@ -521,8 +506,6 @@
   <button id="drawer-launch" title="Show details" aria-label="Show details">
     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 15 12 9 18 15"></polyline></svg>
   </button>
-  <!-- Snow colour-scheme trial picker (hourly map only); buttons injected by JS. -->
-  <div id="scheme-switch" title="Snow colour scheme"></div>
   <div id="timeline">
     <button id="tl-play" onclick="togglePlay()">▶</button>
     <button class="tl-step" id="tl-prev" onclick="stepHour(-1)">‹</button>
@@ -939,42 +922,19 @@ function showClickPopup(x, y, text) {
   }, 4000);
 }
 
-// ── Accumulation depth colour schemes (trial) ──────────────────────────────
-// Distinct palettes for the accumulated-snowfall depth gradient, switched via
-// the icon column on the left of the ACCUMULATED map. Band thresholds/labels are
-// fixed; only the 8 colours change. A shared alpha ramp fades the lightest band
-// and firms up toward the deepest. Kept deliberately different in style so they
-// can be trialled against each other.
-const BAND_MAX = [1, 2, 4, 10, 15, 25, 50, Infinity];
-const BAND_LABELS = ['0–1 cm', '1–2 cm', '2–4 cm', '5–10 cm', '10–15 cm', '15–25 cm', '25–50 cm', '50 cm+'];
-const BAND_ALPHA = [0.30, 0.80, 0.84, 0.87, 0.89, 0.91, 0.93, 0.95];
-const ACCUM_SCHEMES = [
-  // Original cool→hot ramp.
-  { id: 'classic', name: 'Classic', swatch: '#4f8fe0', rgb: [[255,255,255],[232,244,255],[184,220,252],[123,184,234],[79,143,224],[106,79,216],[149,48,216],[196,30,58]] },
-  // Thermal: pale yellow → deep red.
-  { id: 'heat',    name: 'Heat',    swatch: '#ff7a18', rgb: [[255,255,224],[255,237,160],[255,214,102],[255,176,59],[255,128,32],[240,80,20],[200,30,30],[120,0,20]] },
-  // Perceptually-uniform viridis: purple → teal → yellow.
-  { id: 'viridis', name: 'Viridis', swatch: '#21908d', rgb: [[68,1,84],[72,40,120],[62,74,137],[49,104,142],[38,130,142],[31,158,137],[92,200,99],[253,231,37]] },
-  // Greyscale: light → near-black.
-  { id: 'mono',    name: 'Mono',    swatch: '#9aa0a8', rgb: [[245,245,247],[214,216,220],[185,188,193],[150,154,160],[120,124,131],[90,94,101],[58,62,69],[26,28,34]] },
-  // Plasma-ish neon: ice blue → magenta → gold.
-  { id: 'plasma',  name: 'Plasma',  swatch: '#d6447b', rgb: [[240,249,255],[170,222,255],[130,150,255],[170,80,240],[214,47,150],[244,63,96],[255,120,40],[255,205,40]] },
+// Accumulated-snowfall depth gradient: the "Plasma" palette (ice blue → blue →
+// purple → magenta → red → orange → gold). Fixed thresholds/labels; the alpha
+// ramp fades the lightest band and firms up toward the deepest.
+const DEPTH_BANDS = [
+  { max: 1,        label: '0–1 cm',   swatch: 'rgb(240,249,255)', color: 'rgba(240,249,255,0.30)' },
+  { max: 2,        label: '1–2 cm',   swatch: 'rgb(170,222,255)', color: 'rgba(170,222,255,0.80)' },
+  { max: 4,        label: '2–4 cm',   swatch: 'rgb(130,150,255)', color: 'rgba(130,150,255,0.84)' },
+  { max: 10,       label: '5–10 cm',  swatch: 'rgb(170,80,240)',  color: 'rgba(170,80,240,0.87)' },
+  { max: 15,       label: '10–15 cm', swatch: 'rgb(214,47,150)',  color: 'rgba(214,47,150,0.89)' },
+  { max: 25,       label: '15–25 cm', swatch: 'rgb(244,63,96)',   color: 'rgba(244,63,96,0.91)' },
+  { max: 50,       label: '25–50 cm', swatch: 'rgb(255,120,40)',  color: 'rgba(255,120,40,0.93)' },
+  { max: Infinity, label: '50 cm+',   swatch: 'rgb(255,205,40)',  color: 'rgba(255,205,40,0.95)' },
 ];
-let accumScheme = ACCUM_SCHEMES[0];
-try {
-  const savedScheme = localStorage.getItem('sp-accum-scheme');
-  const foundScheme = savedScheme && ACCUM_SCHEMES.find(s => s.id === savedScheme);
-  if (foundScheme) accumScheme = foundScheme;
-} catch (e) {}
-
-function buildDepthBands(scheme) {
-  return scheme.rgb.map((c, i) => ({
-    max: BAND_MAX[i], label: BAND_LABELS[i],
-    swatch: `rgb(${c[0]},${c[1]},${c[2]})`,
-    color: `rgba(${c[0]},${c[1]},${c[2]},${BAND_ALPHA[i]})`,
-  }));
-}
-let DEPTH_BANDS = buildDepthBands(accumScheme);
 
 // Build the colour-relief fill for the currently selected forecast hour:
 // flat blue tint from the snow line up when there's no active snowfall, or the
@@ -1053,28 +1013,6 @@ function applyRampWhenReady(rampArray) {
   tryApply();
 }
 
-// Switch the active accumulation depth palette and repaint the accumulated map.
-function setAccumScheme(id) {
-  const s = ACCUM_SCHEMES.find(x => x.id === id);
-  if (!s) return;
-  accumScheme = s;
-  DEPTH_BANDS = buildDepthBands(s);
-  try { localStorage.setItem('sp-accum-scheme', id); } catch (e) {}
-  document.querySelectorAll('#scheme-switch .scheme-btn').forEach(b => b.classList.toggle('active', b.dataset.scheme === id));
-  if (viewMode === 'accumulated') renderAccumulatedView();
-}
-
-// Build the depth-palette icon column (one swatch per scheme) on first load.
-(function buildSchemeSwitch() {
-  const host = document.getElementById('scheme-switch');
-  if (!host) return;
-  host.innerHTML = ACCUM_SCHEMES.map(s =>
-    `<button class="scheme-btn${s.id === accumScheme.id ? ' active' : ''}" data-scheme="${s.id}" ` +
-    `title="${s.name} accumulation colours" aria-label="${s.name} accumulation colours" onclick="setAccumScheme('${s.id}')">` +
-    `<span class="sw" style="background:${s.swatch}"></span></button>`
-  ).join('');
-})();
-
 // Pin + black pill at the ski field. Shown on the hourly map (this hour's
 // snowfall rate) and the accumulated map (window total). An empty label hides it.
 let snowfallMarker = null;
@@ -1145,8 +1083,8 @@ function stepHour(delta) {
 // ── Accumulated snowfall view — total depth over the next 5/10/15 days ──────
 // The mountain is tinted with all eight depth bands stacked by elevation so the
 // colour key is visible across the terrain; the legend highlights which single
-// band the actual forecast total falls into. Band colours come from the active
-// accumulation scheme (DEPTH_BANDS, rebuilt by setAccumScheme).
+// band the actual forecast total falls into. Band colours come from DEPTH_BANDS
+// (the Plasma palette).
 function renderDepthLegend(activeBand) {
   const el = document.getElementById('depth-legend');
   el.innerHTML = DEPTH_BANDS.map(b => `
