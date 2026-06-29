@@ -2094,7 +2094,11 @@ function pwBuildLiveGrid(hours = 6) {
   if (stations.length < 2) return [];
   const endTs = Math.min(...stations.map(s => s.series[s.series.length - 1].ts));
   const startTs = endTs - hours * 3600;
-  const STEP = 10 * 60;
+  // Fine 1-minute grid: station samples are sparse (~10-30 min apart) but
+  // pwTempAtTime interpolates linearly between them, so a fine grid gives smooth
+  // playback motion instead of big 10-minute jumps. It also makes scrubbing the
+  // slider finer-grained. Playback duration is fixed independently (pwTogglePlay).
+  const STEP = 60;
   const grid = [];
   for (let t = startTs; t <= endTs; t += STEP) grid.push(t);
   if (grid[grid.length - 1] !== endTs) grid.push(endTs);
@@ -2130,11 +2134,18 @@ function pwTogglePlay() {
   if (pwLivePlayTimer) { pwStopLivePlay(); return; }
   if (!pwLiveGrid.length) return;
   document.getElementById('ltl-play').textContent = '⏸';
+  // Play the whole 6h window in a fixed ~16s at a steady ~16fps cadence, advancing
+  // a fractional grid position so motion is smooth and the duration stays constant
+  // no matter how many grid points there are (decoupled from grid resolution).
+  const FRAME_MS = 60;     // ~16 fps render cadence
+  const LOOP_MS = 16000;   // full-window playback duration
+  const stepPerFrame = Math.max((pwLiveGrid.length - 1) * FRAME_MS / LOOP_MS, 1e-6);
+  let pos = pwLiveIdx >= pwLiveGrid.length - 1 ? 0 : pwLiveIdx;
   pwLivePlayTimer = setInterval(() => {
-    let next = pwLiveIdx + 1;
-    if (next > pwLiveGrid.length - 1) next = 0; // loop back to 6h ago
-    pwApplyLiveAt(next);
-  }, 450);
+    pos += stepPerFrame;
+    if (pos > pwLiveGrid.length - 1) pos = 0; // loop back to 6h ago
+    pwApplyLiveAt(Math.round(pos));
+  }, FRAME_MS);
 }
 
 function pwStopLivePlay() {
