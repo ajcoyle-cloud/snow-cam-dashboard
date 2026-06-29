@@ -366,11 +366,12 @@
     #tl-label, #ltl-label { min-width: 0; font-size: 0.7rem; }
 
     /* ── Bottom-sheet drawer ──────────────────────────────────────────── */
-    /* The open drawer floats just above the timeslider (bottom: 68px) so it no
-       longer overlaps it. The hidden state slides it fully off-screen (see the
-       .drawer-min transform, which accounts for this bottom offset). */
+    /* The open drawer floats above the timeslider. The timeline is ~54px tall at
+       bottom:14px (top ~68px), so anchor the drawer at bottom:80px for a clear
+       gap. The hidden state slides it fully off-screen (see the .drawer-min
+       transform, which accounts for this bottom offset). */
     #snow-info {
-      left: 0; right: 0; bottom: 68px;
+      left: 0; right: 0; bottom: 80px;
       min-width: 0; width: 100%;
       border-radius: 18px 18px 0 0;
       padding: 0 20px 16px;
@@ -379,7 +380,7 @@
     }
 
     /* Same lift in live mode (overrides the desktop live-mode bottom:96px). */
-    #map-screen.live-mode #snow-info { bottom: 68px; }
+    #map-screen.live-mode #snow-info { bottom: 80px; }
 
     #drawer-handle {
       display: flex; align-items: center; justify-content: center;
@@ -399,8 +400,8 @@
        peeking bar) so it never covers the freezing-level graph. Reopen via the
        #drawer-launch button. */
     #snow-info.drawer-min {
-      /* Move down by full height + the 68px bottom offset so it's fully hidden. */
-      transform: translateY(calc(100% + 84px));
+      /* Move down by full height + the 80px bottom offset so it's fully hidden. */
+      transform: translateY(calc(100% + 96px));
       pointer-events: none;
     }
     #snow-info.drawer-min #drawer-scroll { overflow: hidden; }
