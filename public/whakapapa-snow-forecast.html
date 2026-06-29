@@ -2665,8 +2665,10 @@ document.getElementById('ltl-slider').addEventListener('input', (e) => {
   const launch = document.getElementById('drawer-launch');
   if (launch) launch.addEventListener('click', () => setMin(false));
 
-  // Reset to fully-open when leaving mobile width.
-  mq.addEventListener('change', (ev) => { if (!ev.matches) setMin(false); });
+  // Start closed (hidden) on mobile so the map is unobstructed on load; the
+  // launcher button reopens it. Reset to fully-open when leaving mobile width.
+  if (mq.matches) setMin(true);
+  mq.addEventListener('change', (ev) => { setMin(ev.matches); });
 })();
 </script>
 </body>
