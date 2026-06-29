@@ -1721,6 +1721,12 @@ function pwRenderPill(trackId) {
   el.style.background = pwTempColor(tempC);
   el.classList.toggle('stale', live && ageMin > 90);
   el.style.display = pwVisible ? '' : 'none';
+  // In HOURLY view the pills are showing forecast (not observed) data, so the
+  // click-through to the observation modal would be misleading — make them
+  // non-interactive there, matching the pseudo pills. Live/accumulated keep the
+  // tap-to-open-obs behaviour. The pill never moves: its lng/lat stays the
+  // real station's GPS location in every view.
+  el.style.pointerEvents = viewMode === 'hourly' ? 'none' : 'auto';
   el.innerHTML = `<span class="dot"></span>${tempC.toFixed(1)}°C`;
 }
 
@@ -2043,6 +2049,9 @@ function renderLiveTempView() {
     pwProfile = pwComputeProfile();
     pwBroadcastProfile();
     if (pwProfile) applyRampWhenReady(pwBuildTempRamp());
+    // Repaint real pills so they switch back to observed temps and become
+    // clickable again even when there's no live grid to scrub.
+    for (const id in pwState) pwRenderPill(id);
     renderLivePanel();
     pwRenderFreezingOverlay();
     pwRenderPseudoPills();
