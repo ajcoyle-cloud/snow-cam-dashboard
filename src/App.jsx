@@ -767,9 +767,12 @@ function extractMetserviceDays(json) {
     .filter(Boolean)
 }
 
-// Mouse/pen click-drag-to-scroll with momentum, so the wide hourly chart
-// feels the same as a touch swipe. Touch is left alone — it already gets
-// native momentum scrolling from overflow-x: auto.
+// Click/touch drag-to-scroll with iOS-style momentum for the wide hourly chart
+// + table. We drive scrollLeft ourselves (via Pointer Events) for BOTH mouse and
+// touch, because relying on native touch momentum here gets cancelled by the
+// chart↔table scroll-sync and the per-move hover re-renders (it hard-stops on
+// release). The container's `touch-action: pan-y` lets the browser keep vertical
+// page scrolling while handing horizontal gestures to this handler.
 function attachInertiaScroll(el) {
   let isDown = false
   let dragged = false
@@ -794,7 +797,6 @@ function attachInertiaScroll(el) {
   }
 
   const onPointerDown = (e) => {
-    if (e.pointerType === 'touch') return
     isDown = true
     dragged = false
     stopMomentum()
@@ -840,7 +842,7 @@ function attachInertiaScroll(el) {
         return
       }
       el.scrollLeft = next
-      v *= 0.94
+      v *= 0.95 // friction — ~iOS deceleration for a smooth glide
       rafId = requestAnimationFrame(step)
     }
     rafId = requestAnimationFrame(step)
