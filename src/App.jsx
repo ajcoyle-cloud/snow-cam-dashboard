@@ -141,11 +141,11 @@ function cameraRegion(cam) {
 
 // Per-resort priority of region buckets. Buckets not listed fall to the end.
 const CAMERA_REGION_ORDER = {
-  ruapehu: ['whakapapa', 'northisland', 'cardrona', 'southisland', 'roundhill', 'loveland'],
-  cardrona: ['cardrona', 'southisland', 'roundhill', 'whakapapa', 'northisland', 'loveland'],
-  roundhill: ['roundhill', 'cardrona', 'southisland', 'whakapapa', 'northisland', 'loveland'],
-  loveland: ['loveland', 'whakapapa', 'northisland', 'cardrona', 'roundhill', 'southisland'],
-  mtlyford: ['southisland', 'roundhill', 'cardrona', 'whakapapa', 'northisland', 'loveland'],
+  ruapehu: ['whakapapa', 'northisland', 'cardrona', 'southisland', 'roundhill', 'loveland', 'mtlyford'],
+  cardrona: ['cardrona', 'southisland', 'roundhill', 'whakapapa', 'northisland', 'loveland', 'mtlyford'],
+  roundhill: ['roundhill', 'cardrona', 'southisland', 'whakapapa', 'northisland', 'loveland', 'mtlyford'],
+  loveland: ['loveland', 'whakapapa', 'northisland', 'cardrona', 'roundhill', 'southisland', 'mtlyford'],
+  mtlyford: ['mtlyford', 'southisland', 'roundhill', 'cardrona', 'whakapapa', 'northisland', 'loveland'],
 }
 
 // Stable sort keeps original within-bucket order; unknown buckets sort last.
