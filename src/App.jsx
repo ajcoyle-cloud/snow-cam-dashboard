@@ -685,11 +685,33 @@ function CameraCard({ camera, allCameras = [] }) {
   )
 }
 
-function CameraGrid({ cameras }) {
+function CameraGrid({ cameras, cols = 4 }) {
+  // --cam-cols drives grid-template-columns on desktop; mobile media queries
+  // override to a single column regardless of this value.
   return (
-    <div className="camera-grid">
+    <div className="camera-grid" style={{ '--cam-cols': cols }}>
       {cameras.map((camera) => (
         <CameraCard key={camera.name} camera={camera} allCameras={cameras} />
+      ))}
+    </div>
+  )
+}
+
+// Desktop-only control (top-right of the webcam view) to choose how many
+// cameras sit across each row. Hidden on mobile, where the grid is always 1-up.
+function GridSizeSwitcher({ cols, setCols }) {
+  return (
+    <div className="grid-size-switcher" title="Cameras per row">
+      {[2, 3, 4].map((n) => (
+        <button
+          key={n}
+          className={`grid-size-option ${cols === n ? 'active' : ''}`}
+          onClick={() => setCols(n)}
+          aria-label={`${n} cameras wide`}
+          aria-pressed={cols === n}
+        >
+          {n}
+        </button>
       ))}
     </div>
   )
@@ -2420,9 +2442,17 @@ export default function App() {
     } catch (e) {}
     return 'ruapehu'
   })
+  const [gridCols, setGridCols] = useState(() => {
+    try {
+      const c = parseInt(localStorage.getItem('sc-grid-cols'), 10)
+      if (c === 2 || c === 3 || c === 4) return c
+    } catch (e) {}
+    return 4
+  })
 
   useEffect(() => { try { localStorage.setItem('sc-active-tab', activeTab) } catch (e) {} }, [activeTab])
   useEffect(() => { try { localStorage.setItem('sc-resort', resort) } catch (e) {} }, [resort])
+  useEffect(() => { try { localStorage.setItem('sc-grid-cols', String(gridCols)) } catch (e) {} }, [gridCols])
 
   return (
     <div className="app-layout">
@@ -2442,10 +2472,11 @@ export default function App() {
       <main className={`main-content ${activeTab === 'map' ? 'is-map' : ''}`}>
         {activeTab === 'webcams' && (
           <section className="region-section">
-            <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '16px' }}>
+            <div className="webcam-controls">
               <ResortSelector resort={resort} setResort={setResort} />
+              <GridSizeSwitcher cols={gridCols} setCols={setGridCols} />
             </div>
-            <CameraGrid cameras={orderCamerasByResort(ALL_CAMERAS, resort)} />
+            <CameraGrid cameras={orderCamerasByResort(ALL_CAMERAS, resort)} cols={gridCols} />
           </section>
         )}
 

@@ -163,10 +163,55 @@
 
 .camera-grid {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(var(--cam-cols, 4), 1fr);
   gap: 0;
   flex: 1;
   background: #000;
+}
+
+/* Desktop control: cameras-per-row switcher, pinned to the top-right of the
+   webcam view while the resort selector stays centred. */
+.webcam-controls {
+  position: relative;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  margin-bottom: 16px;
+}
+
+.grid-size-switcher {
+  position: absolute;
+  right: 16px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: inline-flex;
+  gap: 2px;
+  padding: 3px;
+  background: #1a1a1a;
+  border: 1px solid #2e2e2e;
+  border-radius: 8px;
+}
+
+.grid-size-option {
+  width: 30px;
+  height: 28px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: #888;
+  font-size: 0.9em;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.grid-size-option:hover {
+  color: #ccc;
+}
+
+.grid-size-option.active {
+  background: #4d9fff;
+  color: #fff;
 }
 
 .camera-card {
@@ -410,12 +455,6 @@
 
 .close-btn:hover {
   background: rgba(255, 255, 255, 0.2);
-}
-
-@media (max-width: 1200px) {
-  .camera-grid {
-    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
-  }
 }
 
 .forecast-section {
@@ -682,6 +721,11 @@
 @media (max-width: 768px) {
   .camera-grid {
     grid-template-columns: 1fr;
+  }
+
+  /* Single column on mobile — the cameras-per-row switcher has no meaning. */
+  .grid-size-switcher {
+    display: none;
   }
 
   .header h1 {
