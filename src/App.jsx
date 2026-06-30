@@ -1537,11 +1537,16 @@ function SnowfallForecast({ resort, setResort }) {
       </div>
 
       <h2>16 Day Forecast</h2>
-      <div style={{ textAlign: 'center', color: '#555', fontSize: '11px', marginTop: '-2px', marginBottom: '12px' }}>
-        GFS next update in {nextGfsUpdate} &nbsp;·&nbsp; ECMWF next update in {nextEcmwfUpdate}
-      </div>
 
-      <div style={{ display: 'flex', gap: '20px', justifyContent: 'center', marginBottom: '12px', flexWrap: 'wrap' }}>
+      {/* Desktop: a single control line — location switcher pinned left, all
+          toggles in the same row. (On mobile the switcher is hidden here and
+          supplied by the top bar; the toggles wrap underneath.) */}
+      <div className="forecast-controls-row">
+        <div className="forecast-selector-desktop">
+          <ResortSelector resort={resort} setResort={setResort} />
+        </div>
+
+        <div className="forecast-controls-toggles">
         {/* View mode toggle - hidden on mobile, shown on desktop */}
         <div className="elevation-toggle forecast-view-mode-desktop">
           <button
@@ -1615,6 +1620,7 @@ function SnowfallForecast({ resort, setResort }) {
             <span style={{ display: 'inline-block', width: 10, height: 3, background: '#a855f7', borderRadius: 2, marginRight: 5, verticalAlign: 'middle' }} />
             MetService
           </button>
+        </div>
         </div>
       </div>
 
@@ -2346,6 +2352,12 @@ function SnowfallForecast({ resort, setResort }) {
           </div>
         </div>
       )}
+
+      {/* Model run update countdowns — sit at the bottom, beneath the table's
+          model switcher. */}
+      <div style={{ textAlign: 'center', color: '#555', fontSize: '11px', marginTop: '8px' }}>
+        GFS next update in {nextGfsUpdate} &nbsp;·&nbsp; ECMWF next update in {nextEcmwfUpdate}
+      </div>
     </div>
   )
 }
@@ -2432,12 +2444,6 @@ export default function App() {
 
         {activeTab === 'forecast' && (
           <section className="region-section forecast-section">
-            {/* Desktop-only centered selector. On mobile the SnowfallForecast
-                top-bar already provides a single top-left selector, so this is
-                hidden there to avoid showing two switchers. */}
-            <div className="forecast-selector-desktop" style={{ display: 'flex', justifyContent: 'center', marginBottom: '16px' }}>
-              <ResortSelector resort={resort} setResort={setResort} />
-            </div>
             <SnowfallForecast resort={resort} setResort={setResort} />
           </section>
         )}

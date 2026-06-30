@@ -445,6 +445,38 @@
   padding: 3px;
 }
 
+/* Forecast controls: one top line — location switcher pinned left, all the
+   toggle clusters sharing the same row to the right. */
+.forecast-controls-row {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin: 4px 0 12px 0;
+  flex-wrap: wrap;
+}
+
+.forecast-controls-toggles {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.forecast-selector-desktop {
+  display: flex;
+  align-items: center;
+}
+
+.forecast-controls-row .resort-selector {
+  padding-top: 0;
+}
+
+.forecast-controls-row .elevation-toggle {
+  margin: 0;
+}
+
 .toggle-btn {
   padding: 8px 18px;
   background: transparent;
@@ -853,9 +885,12 @@
 
   /* ── Mobile forecast graph + table readability ──────────────────────── */
   /* Tighten the control cluster so the toggles don't eat vertical space. */
-  .forecast-container > div[style*="flex-wrap"] {
-    gap: 8px !important;
-    margin-bottom: 8px !important;
+  .forecast-controls-row {
+    gap: 8px;
+    margin-bottom: 8px;
+  }
+  .forecast-controls-toggles {
+    gap: 8px;
   }
   .forecast-container .toggle-btn {
     padding: 7px 12px;
@@ -905,6 +940,12 @@
 
   .forecast-view-mode-desktop {
     display: inline-flex !important;
+  }
+
+  /* The "16 Day Forecast" title is redundant on desktop now that the controls
+     sit on one tidy line — hide it here (kept on mobile). */
+  .forecast-container > h2 {
+    display: none;
   }
 
   /* Desktop map view: location switcher centered */
