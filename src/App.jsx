@@ -1200,39 +1200,42 @@ function SnowfallForecast({ resort, setResort }) {
     fetchForecast()
   }, [resort])
 
-  // Sync horizontal scroll between chart and table
+  // Sync horizontal scroll between chart and table.
+  // Only mirror FROM whichever element the user actually grabbed last (the
+  // "active" one) TO the other. The previous symmetric sync set the swiped
+  // element's scrollLeft back during its own momentum (the partner's
+  // programmatic scroll fired a scroll event that synced in reverse), which
+  // cancels iOS native inertia — that was the "zero inertia" bug.
   useEffect(() => {
     const chart = chartRef.current
     const table = tableRef.current
+    if (!chart || !table) return
 
-    if (!chart || !table) {
-      console.log('Scroll sync: refs not ready', { chart: !!chart, table: !!table })
-      return
-    }
+    let active = null
+    const markChart = () => { active = chart }
+    const markTable = () => { active = table }
+    // Whichever one the user touches/clicks becomes the source of truth.
+    chart.addEventListener('pointerdown', markChart, { passive: true })
+    chart.addEventListener('touchstart', markChart, { passive: true })
+    chart.addEventListener('wheel', markChart, { passive: true })
+    table.addEventListener('pointerdown', markTable, { passive: true })
+    table.addEventListener('touchstart', markTable, { passive: true })
+    table.addEventListener('wheel', markTable, { passive: true })
 
-    console.log('Scroll sync enabled')
-    let isSyncing = false
-
-    const syncChartToTable = () => {
-      if (isSyncing) return
-      isSyncing = true
-      table.scrollLeft = chart.scrollLeft
-      setTimeout(() => { isSyncing = false }, 3)
-    }
-
-    const syncTableToChart = () => {
-      if (isSyncing) return
-      isSyncing = true
-      chart.scrollLeft = table.scrollLeft
-      setTimeout(() => { isSyncing = false }, 3)
-    }
-
-    chart.addEventListener('scroll', syncChartToTable)
-    table.addEventListener('scroll', syncTableToChart)
+    const onChartScroll = () => { if (active !== table) table.scrollLeft = chart.scrollLeft }
+    const onTableScroll = () => { if (active !== chart) chart.scrollLeft = table.scrollLeft }
+    chart.addEventListener('scroll', onChartScroll, { passive: true })
+    table.addEventListener('scroll', onTableScroll, { passive: true })
 
     return () => {
-      chart.removeEventListener('scroll', syncChartToTable)
-      table.removeEventListener('scroll', syncTableToChart)
+      chart.removeEventListener('pointerdown', markChart)
+      chart.removeEventListener('touchstart', markChart)
+      chart.removeEventListener('wheel', markChart)
+      table.removeEventListener('pointerdown', markTable)
+      table.removeEventListener('touchstart', markTable)
+      table.removeEventListener('wheel', markTable)
+      chart.removeEventListener('scroll', onChartScroll)
+      table.removeEventListener('scroll', onTableScroll)
     }
   }, [forecastData])
 
