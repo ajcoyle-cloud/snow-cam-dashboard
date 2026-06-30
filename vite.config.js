@@ -1,8 +1,41 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
+import { resolveLyfordCam } from './api/lyford-cam.js'
+
+// Dev parity for the Mt Lyford webcam scraper. In prod, /lyford-cam/<cam> is a
+// Vercel function (api/lyford-cam.js); the Vite dev server doesn't run that, so
+// reuse the same core here as middleware. Mirrors how the other proxies below
+// are replicated for dev.
+function lyfordCamDev() {
+  return {
+    name: 'lyford-cam-dev',
+    configureServer(server) {
+      server.middlewares.use('/lyford-cam', async (req, res) => {
+        const url = new URL(req.url, 'http://localhost')
+        const cam = url.pathname.replace(/^\/+/, '').split('/')[0]
+        try {
+          const result = await resolveLyfordCam(cam, { debug: url.searchParams.has('debug') })
+          if (result.debug) {
+            res.setHeader('Content-Type', 'application/json')
+            res.end(JSON.stringify(result.debug))
+            return
+          }
+          res.setHeader('Content-Type', result.contentType)
+          res.setHeader('Cache-Control', 'public, max-age=60')
+          res.end(result.buffer)
+        } catch (e) {
+          const status = e && typeof e.status === 'number' ? e.status : 502
+          res.statusCode = status
+          res.setHeader('Content-Type', 'application/json')
+          res.end(JSON.stringify(e && e.body ? e.body : { error: String((e && e.message) || e) }))
+        }
+      })
+    },
+  }
+}
 
 export default defineConfig({
-  plugins: [react()],
+  plugins: [react(), lyfordCamDev()],
   server: {
     port: 5173,
     // MetService's public webdata API only allows its own origin (CORS), so the

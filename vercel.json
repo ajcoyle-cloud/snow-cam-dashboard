@@ -11,6 +11,10 @@
     {
       "source": "/pw-obs/:path*",
       "destination": "/api/pw-obs?path=:path*"
+    },
+    {
+      "source": "/lyford-cam/:cam",
+      "destination": "/api/lyford-cam?cam=:cam"
     }
   ]
 }

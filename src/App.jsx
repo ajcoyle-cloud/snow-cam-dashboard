@@ -112,8 +112,11 @@ const SOUTH_ISLAND = [
   { name: 'Coronet Peak – Express (View 1)', nzSkiCam: { resort: 'CoronetPeak', cameraKey: 'ExpressCamera', angle: 'Angle1' }, location: 'Coronet Peak' },
   { name: 'Coronet Peak – Express (View 2)', nzSkiCam: { resort: 'CoronetPeak', cameraKey: 'ExpressCamera', angle: 'Angle2' }, location: 'Coronet Peak' },
   { name: 'Coronet Peak – Express (View 3)', nzSkiCam: { resort: 'CoronetPeak', cameraKey: 'ExpressCamera', angle: 'Angle3' }, location: 'Coronet Peak' },
-  { name: 'Mt Lyford - Stella Hut', url: 'https://cwu.co.nz/temp/mt-lyford-webcam-2-01-07-26-07-48.jpeg', location: 'Mt Lyford' },
-  { name: 'Mt Lyford - Lyford North', url: 'https://cwu.co.nz/temp/mt-lyford-webcam-stella-01-07-26-07-50.jpeg', location: 'Mt Lyford' },
+  // Mt Lyford frames are timestamped one-shot files that rotate every few
+  // minutes (see api/lyford-cam.js); point at the scraper proxy so the URL stays
+  // stable and always resolves to the current frame.
+  { name: 'Mt Lyford - Stella Hut', url: '/lyford-cam/stella-hut', location: 'Mt Lyford' },
+  { name: 'Mt Lyford - Lyford North', url: '/lyford-cam/lyford-north', location: 'Mt Lyford' },
 ]
 
 const USA_RESORTS = [
