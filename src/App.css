@@ -176,7 +176,14 @@
   display: flex;
   justify-content: center;
   align-items: center;
-  margin-bottom: 16px;
+  margin: 10px 0 16px 0;
+}
+
+/* Zero the selector's asymmetric top padding here (moved to the row's margin
+   above) so the row height equals the button height — that way the absolutely
+   centred switcher lands on the same horizontal centreline as the selector. */
+.webcam-controls .resort-selector {
+  padding-top: 0;
 }
 
 .grid-size-switcher {
