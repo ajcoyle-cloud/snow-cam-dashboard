@@ -18,6 +18,7 @@ const WEATHER_LOCATIONS = {
   'Loveland': { lat: 39.65, lon: -105.49, elevation: 3290 },
   'Roundhill': { lat: -43.825421, lon: 170.656220, elevation: 1800 },
   'Mt Vernon': { lat: 39.72011925175132, lon: -105.26872905339022, elevation: 2190 },
+  'Mt Lyford': { lat: -42.446503, lon: 173.143418, elevation: 1800 },
 }
 
 const getWeatherIcon = (pictocode) => {
@@ -111,6 +112,8 @@ const SOUTH_ISLAND = [
   { name: 'Coronet Peak – Express (View 1)', nzSkiCam: { resort: 'CoronetPeak', cameraKey: 'ExpressCamera', angle: 'Angle1' }, location: 'Coronet Peak' },
   { name: 'Coronet Peak – Express (View 2)', nzSkiCam: { resort: 'CoronetPeak', cameraKey: 'ExpressCamera', angle: 'Angle2' }, location: 'Coronet Peak' },
   { name: 'Coronet Peak – Express (View 3)', nzSkiCam: { resort: 'CoronetPeak', cameraKey: 'ExpressCamera', angle: 'Angle3' }, location: 'Coronet Peak' },
+  { name: 'Mt Lyford - Stella Hut', url: 'https://cwu.co.nz/temp/mt-lyford-webcam-2-30-06-26-09-40.jpeg', location: 'Mt Lyford' },
+  { name: 'Mt Lyford - Lyford North', url: 'https://cwu.co.nz/temp/mt-lyford-webcam-stella-30-06-26-09-40.jpeg', location: 'Mt Lyford' },
 ]
 
 const USA_RESORTS = [
@@ -129,6 +132,7 @@ function cameraRegion(cam) {
   if (cam.location === 'Turoa' || cam.location === 'Ruapehu') return 'northisland'
   if (cam.location === 'Cardrona') return 'cardrona'
   if (cam.location === 'Roundhill') return 'roundhill'
+  if (cam.location === 'Mt Lyford') return 'mtlyford'
   return 'southisland' // Treble Cone, The Remarkables, Coronet Peak, Mt Hutt
 }
 
