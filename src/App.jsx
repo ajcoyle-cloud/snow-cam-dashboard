@@ -767,12 +767,9 @@ function extractMetserviceDays(json) {
     .filter(Boolean)
 }
 
-// Click/touch drag-to-scroll with iOS-style momentum for the wide hourly chart
-// + table. We drive scrollLeft ourselves (via Pointer Events) for BOTH mouse and
-// touch, because relying on native touch momentum here gets cancelled by the
-// chart↔table scroll-sync and the per-move hover re-renders (it hard-stops on
-// release). The container's `touch-action: pan-y` lets the browser keep vertical
-// page scrolling while handing horizontal gestures to this handler.
+// Mouse/pen click-drag-to-scroll with momentum, so the wide hourly chart feels
+// like a touch swipe on desktop. Touch is left to the browser's NATIVE momentum
+// scrolling (-webkit-overflow-scrolling) — taking it over in JS was glitchy.
 function attachInertiaScroll(el) {
   let isDown = false
   let dragged = false
@@ -797,6 +794,7 @@ function attachInertiaScroll(el) {
   }
 
   const onPointerDown = (e) => {
+    if (e.pointerType === 'touch') return // touch uses native momentum scrolling
     isDown = true
     dragged = false
     stopMomentum()
@@ -2003,37 +2001,10 @@ function SnowfallForecast({ resort, setResort }) {
               setHoveredIndex(null)
               setHoverLineX(null)
             }}
-            onTouchStart={(e) => {
-              if (!svgRef.current) return
-              const touch = e.touches[0]
-              const svgRect = svgRef.current.getBoundingClientRect()
-              const touchXInSVG = touch.clientX - svgRect.left
-              const touchXInPlot = touchXInSVG - snowPadding.left
-              const index = Math.round((touchXInPlot / snowPlotWidth) * (displayData.length - 1))
-              if (index >= 0 && index < forecastData.length) {
-                setHoveredIndex(index)
-                setMousePos({ x: touchXInSVG, y: touch.clientY - svgRect.top })
-                setHoverLineX(touchXInSVG)
-              }
-            }}
-            onTouchMove={(e) => {
-              if (!svgRef.current) return
-              const touch = e.touches[0]
-              const svgRect = svgRef.current.getBoundingClientRect()
-              const touchXInSVG = touch.clientX - svgRect.left
-              const touchXInPlot = touchXInSVG - snowPadding.left
-              const index = Math.round((touchXInPlot / snowPlotWidth) * (displayData.length - 1))
-              if (index >= 0 && index < forecastData.length) {
-                setHoveredIndex(index)
-                setMousePos({ x: touchXInSVG, y: touch.clientY - svgRect.top })
-                setHoverLineX(touchXInSVG)
-              }
-            }}
-            onTouchEnd={() => {
-              setHoveredIndex(null)
-              setHoverLineX(null)
-            }}
-          />
+          />{/* No touch hover handlers: updating hover state on every touchmove
+               re-rendered the chart mid-swipe and cancelled iOS native momentum
+               (the touchend reset hard-stopped it on release). Touch now scrolls
+               natively with full inertia; the crosshair is mouse-hover only. */}
         </svg>
 
         {/* Hover tooltip - at top of vertical line */}

@@ -572,9 +572,6 @@
   border-bottom: none;
   position: relative;
   cursor: grab;
-  /* Hand horizontal gestures to the JS momentum scroller; keep vertical page
-     scroll native. */
-  touch-action: pan-y;
 }
 
 .forecast-chart.dragging-scroll,
@@ -595,9 +592,6 @@
   margin: 0;
   background: #0a0a0a;
   cursor: grab;
-  /* Hand horizontal gestures to the JS momentum scroller; keep vertical page
-     scroll native. */
-  touch-action: pan-y;
 }
 
 .forecast-data-table table {
