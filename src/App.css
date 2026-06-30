@@ -185,32 +185,31 @@
   top: 50%;
   transform: translateY(-50%);
   display: inline-flex;
-  gap: 2px;
+  gap: 0;
   padding: 3px;
   background: #1a1a1a;
-  border: 1px solid #2e2e2e;
-  border-radius: 8px;
+  border-radius: 999px;
 }
 
 .grid-size-option {
-  width: 30px;
+  width: 32px;
   height: 28px;
   border: none;
-  border-radius: 6px;
+  border-radius: 999px;
   background: transparent;
   color: #888;
   font-size: 0.9em;
   font-weight: 600;
   cursor: pointer;
-  transition: background 0.15s ease, color 0.15s ease;
+  transition: all 0.3s ease;
 }
 
 .grid-size-option:hover {
-  color: #ccc;
+  color: #aaa;
 }
 
 .grid-size-option.active {
-  background: #4d9fff;
+  background: #333;
   color: #fff;
 }
 
