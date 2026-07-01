@@ -704,13 +704,20 @@ function fmtTime(iso) {
 // Renders the WTMC building OBJ as a MapLibre custom layer via three.js,
 // geo-anchored at Iwikau Village and glued to the (exaggerated) terrain surface
 // so it sits at ground level. Position/scale are intentionally easy to tweak.
+//
+// Single source of truth for the terrain style's `exaggeration` value (used
+// by initMap's style.terrain below) — the lodge's terrain queries ask for
+// exaggerated elevation to match the rendered mesh, so any sanity check on
+// those readings must scale by this same factor too.
+const TERRAIN_EXAGGERATION = 1.2;
+
 const LODGE = {
   // ~20m east of the "Base" pseudo pill (pwRenderPseudoPills, resortKey ===
   // 'ruapehu': lat -39.236672, lon 175.556259, elev 1630) so the lodge and the
   // pill are unambiguously the same spot on the map, offset just enough that
   // the two markers don't overlap.
   lngLat: [175.556491, -39.236672],
-  fallbackAltM: 1630,           // matches the Base pseudo pill's configured elevation
+  fallbackAltM: 1630,           // REAL (non-exaggerated) elevation matching the Base pseudo pill
   targetWidthM: 30,             // real-world footprint width the model is scaled to
   bearingDeg: 0,                // yaw about vertical; 0 = model's +Z faces north
 };
@@ -797,21 +804,22 @@ function addLodgeModel(map) {
       const doDbg = lodgeDbg.renders < 3 || lodgeDbg.renders % 120 === 0;
       lodgeDbg.renders++;
       if (!this.model) { if (doDbg) showLodgeDbg(); return; } // still loading
-      // Glue to the visible (exaggerated) terrain surface each frame. The DEM
-      // tileset occasionally returns a spurious spike well above the real
-      // ground here (same issue the click-probe handler works around by
-      // clamping to TOP_ELEV — see its comment above) — a village-elevation
-      // point reading back hundreds of metres high floats the building in
-      // mid-air, invisible off-screen. Distrust any reading too far from the
-      // known ground elevation and use the fallback instead.
-      const MAX_DEVIATION_M = 150;
+      // Glue to the visible (exaggerated) terrain surface each frame. The
+      // query is asked for the EXAGGERATED elevation (matching the terrain
+      // style's `exaggeration: 1.2`, see initMap) so the building sits flush
+      // with the rendered mesh rather than floating above or sinking below
+      // it — but that means a live reading must be sanity-checked against
+      // fallbackAltM * TERRAIN_EXAGGERATION, not the raw fallback, or every
+      // sloped point looks like a "spike" simply from the 1.2x stretch.
+      const expectedExaggerated = LODGE.fallbackAltM * TERRAIN_EXAGGERATION;
+      const MAX_DEVIATION_M = 150; // in exaggerated-metres, i.e. real-world slope tolerance
       let alt = this.map.queryTerrainElevation(LODGE.lngLat, { exaggerated: true });
       if (alt == null || isNaN(alt)) {
-        alt = LODGE.fallbackAltM;
+        alt = expectedExaggerated;
         lodgeDbg.altSource = 'FALLBACK — real DEM query returned null';
-      } else if (Math.abs(alt - LODGE.fallbackAltM) > MAX_DEVIATION_M) {
+      } else if (Math.abs(alt - expectedExaggerated) > MAX_DEVIATION_M) {
         lodgeDbg.altSource = 'FALLBACK — live query (' + alt.toFixed(0) + 'm) looked spurious';
-        alt = LODGE.fallbackAltM;
+        alt = expectedExaggerated;
       } else {
         lodgeDbg.altSource = 'live terrain query';
       }
@@ -883,7 +891,7 @@ function initMap() {
           paint: { 'color-relief-color': ['interpolate', ['linear'], ['elevation'], 0, 'rgba(255,255,255,0)'] }
         }
       ],
-      terrain: { source: 'terrain', exaggeration: 1.2 }
+      terrain: { source: 'terrain', exaggeration: TERRAIN_EXAGGERATION }
     }
   });
 
