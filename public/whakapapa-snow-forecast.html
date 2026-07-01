@@ -706,14 +706,14 @@ function fmtTime(iso) {
 // so it sits at ground level. Position/scale are intentionally easy to tweak.
 const LODGE = {
   lngLat: [175.5583, -39.2542], // Iwikau Village — nudge to taste
-  fallbackAltM: 1580,           // used until the DEM tile for this point loads
+  fallbackAltM: 1630,           // used until the DEM tile for this point loads (Whakapapa base elev per RESORTS)
   targetWidthM: 30,             // real-world footprint width the model is scaled to
   bearingDeg: 0,                // yaw about vertical; 0 = model's +Z faces north
 };
 
 // Tiny on-screen status readout so we can diagnose the 3D layer without the
 // browser console. Remove once the lodge is confirmed working.
-const lodgeDbg = { three: false, obj: false, model: 'pending', renders: 0 };
+const lodgeDbg = { three: false, obj: false, model: 'pending', renders: 0, alt: null, altSource: '—' };
 function showLodgeDbg() {
   let el = document.getElementById('lodge-dbg');
   if (!el) {
@@ -727,7 +727,8 @@ function showLodgeDbg() {
     'THREE: ' + (lodgeDbg.three ? 'yes' : 'NO') + '\n' +
     'OBJLoader: ' + (lodgeDbg.obj ? 'yes' : 'NO') + '\n' +
     'model: ' + lodgeDbg.model + '\n' +
-    'render calls: ' + lodgeDbg.renders;
+    'render calls: ' + lodgeDbg.renders + '\n' +
+    'alt used: ' + (lodgeDbg.alt == null ? '—' : lodgeDbg.alt.toFixed(1) + 'm') + ' (' + lodgeDbg.altSource + ')';
 }
 
 function addLodgeModel(map) {
@@ -789,11 +790,19 @@ function addLodgeModel(map) {
       this.renderer.autoClear = false;
     },
     render(gl, options) {
-      if (lodgeDbg.renders < 3 || lodgeDbg.renders % 120 === 0) { lodgeDbg.renders++; showLodgeDbg(); } else { lodgeDbg.renders++; }
-      if (!this.model) return; // still loading
+      const doDbg = lodgeDbg.renders < 3 || lodgeDbg.renders % 120 === 0;
+      lodgeDbg.renders++;
+      if (!this.model) { if (doDbg) showLodgeDbg(); return; } // still loading
       // Glue to the visible (exaggerated) terrain surface each frame.
       let alt = this.map.queryTerrainElevation(LODGE.lngLat, { exaggerated: true });
-      if (alt == null || isNaN(alt)) alt = LODGE.fallbackAltM;
+      if (alt == null || isNaN(alt)) {
+        alt = LODGE.fallbackAltM;
+        lodgeDbg.altSource = 'FALLBACK — real DEM query returned null';
+      } else {
+        lodgeDbg.altSource = 'live terrain query';
+      }
+      lodgeDbg.alt = alt;
+      if (doDbg) showLodgeDbg();
       const merc = maplibregl.MercatorCoordinate.fromLngLat(LODGE.lngLat, alt);
       const s = merc.meterInMercatorCoordinateUnits();
 
