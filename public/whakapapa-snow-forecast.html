@@ -711,8 +711,32 @@ const LODGE = {
   bearingDeg: 0,                // yaw about vertical; 0 = model's +Z faces north
 };
 
+// Tiny on-screen status readout so we can diagnose the 3D layer without the
+// browser console. Remove once the lodge is confirmed working.
+const lodgeDbg = { three: false, obj: false, model: 'pending', renders: 0 };
+function showLodgeDbg() {
+  let el = document.getElementById('lodge-dbg');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'lodge-dbg';
+    el.style.cssText = 'position:fixed;top:8px;left:8px;z-index:9999;font:11px/1.5 monospace;background:rgba(0,0,0,.72);color:#0f0;padding:6px 9px;border-radius:6px;white-space:pre;pointer-events:none';
+    document.body.appendChild(el);
+  }
+  el.textContent =
+    'lodge debug\n' +
+    'THREE: ' + (lodgeDbg.three ? 'yes' : 'NO') + '\n' +
+    'OBJLoader: ' + (lodgeDbg.obj ? 'yes' : 'NO') + '\n' +
+    'model: ' + lodgeDbg.model + '\n' +
+    'render calls: ' + lodgeDbg.renders;
+}
+
 function addLodgeModel(map) {
-  if (typeof THREE === 'undefined' || !THREE.OBJLoader) {
+  lodgeDbg.three = (typeof THREE !== 'undefined');
+  lodgeDbg.obj = lodgeDbg.three && !!THREE.OBJLoader;
+  showLodgeDbg();
+  if (!lodgeDbg.three || !lodgeDbg.obj) {
+    lodgeDbg.model = 'three/OBJLoader missing';
+    showLodgeDbg();
     console.warn('[lodge] three.js / OBJLoader not loaded — 3D lodge skipped');
     return;
   }
@@ -751,9 +775,13 @@ function addLodgeModel(map) {
         group.rotation.y = (LODGE.bearingDeg * Math.PI) / 180;
         this.model = group;
         this.scene.add(group);
+        lodgeDbg.model = 'loaded (scale ' + group.scale.x.toFixed(3) + ')';
+        showLodgeDbg();
         console.info('[lodge] model loaded; scale', group.scale.x.toFixed(4));
         map.triggerRepaint();
       }, undefined, (err) => {
+        lodgeDbg.model = 'LOAD ERROR';
+        showLodgeDbg();
         console.error('[lodge] OBJ failed to load /models/Building_dnt_V02.obj', err);
       });
 
@@ -761,6 +789,7 @@ function addLodgeModel(map) {
       this.renderer.autoClear = false;
     },
     render(gl, options) {
+      if (lodgeDbg.renders < 3 || lodgeDbg.renders % 120 === 0) { lodgeDbg.renders++; showLodgeDbg(); } else { lodgeDbg.renders++; }
       if (!this.model) return; // still loading
       // Glue to the visible (exaggerated) terrain surface each frame.
       let alt = this.map.queryTerrainElevation(LODGE.lngLat, { exaggerated: true });
