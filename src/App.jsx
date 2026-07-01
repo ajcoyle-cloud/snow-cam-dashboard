@@ -1003,7 +1003,17 @@ function SnowfallForecast({ resort, setResort }) {
   const [elevation, setElevation] = useState('summit') // 'summit' or 'base'
   const [viewMode, setViewMode] = useState('fit') // 'hourly' or 'fit'
   const [meteoBlueForecastData, setMeteoBlueForecastData] = useState(null)
-  const [showFreezing, setShowFreezing] = useState({ gfs: true, ecmwf: true, metservice: true, aifs: true, ukmo: true })
+  // Default to GFS/ECMWF/AIFS on the chart; once the user ticks/unticks anything
+  // in the Models dropdown, remember their choice for next visit.
+  const DEFAULT_SHOW_FREEZING = { gfs: true, ecmwf: true, aifs: true, ukmo: false, metservice: false, average: false }
+  const [showFreezing, setShowFreezing] = useState(() => {
+    try {
+      const stored = JSON.parse(localStorage.getItem('sc-freezing-models'))
+      if (stored && typeof stored === 'object') return { ...DEFAULT_SHOW_FREEZING, ...stored }
+    } catch (e) {}
+    return DEFAULT_SHOW_FREEZING
+  })
+  useEffect(() => { try { localStorage.setItem('sc-freezing-models', JSON.stringify(showFreezing)) } catch (e) {} }, [showFreezing])
   const [now, setNow] = useState(() => new Date())
   useEffect(() => {
     const t = setInterval(() => setNow(new Date()), 1000)
@@ -1476,6 +1486,14 @@ function SnowfallForecast({ resort, setResort }) {
   // Never render a completely empty table if every pill gets unticked.
   const effectiveTableModels = selectedTableModels.length > 0 ? selectedTableModels : [tableModels[0]]
   const multiModel = effectiveTableModels.length > 1
+  // In multi-model mode, only the first row of each parameter group names the
+  // parameter (e.g. "Temp (GFS)") — the rest just carry the model name, since
+  // repeating "Temp" on every row is redundant and the row's own text color
+  // already ties it back to that model.
+  const groupRowLabel = (idx, base, unit = '') => {
+    if (!multiModel) return unit ? `${base} ${unit}` : base
+    return idx === 0 ? `${base} (${effectiveTableModels[idx].label})` : `(${effectiveTableModels[idx].label})`
+  }
 
   // Chart dimensions
   const chartWidth = 900
@@ -1642,6 +1660,14 @@ function SnowfallForecast({ resort, setResort }) {
     ))
   }
 
+  // Consensus of the raw model lines only — MetService is a human forecaster's
+  // statement rather than a model output, so it's deliberately left out here.
+  const averageFreezingData = displayData.map((d, i) => {
+    const vals = [d.freezingLevelGFS, ecmwfFreezingData?.[i], aifsFreezingData?.[i], ukmoFreezingData?.[i]]
+      .filter(v => v !== null && v !== undefined)
+    return vals.length ? Math.round(vals.reduce((s, v) => s + v, 0) / vals.length / 100) * 100 : null
+  })
+
   // Models available for the freezing-level dropdown — "available" gates
   // both the checkbox (disabled until its data lands) and the ratio shown
   // on the dropdown button itself.
@@ -1651,6 +1677,7 @@ function SnowfallForecast({ resort, setResort }) {
     { key: 'aifs', label: 'AIFS', color: '#f59e0b', available: !!aifsFreezingData },
     { key: 'ukmo', label: 'UKMO', color: '#f472b6', available: !!ukmoFreezingData },
     { key: 'metservice', label: 'MetService', color: '#a855f7', available: !!metserviceFzl },
+    { key: 'average', label: 'Average', color: '#e2e8f0', available: true },
   ]
 
   // MetService gives one freezing-level value per day (with an optional intraday
@@ -1957,6 +1984,7 @@ function SnowfallForecast({ resort, setResort }) {
           {showFreezing.ecmwf && freezingLine('ecmwf', ecmwfFreezingData, '#10b981')}
           {showFreezing.aifs && freezingLine('aifs', aifsFreezingData, '#f59e0b')}
           {showFreezing.ukmo && freezingLine('ukmo', ukmoFreezingData, '#f472b6')}
+          {showFreezing.average && freezingLine('average', averageFreezingData, '#e2e8f0')}
 
           {/* MetService meteorologist freezing level — purple stepped daily line */}
           {showFreezing.metservice && metserviceFzl && (() => {
@@ -2178,6 +2206,12 @@ function SnowfallForecast({ resort, setResort }) {
                   MetService: {metserviceValueAt(d.datetime)}m
                 </div>
               )}
+              {showFreezing.average && averageFreezingData[hoveredIndex] != null && (
+                <div style={{ color: '#e2e8f0', marginTop: '4px' }}>
+                  <span style={{ display: 'inline-block', width: 8, height: 2, background: '#e2e8f0', borderRadius: 1, marginRight: 5, verticalAlign: 'middle' }} />
+                  Average: {averageFreezingData[hoveredIndex]}m
+                </div>
+              )}
               {showCloud && cloudData && (
                 <div style={{ color: '#888', marginTop: '4px', borderTop: '1px solid #333', paddingTop: '4px' }}>
                   <span style={{ display: 'inline-block', width: 8, height: 8, background: '#555', borderRadius: 2, marginRight: 5, verticalAlign: 'middle' }} />
@@ -2220,9 +2254,9 @@ function SnowfallForecast({ resort, setResort }) {
           </thead>
           <tbody>
             {/* Temperature rows — one per ticked model */}
-            {effectiveTableModels.map(m => (
+            {effectiveTableModels.map((m, idx) => (
               <tr key={`temp-${m.key}`} style={{ height: '23px' }}>
-                <td style={{ width: `${snowPadding.left}px` }}>Temp {multiModel ? `(${m.label})` : '(°C)'}</td>
+                <td style={{ width: `${snowPadding.left}px` }}>{groupRowLabel(idx, 'Temp', '(°C)')}</td>
                 {m.data.map((d, i) => {
                   const val = elevation === 'summit' ? d.summit.temp : d.base.temp
                   return (
@@ -2234,9 +2268,9 @@ function SnowfallForecast({ resort, setResort }) {
               </tr>
             ))}
             {/* Condition rows */}
-            {effectiveTableModels.map(m => (
+            {effectiveTableModels.map((m, idx) => (
               <tr key={`cond-${m.key}`} style={{ height: '23px' }}>
-                <td style={{ width: `${snowPadding.left}px` }}>Condition {multiModel ? `(${m.label})` : ''}</td>
+                <td style={{ width: `${snowPadding.left}px` }}>{groupRowLabel(idx, 'Condition')}</td>
                 {m.data.map((d, i) => {
                   const data = elevation === 'summit' ? d.summit : d.base
                   const icon = data.weatherCode != null
@@ -2251,9 +2285,9 @@ function SnowfallForecast({ resort, setResort }) {
               </tr>
             ))}
             {/* Precip rows */}
-            {effectiveTableModels.map(m => (
+            {effectiveTableModels.map((m, idx) => (
               <tr key={`precip-${m.key}`} style={{ height: '23px' }}>
-                <td style={{ width: `${snowPadding.left}px` }}>Precip {multiModel ? `(${m.label})` : '(mm)'}</td>
+                <td style={{ width: `${snowPadding.left}px` }}>{groupRowLabel(idx, 'Precip', '(mm)')}</td>
                 {m.data.map((d, i) => {
                   const data = elevation === 'summit' ? d.summit : d.base
                   const precip = data.precipitation
@@ -2273,9 +2307,9 @@ function SnowfallForecast({ resort, setResort }) {
               </tr>
             ))}
             {/* Snowfall rows */}
-            {effectiveTableModels.map(m => (
+            {effectiveTableModels.map((m, idx) => (
               <tr key={`snow-${m.key}`} style={{ height: '23px' }}>
-                <td style={{ width: `${snowPadding.left}px` }}>Snowfall {multiModel ? `(${m.label})` : '(cm)'}</td>
+                <td style={{ width: `${snowPadding.left}px` }}>{groupRowLabel(idx, 'Snowfall', '(cm)')}</td>
                 {m.data.map((d, i) => {
                   const dayIndex = viewMode === 'fit' ? Math.floor(i * FIT_GROUP / 24) : Math.floor(i / 24)
                   const isDayEven = dayIndex % 2 === 0
@@ -2302,9 +2336,9 @@ function SnowfallForecast({ resort, setResort }) {
               </tr>
             ))}
             {/* Wind at summit rows */}
-            {effectiveTableModels.map(m => (
+            {effectiveTableModels.map((m, idx) => (
               <tr key={`windsummit-${m.key}`} style={{ height: '23px' }}>
-                <td style={{ width: `${snowPadding.left}px` }}>Wind {RESORTS[resort].summitElev}m {multiModel ? `(${m.label})` : ''}</td>
+                <td style={{ width: `${snowPadding.left}px` }}>{groupRowLabel(idx, `Wind ${RESORTS[resort].summitElev}m`)}</td>
                 {m.data.map((d, i) => {
                   const windKmh = d.summit.wind != null ? Math.round(d.summit.wind) : null
                   const arrow = getWindArrow(d.summit.windDir)
@@ -2317,9 +2351,9 @@ function SnowfallForecast({ resort, setResort }) {
               </tr>
             ))}
             {/* Wind at base rows */}
-            {effectiveTableModels.map(m => (
+            {effectiveTableModels.map((m, idx) => (
               <tr key={`windbase-${m.key}`} style={{ height: '23px' }}>
-                <td style={{ width: `${snowPadding.left}px` }}>Wind {RESORTS[resort].baseElev}m {multiModel ? `(${m.label})` : ''}</td>
+                <td style={{ width: `${snowPadding.left}px` }}>{groupRowLabel(idx, `Wind ${RESORTS[resort].baseElev}m`)}</td>
                 {m.data.map((d, i) => {
                   const windKmh = d.base.wind != null ? Math.round(d.base.wind) : null
                   const arrow = getWindArrow(d.base.windDir)
@@ -2332,9 +2366,9 @@ function SnowfallForecast({ resort, setResort }) {
               </tr>
             ))}
             {/* Freezing level rows */}
-            {effectiveTableModels.map(m => (
+            {effectiveTableModels.map((m, idx) => (
               <tr key={`freezing-${m.key}`} style={{ height: '23px' }}>
-                <td style={{ width: `${snowPadding.left}px` }}>Freezing {multiModel ? `(${m.label})` : '(m)'}</td>
+                <td style={{ width: `${snowPadding.left}px` }}>{groupRowLabel(idx, 'Freezing', '(m)')}</td>
                 {m.data.map((d, i) => {
                   const val = m.getFreezing(d)
                   const isAboveSummit = val > RESORTS[resort].summitElev
