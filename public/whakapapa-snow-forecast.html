@@ -712,8 +712,12 @@ const LODGE = {
 };
 
 function addLodgeModel(map) {
-  if (typeof THREE === 'undefined' || !THREE.OBJLoader) return; // CDN blocked/offline
+  if (typeof THREE === 'undefined' || !THREE.OBJLoader) {
+    console.warn('[lodge] three.js / OBJLoader not loaded — 3D lodge skipped');
+    return;
+  }
   if (map.getLayer('lodge-3d')) return;
+  console.info('[lodge] adding 3D lodge layer at', LODGE.lngLat);
 
   let modelTransform = null;
   const rotX = new THREE.Matrix4().makeRotationAxis(new THREE.Vector3(1, 0, 0), Math.PI / 2);
@@ -747,13 +751,16 @@ function addLodgeModel(map) {
         group.rotation.y = (LODGE.bearingDeg * Math.PI) / 180;
         this.model = group;
         this.scene.add(group);
+        console.info('[lodge] model loaded; scale', group.scale.x.toFixed(4));
         map.triggerRepaint();
+      }, undefined, (err) => {
+        console.error('[lodge] OBJ failed to load /models/Building_dnt_V02.obj', err);
       });
 
       this.renderer = new THREE.WebGLRenderer({ canvas: map.getCanvas(), context: gl, antialias: true });
       this.renderer.autoClear = false;
     },
-    render(gl, matrix) {
+    render(gl, options) {
       if (!this.model) return; // still loading
       // Glue to the visible (exaggerated) terrain surface each frame.
       let alt = this.map.queryTerrainElevation(LODGE.lngLat, { exaggerated: true });
@@ -761,7 +768,11 @@ function addLodgeModel(map) {
       const merc = maplibregl.MercatorCoordinate.fromLngLat(LODGE.lngLat, alt);
       const s = merc.meterInMercatorCoordinateUnits();
 
-      const m = new THREE.Matrix4().fromArray(matrix);
+      // MapLibre v5 passes an options object (world→clip is
+      // options.modelViewProjectionMatrix); older versions passed the matrix
+      // array directly. Support both.
+      const mvp = (options && options.modelViewProjectionMatrix) ? options.modelViewProjectionMatrix : options;
+      const m = new THREE.Matrix4().fromArray(mvp);
       const l = new THREE.Matrix4()
         .makeTranslation(merc.x, merc.y, merc.z)
         .scale(new THREE.Vector3(s, -s, s))
