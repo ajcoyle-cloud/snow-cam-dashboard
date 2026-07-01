@@ -749,6 +749,28 @@ function parseFzlStatement(s) {
   return { start, end, transHour }
 }
 
+// Open-Meteo occasionally drops a request with a transient network error or a
+// 429/5xx (AIFS in particular seems prone to this — it's a newer, presumably
+// less provisioned endpoint than GFS/ECMWF), which otherwise reads as "this
+// model is unavailable" and greys it out for the rest of the session. Retry
+// those cases with backoff; give up immediately on a genuine 4xx (bad request
+// params, wrong model name, etc.) since retrying can't fix that.
+async function fetchWithRetry(url, attempts = 3, baseDelayMs = 700) {
+  let last = null
+  for (let attempt = 0; attempt < attempts; attempt++) {
+    try {
+      const res = await fetch(url)
+      if (res.ok) return res
+      last = res
+      if (res.status !== 429 && res.status < 500) return res
+    } catch (e) {
+      last = null
+    }
+    if (attempt < attempts - 1) await new Promise((resolve) => setTimeout(resolve, baseDelayMs * (attempt + 1)))
+  }
+  return last
+}
+
 // Build the freezing-level series + full hourly forecast for a "secondary"
 // Open-Meteo model (ECMWF, AIFS, UKMO, ...) that — unlike GFS — doesn't expose
 // a direct freezinglevel_height field, so it's derived the same way as GFS's
@@ -1066,7 +1088,11 @@ function SnowfallForecast({ resort, setResort }) {
   // Which models get their own row in the data table below the chart — independent
   // per-model toggles (unlike the chart's freezing-line dropdown, this controls
   // full temp/precip/snow/wind rows, so it only lists models with full hourly data).
-  const [activeTableModels, setActiveTableModels] = useState({ gfs: true, ecmwf: false, aifs: false, ukmo: false, average: false })
+  // Table defaults to the Average row per parameter; expanding a parameter group
+  // reveals one row per model that's currently ticked in the Models dropdown
+  // (the same dropdown that drives the chart's freezing lines — one switcher
+  // for both surfaces instead of a separate table-only pill row).
+  const [expandedRows, setExpandedRows] = useState({})
   const [hoveredIndex, setHoveredIndex] = useState(null)
   const [mousePos, setMousePos] = useState({ x: 0, y: 0 })
   const [hoverLineX, setHoverLineX] = useState(null)
@@ -1100,19 +1126,19 @@ function SnowfallForecast({ resort, setResort }) {
         const ukmoSummitUrl = `https://api.open-meteo.com/v1/forecast?latitude=${r.lat}&longitude=${r.lon}&elevation=${r.summitElev}&hourly=temperature_2m,precipitation,precipitation_probability,snowfall,weather_code,windspeed_700hPa,winddirection_700hPa,windspeed_850hPa,winddirection_850hPa&models=ukmo_seamless&temperature_unit=celsius&wind_speed_unit=kmh&timezone=${r.timezone}&forecast_days=16`
         const ukmoBaseUrl = `https://api.open-meteo.com/v1/forecast?latitude=${r.lat}&longitude=${r.lon}&elevation=${r.baseElev}&hourly=temperature_2m,precipitation,precipitation_probability,snowfall,weather_code&models=ukmo_seamless&temperature_unit=celsius&timezone=${r.timezone}&forecast_days=16`
 
-        // ECMWF/AIFS/UKMO are optional extras — a network-level failure on any of
-        // them (not just a bad HTTP status) must never take down the primary GFS
-        // fetch, so each is caught individually instead of left to reject the
-        // shared Promise.all.
+        // ECMWF/AIFS/UKMO are optional extras — a failure on any of them (transient
+        // or not, network-level or a bad status) must never take down the primary
+        // GFS fetch. fetchWithRetry never rejects (it resolves to null on total
+        // failure), so none of these can reject the shared Promise.all either.
         const [summitRes, baseRes, ecmwfSummitRes, ecmwfBaseRes, aifsSummitRes, aifsBaseRes, ukmoSummitRes, ukmoBaseRes] = await Promise.all([
-          fetch(summitUrl), fetch(baseUrl),
-          fetch(ecmwfSummitUrl).catch(() => null), fetch(ecmwfBaseUrl).catch(() => null),
-          fetch(aifsSummitUrl).catch(() => null), fetch(aifsBaseUrl).catch(() => null),
-          fetch(ukmoSummitUrl).catch(() => null), fetch(ukmoBaseUrl).catch(() => null),
+          fetchWithRetry(summitUrl), fetchWithRetry(baseUrl),
+          fetchWithRetry(ecmwfSummitUrl), fetchWithRetry(ecmwfBaseUrl),
+          fetchWithRetry(aifsSummitUrl), fetchWithRetry(aifsBaseUrl),
+          fetchWithRetry(ukmoSummitUrl), fetchWithRetry(ukmoBaseUrl),
         ])
 
-        if (!summitRes.ok || !baseRes.ok) {
-          throw new Error(`API error: summit=${summitRes.status}, base=${baseRes.status}`)
+        if (!summitRes?.ok || !baseRes?.ok) {
+          throw new Error(`API error: summit=${summitRes?.status}, base=${baseRes?.status}`)
         }
 
         const [openMeteoSummitData, openMeteoBaseData, ecmwfSummitData, ecmwfBaseData, aifsSummitData, aifsBaseData, ukmoSummitData, ukmoBaseData] = await Promise.all([
@@ -1528,18 +1554,33 @@ function SnowfallForecast({ resort, setResort }) {
     { key: 'ukmo', label: 'UKMO', color: '#f472b6', rgb: '244, 114, 182', available: !!ukmoForecastData, data: ukmoTableData, getFreezing: (d) => d.freezingLevel, getPrecipFreezing: (d) => d.freezingLevel },
     { key: 'average', label: 'Average', color: '#e2e8f0', rgb: '226, 232, 240', available: !!averageForecastDataRaw, data: averageTableData, getFreezing: (d) => d.freezingLevel, getPrecipFreezing: (d) => d.freezingLevel },
   ]
-  const selectedTableModels = tableModels.filter(m => m.available && activeTableModels[m.key])
-  // Never render a completely empty table if every pill gets unticked.
-  const effectiveTableModels = selectedTableModels.length > 0 ? selectedTableModels : [tableModels[0]]
-  const multiModel = effectiveTableModels.length > 1
-  // In multi-model mode, only the first row of each parameter group names the
-  // parameter (e.g. "Temp (GFS)") — the rest just carry the model name, since
-  // repeating "Temp" on every row is redundant and the row's own text color
-  // already ties it back to that model.
-  const groupRowLabel = (idx, base, unit = '') => {
-    if (!multiModel) return unit ? `${base} ${unit}` : base
-    return idx === 0 ? `${base} (${effectiveTableModels[idx].label})` : `(${effectiveTableModels[idx].label})`
+  const averageModel = tableModels.find((m) => m.key === 'average')
+  // Collapsed (default): just the Average row. Expanded: one row per model
+  // ticked in the Models dropdown above the chart — falling back to Average
+  // alone if the user has unticked every real model there.
+  const rowsForGroup = (groupKey) => {
+    if (!expandedRows[groupKey]) return [averageModel]
+    const active = tableModels.filter((m) => m.available && showFreezing[m.key])
+    return active.length > 0 ? active : [averageModel]
   }
+  // Only the first row of each parameter group names the parameter (e.g.
+  // "Temp (GFS)") — the rest just carry the model name, since repeating
+  // "Temp" on every row is redundant and the row's own text color already
+  // ties it back to that model.
+  const groupRowLabel = (rows, idx, base, unit = '') => {
+    if (rows.length === 1) return unit ? `${base} ${unit}` : base
+    return idx === 0 ? `${base} (${rows[idx].label})` : `(${rows[idx].label})`
+  }
+  // Small expand/collapse arrow, shown once per group on its first row.
+  const expandArrow = (groupKey) => (
+    <button
+      onClick={() => setExpandedRows((s) => ({ ...s, [groupKey]: !s[groupKey] }))}
+      title={expandedRows[groupKey] ? 'Collapse to Average' : 'Expand to show each model'}
+      style={{ background: 'none', border: 'none', color: '#888', cursor: 'pointer', padding: 0, marginRight: 5, fontSize: '10px', verticalAlign: 'middle' }}
+    >
+      {expandedRows[groupKey] ? '▾' : '▸'}
+    </button>
+  )
 
   // Chart dimensions
   const chartWidth = 900
@@ -2299,10 +2340,12 @@ function SnowfallForecast({ resort, setResort }) {
             </tr>
           </thead>
           <tbody>
-            {/* Temperature rows — one per ticked model */}
-            {effectiveTableModels.map((m, idx) => (
+            {/* Temperature rows */}
+            {rowsForGroup('temp').map((m, idx, rows) => (
               <tr key={`temp-${m.key}`} style={{ height: '23px' }}>
-                <td style={{ width: `${snowPadding.left}px`, color: multiModel && idx === 0 ? '#fff' : undefined }}>{groupRowLabel(idx, 'Temp', '(°C)')}</td>
+                <td style={{ width: `${snowPadding.left}px`, color: rows.length > 1 && idx === 0 ? '#fff' : undefined }}>
+                  {idx === 0 && expandArrow('temp')}{groupRowLabel(rows, idx, 'Temp', '(°C)')}
+                </td>
                 {m.data.map((d, i) => {
                   const val = elevation === 'summit' ? d.summit.temp : d.base.temp
                   return (
@@ -2314,9 +2357,11 @@ function SnowfallForecast({ resort, setResort }) {
               </tr>
             ))}
             {/* Condition rows */}
-            {effectiveTableModels.map((m, idx) => (
+            {rowsForGroup('condition').map((m, idx, rows) => (
               <tr key={`cond-${m.key}`} style={{ height: '23px' }}>
-                <td style={{ width: `${snowPadding.left}px`, color: multiModel && idx === 0 ? '#fff' : undefined }}>{groupRowLabel(idx, 'Condition')}</td>
+                <td style={{ width: `${snowPadding.left}px`, color: rows.length > 1 && idx === 0 ? '#fff' : undefined }}>
+                  {idx === 0 && expandArrow('condition')}{groupRowLabel(rows, idx, 'Condition')}
+                </td>
                 {m.data.map((d, i) => {
                   const data = elevation === 'summit' ? d.summit : d.base
                   const icon = data.weatherCode != null
@@ -2331,9 +2376,11 @@ function SnowfallForecast({ resort, setResort }) {
               </tr>
             ))}
             {/* Precip rows */}
-            {effectiveTableModels.map((m, idx) => (
+            {rowsForGroup('precip').map((m, idx, rows) => (
               <tr key={`precip-${m.key}`} style={{ height: '23px' }}>
-                <td style={{ width: `${snowPadding.left}px`, color: multiModel && idx === 0 ? '#fff' : undefined }}>{groupRowLabel(idx, 'Precip', '(mm)')}</td>
+                <td style={{ width: `${snowPadding.left}px`, color: rows.length > 1 && idx === 0 ? '#fff' : undefined }}>
+                  {idx === 0 && expandArrow('precip')}{groupRowLabel(rows, idx, 'Precip', '(mm)')}
+                </td>
                 {m.data.map((d, i) => {
                   const data = elevation === 'summit' ? d.summit : d.base
                   const precip = data.precipitation
@@ -2353,9 +2400,11 @@ function SnowfallForecast({ resort, setResort }) {
               </tr>
             ))}
             {/* Snowfall rows */}
-            {effectiveTableModels.map((m, idx) => (
+            {rowsForGroup('snowfall').map((m, idx, rows) => (
               <tr key={`snow-${m.key}`} style={{ height: '23px' }}>
-                <td style={{ width: `${snowPadding.left}px`, color: multiModel && idx === 0 ? '#fff' : undefined }}>{groupRowLabel(idx, 'Snowfall', '(cm)')}</td>
+                <td style={{ width: `${snowPadding.left}px`, color: rows.length > 1 && idx === 0 ? '#fff' : undefined }}>
+                  {idx === 0 && expandArrow('snowfall')}{groupRowLabel(rows, idx, 'Snowfall', '(cm)')}
+                </td>
                 {m.data.map((d, i) => {
                   const dayIndex = viewMode === 'fit' ? Math.floor(i * FIT_GROUP / 24) : Math.floor(i / 24)
                   const isDayEven = dayIndex % 2 === 0
@@ -2382,9 +2431,11 @@ function SnowfallForecast({ resort, setResort }) {
               </tr>
             ))}
             {/* Wind at summit rows */}
-            {effectiveTableModels.map((m, idx) => (
+            {rowsForGroup('windSummit').map((m, idx, rows) => (
               <tr key={`windsummit-${m.key}`} style={{ height: '23px' }}>
-                <td style={{ width: `${snowPadding.left}px`, color: multiModel && idx === 0 ? '#fff' : undefined }}>{groupRowLabel(idx, `Wind ${RESORTS[resort].summitElev}m`)}</td>
+                <td style={{ width: `${snowPadding.left}px`, color: rows.length > 1 && idx === 0 ? '#fff' : undefined }}>
+                  {idx === 0 && expandArrow('windSummit')}{groupRowLabel(rows, idx, `Wind ${RESORTS[resort].summitElev}m`)}
+                </td>
                 {m.data.map((d, i) => {
                   const windKmh = d.summit.wind != null ? Math.round(d.summit.wind) : null
                   const arrow = getWindArrow(d.summit.windDir)
@@ -2397,9 +2448,11 @@ function SnowfallForecast({ resort, setResort }) {
               </tr>
             ))}
             {/* Wind at base rows */}
-            {effectiveTableModels.map((m, idx) => (
+            {rowsForGroup('windBase').map((m, idx, rows) => (
               <tr key={`windbase-${m.key}`} style={{ height: '23px' }}>
-                <td style={{ width: `${snowPadding.left}px`, color: multiModel && idx === 0 ? '#fff' : undefined }}>{groupRowLabel(idx, `Wind ${RESORTS[resort].baseElev}m`)}</td>
+                <td style={{ width: `${snowPadding.left}px`, color: rows.length > 1 && idx === 0 ? '#fff' : undefined }}>
+                  {idx === 0 && expandArrow('windBase')}{groupRowLabel(rows, idx, `Wind ${RESORTS[resort].baseElev}m`)}
+                </td>
                 {m.data.map((d, i) => {
                   const windKmh = d.base.wind != null ? Math.round(d.base.wind) : null
                   const arrow = getWindArrow(d.base.windDir)
@@ -2412,9 +2465,11 @@ function SnowfallForecast({ resort, setResort }) {
               </tr>
             ))}
             {/* Freezing level rows */}
-            {effectiveTableModels.map((m, idx) => (
+            {rowsForGroup('freezing').map((m, idx, rows) => (
               <tr key={`freezing-${m.key}`} style={{ height: '23px' }}>
-                <td style={{ width: `${snowPadding.left}px`, color: multiModel && idx === 0 ? '#fff' : undefined }}>{groupRowLabel(idx, 'Freezing', '(m)')}</td>
+                <td style={{ width: `${snowPadding.left}px`, color: rows.length > 1 && idx === 0 ? '#fff' : undefined }}>
+                  {idx === 0 && expandArrow('freezing')}{groupRowLabel(rows, idx, 'Freezing', '(m)')}
+                </td>
                 {m.data.map((d, i) => {
                   const val = m.getFreezing(d)
                   const isAboveSummit = val > RESORTS[resort].summitElev
@@ -2428,26 +2483,7 @@ function SnowfallForecast({ resort, setResort }) {
         </table>
       </div>
 
-      {/* Table model switcher — one pill per model, independently toggleable;
-          each ticked model gets its own row for every parameter above. */}
-      <div style={{ textAlign: 'center', marginTop: '6px', marginBottom: '6px' }}>
-        <div className="elevation-toggle">
-          {tableModels.filter(m => m.available).map(m => (
-            <button
-              key={m.key}
-              className={`toggle-btn ${activeTableModels[m.key] ? 'active' : ''}`}
-              onClick={() => setActiveTableModels(s => ({ ...s, [m.key]: !s[m.key] }))}
-              style={{ fontSize: '0.85em' }}
-            >
-              <span style={{ display: 'inline-block', width: 10, height: 3, background: m.color, borderRadius: 2, marginRight: 5, verticalAlign: 'middle' }} />
-              {m.label}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {/* Model run update countdowns — sit at the bottom, beneath the table's
-          model switcher. */}
+      {/* Model run update countdowns */}
       <div style={{ textAlign: 'center', color: '#555', fontSize: '11px', marginTop: '8px' }}>
         GFS next update in {nextGfsUpdate} &nbsp;·&nbsp; ECMWF next update in {nextEcmwfUpdate}
         {aifsForecastData && <> &nbsp;·&nbsp; AIFS next update in {nextAifsUpdate}</>}
