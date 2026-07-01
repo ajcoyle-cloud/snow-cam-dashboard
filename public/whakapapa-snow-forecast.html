@@ -6,9 +6,6 @@
 <title>Whakapapa — Snowfall Elevation Forecast</title>
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/maplibre-gl@5.23.0/dist/maplibre-gl.min.css" />
 <script src="https://cdn.jsdelivr.net/npm/maplibre-gl@5.23.0/dist/maplibre-gl.js"></script>
-<!-- three.js (r128 UMD) + OBJLoader for the 3D lodge model custom layer -->
-<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/OBJLoader.js"></script>
 <style>
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
   body {
@@ -700,211 +697,6 @@ function fmtTime(iso) {
   return d.toLocaleString('en-NZ', { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
 }
 
-// ── 3D lodge model (Iwikau Village, Whakapapa) ──────────────────────────────
-// Renders the WTMC building OBJ as a MapLibre custom layer via three.js,
-// geo-anchored at Iwikau Village and glued to the (exaggerated) terrain surface
-// so it sits at ground level. Position/scale are intentionally easy to tweak.
-//
-// Single source of truth for the terrain style's `exaggeration` value (used
-// by initMap's style.terrain below) — the lodge's terrain queries ask for
-// exaggerated elevation to match the rendered mesh, so any sanity check on
-// those readings must scale by this same factor too.
-const TERRAIN_EXAGGERATION = 1.2;
-
-const LODGE = {
-  // ~20m east of the "Base" pseudo pill (pwRenderPseudoPills, resortKey ===
-  // 'ruapehu': lat -39.236672, lon 175.556259, elev 1630) so the lodge and the
-  // pill are unambiguously the same spot on the map, offset just enough that
-  // the two markers don't overlap.
-  lngLat: [175.556491, -39.236672],
-  fallbackAltM: 1630,           // REAL (non-exaggerated) elevation matching the Base pseudo pill
-  targetWidthM: 30,             // real-world footprint width the model is scaled to
-  bearingDeg: 0,                // yaw about vertical; 0 = model's +Z faces north
-};
-
-// Tiny on-screen status readout so we can diagnose the 3D layer without the
-// browser console. Remove once the lodge is confirmed working.
-const lodgeDbg = { three: false, obj: false, model: 'pending', renders: 0, alt: null, altSource: '—', renderError: null };
-function showLodgeDbg() {
-  let el = document.getElementById('lodge-dbg');
-  if (!el) {
-    el = document.createElement('div');
-    el.id = 'lodge-dbg';
-    el.style.cssText = 'position:fixed;top:8px;left:8px;z-index:9999;font:11px/1.5 monospace;background:rgba(0,0,0,.72);color:#0f0;padding:6px 9px;border-radius:6px;white-space:pre;pointer-events:none;max-width:340px';
-    document.body.appendChild(el);
-  }
-  el.style.color = lodgeDbg.renderError ? '#f55' : '#0f0';
-  el.textContent =
-    'lodge debug\n' +
-    'THREE: ' + (lodgeDbg.three ? 'yes' : 'NO') + '\n' +
-    'OBJLoader: ' + (lodgeDbg.obj ? 'yes' : 'NO') + '\n' +
-    'model: ' + lodgeDbg.model + '\n' +
-    (lodgeDbg.renderError ? 'RENDER ERROR: ' + lodgeDbg.renderError + '\n' : '') +
-    'render calls: ' + lodgeDbg.renders + '\n' +
-    'alt used: ' + (lodgeDbg.alt == null ? '—' : lodgeDbg.alt.toFixed(1) + 'm') + ' (' + lodgeDbg.altSource + ')\n' +
-    'mvp valid: ' + (lodgeDbg.mvpOk == null ? '—' : lodgeDbg.mvpOk) + '  sample: ' + (lodgeDbg.mvpSample || '—') + '\n' +
-    'merc: ' + (lodgeDbg.merc ? 'x=' + lodgeDbg.merc.x.toFixed(5) + ' y=' + lodgeDbg.merc.y.toFixed(5) + ' z=' + lodgeDbg.merc.z.toExponential(3) + ' s=' + lodgeDbg.merc.s.toExponential(3) : '—') + '\n' +
-    'viewport forced: ' + (lodgeDbg.viewport || '—') + '  canvas: ' + (document.querySelector('#map canvas') ? document.querySelector('#map canvas').width + 'x' + document.querySelector('#map canvas').height : '—') + '\n' +
-    'test box: depthTest OFF (should always draw on top if pipeline works)';
-}
-
-function addLodgeModel(map) {
-  lodgeDbg.three = (typeof THREE !== 'undefined');
-  lodgeDbg.obj = lodgeDbg.three && !!THREE.OBJLoader;
-  showLodgeDbg();
-  if (!lodgeDbg.three || !lodgeDbg.obj) {
-    lodgeDbg.model = 'three/OBJLoader missing';
-    showLodgeDbg();
-    console.warn('[lodge] three.js / OBJLoader not loaded — 3D lodge skipped');
-    return;
-  }
-  if (map.getLayer('lodge-3d')) return;
-  console.info('[lodge] adding 3D lodge layer at', LODGE.lngLat);
-
-  let modelTransform = null;
-  const rotX = new THREE.Matrix4().makeRotationAxis(new THREE.Vector3(1, 0, 0), Math.PI / 2);
-
-  const layer = {
-    id: 'lodge-3d',
-    type: 'custom',
-    renderingMode: '3d',
-    onAdd(map, gl) {
-      this.map = map;
-      this.camera = new THREE.Camera();
-      this.scene = new THREE.Scene();
-      // Untextured OBJ (no MTL supplied) — light it so the massing reads.
-      this.scene.add(new THREE.AmbientLight(0xffffff, 0.75));
-      const sun = new THREE.DirectionalLight(0xffffff, 0.9);
-      sun.position.set(0.5, 1, 0.4).normalize();
-      this.scene.add(sun);
-
-      // TEMPORARY diagnostic: a 40x200x40m unlit magenta tower at the exact
-      // same anchor, added synchronously (no OBJ load / network dependency).
-      // If this doesn't appear, the bug is in the render pipeline itself
-      // (matrix/positioning/WebGL state) rather than the lodge model. If it
-      // DOES appear but the lodge still doesn't, the bug is specific to the
-      // OBJ geometry. Remove once the lodge is confirmed working.
-      // depthTest: false — MapLibre's 3D custom layers share the terrain's
-      // depth buffer (LEQUAL test). If our manually-computed depth isn't
-      // calibrated identically to terrain's own shader-computed depth, the
-      // whole box could uniformly fail the depth test and be discarded as
-      // "behind the mountain" even though it's visually grounded correctly.
-      // Ignoring depth here forces it to draw regardless, to test that theory.
-      const testBox = new THREE.Mesh(
-        new THREE.BoxGeometry(40, 200, 40),
-        new THREE.MeshBasicMaterial({ color: 0xff00ff, side: THREE.DoubleSide, depthTest: false })
-      );
-      testBox.renderOrder = 999;
-      testBox.position.set(0, 100, 0); // base at local y=0 (ground), rises 200m
-      this.scene.add(testBox);
-
-      new THREE.OBJLoader().load('/models/Building_dnt_V02.obj', (obj) => {
-        obj.traverse((c) => {
-          // side: DoubleSide — this OBJ was exported from 3ds Max, whose face
-          // winding convention often comes out reversed from what three.js
-          // expects. With the default FrontSide, every triangle with flipped
-          // winding is backface-culled and invisible even though position/
-          // scale are correct. Rendering both sides costs little for a single
-          // building and removes the winding-direction guesswork entirely.
-          if (c.isMesh) c.material = new THREE.MeshPhongMaterial({ color: 0xd9d2c5, shininess: 8, side: THREE.DoubleSide });
-        });
-        // Recentre horizontally, drop base to y=0, scale to target size, apply yaw.
-        const box = new THREE.Box3().setFromObject(obj);
-        const c = box.getCenter(new THREE.Vector3());
-        const size = box.getSize(new THREE.Vector3());
-        obj.position.set(-c.x, -box.min.y, -c.z);
-        const group = new THREE.Group();
-        group.add(obj);
-        group.scale.setScalar(LODGE.targetWidthM / Math.max(size.x, size.z));
-        group.rotation.y = (LODGE.bearingDeg * Math.PI) / 180;
-        this.model = group;
-        this.scene.add(group);
-        lodgeDbg.model = 'loaded (scale ' + group.scale.x.toFixed(3) + ')';
-        showLodgeDbg();
-        console.info('[lodge] model loaded; scale', group.scale.x.toFixed(4));
-        map.triggerRepaint();
-      }, undefined, (err) => {
-        lodgeDbg.model = 'LOAD ERROR';
-        showLodgeDbg();
-        console.error('[lodge] OBJ failed to load /models/Building_dnt_V02.obj', err);
-      });
-
-      this.renderer = new THREE.WebGLRenderer({ canvas: map.getCanvas(), context: gl, antialias: true });
-      this.renderer.autoClear = false;
-    },
-    render(gl, options) {
-      const doDbg = lodgeDbg.renders < 3 || lodgeDbg.renders % 120 === 0;
-      lodgeDbg.renders++;
-      // NOTE: no longer bails out when the OBJ hasn't loaded yet — the scene
-      // already has the lights + magenta diagnostic test box added
-      // synchronously in onAdd, so it should draw regardless of model state.
-      // Glue to the visible (exaggerated) terrain surface each frame. The
-      // query is asked for the EXAGGERATED elevation (matching the terrain
-      // style's `exaggeration: 1.2`, see initMap) so the building sits flush
-      // with the rendered mesh rather than floating above or sinking below
-      // it — but that means a live reading must be sanity-checked against
-      // fallbackAltM * TERRAIN_EXAGGERATION, not the raw fallback, or every
-      // sloped point looks like a "spike" simply from the 1.2x stretch.
-      const expectedExaggerated = LODGE.fallbackAltM * TERRAIN_EXAGGERATION;
-      const MAX_DEVIATION_M = 150; // in exaggerated-metres, i.e. real-world slope tolerance
-      let alt = this.map.queryTerrainElevation(LODGE.lngLat, { exaggerated: true });
-      if (alt == null || isNaN(alt)) {
-        alt = expectedExaggerated;
-        lodgeDbg.altSource = 'FALLBACK — real DEM query returned null';
-      } else if (Math.abs(alt - expectedExaggerated) > MAX_DEVIATION_M) {
-        lodgeDbg.altSource = 'FALLBACK — live query (' + alt.toFixed(0) + 'm) looked spurious';
-        alt = expectedExaggerated;
-      } else {
-        lodgeDbg.altSource = 'live terrain query';
-      }
-      lodgeDbg.alt = alt;
-      const merc = maplibregl.MercatorCoordinate.fromLngLat(LODGE.lngLat, alt);
-      const s = merc.meterInMercatorCoordinateUnits();
-
-      // MapLibre v5 passes an options object (world→clip is
-      // options.modelViewProjectionMatrix); older versions passed the matrix
-      // array directly. Support both.
-      const mvp = (options && options.modelViewProjectionMatrix) ? options.modelViewProjectionMatrix : options;
-      lodgeDbg.merc = { x: merc.x, y: merc.y, z: merc.z, s };
-      lodgeDbg.mvpOk = Array.isArray(mvp) || (mvp && mvp.length === 16);
-      lodgeDbg.mvpSample = mvp ? Array.from(mvp).slice(0, 4).map(n => Number(n).toFixed(3)).join(',') : 'null';
-      if (doDbg) showLodgeDbg();
-      const m = new THREE.Matrix4().fromArray(mvp);
-      const l = new THREE.Matrix4()
-        .makeTranslation(merc.x, merc.y, merc.z)
-        .scale(new THREE.Vector3(s, -s, s))
-        .multiply(rotX);
-      this.camera.projectionMatrix = m.multiply(l);
-      // The render-calls counter above increments before this point, so if
-      // this actual WebGL draw call throws every frame, the badge would
-      // still show a healthy climbing count while nothing ever reaches the
-      // screen. Catch and surface any such error instead of failing silently.
-      try {
-        this.renderer.resetState();
-        // three.js's resetState() (see state.reset() in WebGLState.js) resets
-        // blend/depth/stencil/framebuffer but NEVER touches the viewport —
-        // and we never call setViewport/setSize anywhere either. So the
-        // active viewport is just whatever MapLibre's or three.js's own
-        // internal cache last left it as; if the two libraries' caches
-        // disagree about the real GL state (classic shared-context hazard),
-        // our draws could silently land in a stale/wrong rectangle. Force it
-        // to the full drawing buffer every frame, bypassing both caches.
-        this.renderer.setViewport(0, 0, gl.drawingBufferWidth, gl.drawingBufferHeight);
-        lodgeDbg.viewport = gl.drawingBufferWidth + 'x' + gl.drawingBufferHeight;
-        this.renderer.render(this.scene, this.camera);
-        lodgeDbg.renderError = null;
-      } catch (err) {
-        lodgeDbg.renderError = String((err && err.message) || err);
-        console.error('[lodge] renderer.render threw', err);
-      }
-      if (doDbg) showLodgeDbg();
-      this.map.triggerRepaint();
-    },
-  };
-
-  map.addLayer(layer);
-}
-
 // ── Map ────────────────────────────────────────────────────────────────────
 let map = null;
 
@@ -949,7 +741,7 @@ function initMap() {
           paint: { 'color-relief-color': ['interpolate', ['linear'], ['elevation'], 0, 'rgba(255,255,255,0)'] }
         }
       ],
-      terrain: { source: 'terrain', exaggeration: TERRAIN_EXAGGERATION }
+      terrain: { source: 'terrain', exaggeration: 1.2 }
     }
   });
 
@@ -993,18 +785,6 @@ function initMap() {
     }
     // Live PredictWind observation pills + temperature profile (both resorts).
     initStationPill();
-
-    // 3D lodge model — Whakapapa only (Iwikau Village).
-    if (resortKey === 'ruapehu') {
-      addLodgeModel(map);
-      // Diagnostic locator pin at the exact model coordinate: independent of
-      // three.js/WebGL, so if the 3D lodge is invisible this still marks the
-      // spot and tells us whether it's a placement vs rendering problem.
-      new maplibregl.Marker({ color: '#ff2d55' })
-        .setLngLat(LODGE.lngLat)
-        .setPopup(new maplibregl.Popup({ offset: 24 }).setText('WTMC lodge — next to Base pseudo pill'))
-        .addTo(map);
-    }
   });
 
   map.addControl(new maplibregl.NavigationControl({ visualizePitch: true, showZoom: true, showCompass: true }), 'top-right');
