@@ -1047,9 +1047,15 @@ function SnowfallForecast({ resort, setResort }) {
         const ukmoSummitUrl = `https://api.open-meteo.com/v1/forecast?latitude=${r.lat}&longitude=${r.lon}&elevation=${r.summitElev}&hourly=temperature_2m,precipitation,precipitation_probability,snowfall,weather_code,windspeed_700hPa,winddirection_700hPa,windspeed_850hPa,winddirection_850hPa&models=ukmo_seamless&temperature_unit=celsius&wind_speed_unit=kmh&timezone=${r.timezone}&forecast_days=16`
         const ukmoBaseUrl = `https://api.open-meteo.com/v1/forecast?latitude=${r.lat}&longitude=${r.lon}&elevation=${r.baseElev}&hourly=temperature_2m,precipitation,precipitation_probability,snowfall,weather_code&models=ukmo_seamless&temperature_unit=celsius&timezone=${r.timezone}&forecast_days=16`
 
+        // ECMWF/AIFS/UKMO are optional extras — a network-level failure on any of
+        // them (not just a bad HTTP status) must never take down the primary GFS
+        // fetch, so each is caught individually instead of left to reject the
+        // shared Promise.all.
         const [summitRes, baseRes, ecmwfSummitRes, ecmwfBaseRes, aifsSummitRes, aifsBaseRes, ukmoSummitRes, ukmoBaseRes] = await Promise.all([
-          fetch(summitUrl), fetch(baseUrl), fetch(ecmwfSummitUrl), fetch(ecmwfBaseUrl),
-          fetch(aifsSummitUrl), fetch(aifsBaseUrl), fetch(ukmoSummitUrl), fetch(ukmoBaseUrl),
+          fetch(summitUrl), fetch(baseUrl),
+          fetch(ecmwfSummitUrl).catch(() => null), fetch(ecmwfBaseUrl).catch(() => null),
+          fetch(aifsSummitUrl).catch(() => null), fetch(aifsBaseUrl).catch(() => null),
+          fetch(ukmoSummitUrl).catch(() => null), fetch(ukmoBaseUrl).catch(() => null),
         ])
 
         if (!summitRes.ok || !baseRes.ok) {
@@ -1058,9 +1064,12 @@ function SnowfallForecast({ resort, setResort }) {
 
         const [openMeteoSummitData, openMeteoBaseData, ecmwfSummitData, ecmwfBaseData, aifsSummitData, aifsBaseData, ukmoSummitData, ukmoBaseData] = await Promise.all([
           summitRes.json(), baseRes.json(),
-          ecmwfSummitRes.ok ? ecmwfSummitRes.json() : Promise.resolve(null), ecmwfBaseRes.ok ? ecmwfBaseRes.json() : Promise.resolve(null),
-          aifsSummitRes.ok ? aifsSummitRes.json() : Promise.resolve(null), aifsBaseRes.ok ? aifsBaseRes.json() : Promise.resolve(null),
-          ukmoSummitRes.ok ? ukmoSummitRes.json() : Promise.resolve(null), ukmoBaseRes.ok ? ukmoBaseRes.json() : Promise.resolve(null),
+          ecmwfSummitRes?.ok ? ecmwfSummitRes.json().catch(() => null) : Promise.resolve(null),
+          ecmwfBaseRes?.ok ? ecmwfBaseRes.json().catch(() => null) : Promise.resolve(null),
+          aifsSummitRes?.ok ? aifsSummitRes.json().catch(() => null) : Promise.resolve(null),
+          aifsBaseRes?.ok ? aifsBaseRes.json().catch(() => null) : Promise.resolve(null),
+          ukmoSummitRes?.ok ? ukmoSummitRes.json().catch(() => null) : Promise.resolve(null),
+          ukmoBaseRes?.ok ? ukmoBaseRes.json().catch(() => null) : Promise.resolve(null),
         ])
 
         if (!openMeteoSummitData || !openMeteoBaseData) {
