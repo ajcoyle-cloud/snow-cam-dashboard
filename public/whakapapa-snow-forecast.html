@@ -741,7 +741,9 @@ function showLodgeDbg() {
     'model: ' + lodgeDbg.model + '\n' +
     (lodgeDbg.renderError ? 'RENDER ERROR: ' + lodgeDbg.renderError + '\n' : '') +
     'render calls: ' + lodgeDbg.renders + '\n' +
-    'alt used: ' + (lodgeDbg.alt == null ? '—' : lodgeDbg.alt.toFixed(1) + 'm') + ' (' + lodgeDbg.altSource + ')';
+    'alt used: ' + (lodgeDbg.alt == null ? '—' : lodgeDbg.alt.toFixed(1) + 'm') + ' (' + lodgeDbg.altSource + ')\n' +
+    'mvp valid: ' + (lodgeDbg.mvpOk == null ? '—' : lodgeDbg.mvpOk) + '  sample: ' + (lodgeDbg.mvpSample || '—') + '\n' +
+    'merc: ' + (lodgeDbg.merc ? 'x=' + lodgeDbg.merc.x.toFixed(5) + ' y=' + lodgeDbg.merc.y.toFixed(5) + ' z=' + lodgeDbg.merc.z.toExponential(3) + ' s=' + lodgeDbg.merc.s.toExponential(3) : '—');
 }
 
 function addLodgeModel(map) {
@@ -847,7 +849,6 @@ function addLodgeModel(map) {
         lodgeDbg.altSource = 'live terrain query';
       }
       lodgeDbg.alt = alt;
-      if (doDbg) showLodgeDbg();
       const merc = maplibregl.MercatorCoordinate.fromLngLat(LODGE.lngLat, alt);
       const s = merc.meterInMercatorCoordinateUnits();
 
@@ -855,6 +856,10 @@ function addLodgeModel(map) {
       // options.modelViewProjectionMatrix); older versions passed the matrix
       // array directly. Support both.
       const mvp = (options && options.modelViewProjectionMatrix) ? options.modelViewProjectionMatrix : options;
+      lodgeDbg.merc = { x: merc.x, y: merc.y, z: merc.z, s };
+      lodgeDbg.mvpOk = Array.isArray(mvp) || (mvp && mvp.length === 16);
+      lodgeDbg.mvpSample = mvp ? Array.from(mvp).slice(0, 4).map(n => Number(n).toFixed(3)).join(',') : 'null';
+      if (doDbg) showLodgeDbg();
       const m = new THREE.Matrix4().fromArray(mvp);
       const l = new THREE.Matrix4()
         .makeTranslation(merc.x, merc.y, merc.z)
