@@ -774,7 +774,13 @@ function addLodgeModel(map) {
 
       new THREE.OBJLoader().load('/models/Building_dnt_V02.obj', (obj) => {
         obj.traverse((c) => {
-          if (c.isMesh) c.material = new THREE.MeshPhongMaterial({ color: 0xd9d2c5, shininess: 8 });
+          // side: DoubleSide — this OBJ was exported from 3ds Max, whose face
+          // winding convention often comes out reversed from what three.js
+          // expects. With the default FrontSide, every triangle with flipped
+          // winding is backface-culled and invisible even though position/
+          // scale are correct. Rendering both sides costs little for a single
+          // building and removes the winding-direction guesswork entirely.
+          if (c.isMesh) c.material = new THREE.MeshPhongMaterial({ color: 0xd9d2c5, shininess: 8, side: THREE.DoubleSide });
         });
         // Recentre horizontally, drop base to y=0, scale to target size, apply yaw.
         const box = new THREE.Box3().setFromObject(obj);
