@@ -724,20 +724,22 @@ const LODGE = {
 
 // Tiny on-screen status readout so we can diagnose the 3D layer without the
 // browser console. Remove once the lodge is confirmed working.
-const lodgeDbg = { three: false, obj: false, model: 'pending', renders: 0, alt: null, altSource: '—' };
+const lodgeDbg = { three: false, obj: false, model: 'pending', renders: 0, alt: null, altSource: '—', renderError: null };
 function showLodgeDbg() {
   let el = document.getElementById('lodge-dbg');
   if (!el) {
     el = document.createElement('div');
     el.id = 'lodge-dbg';
-    el.style.cssText = 'position:fixed;top:8px;left:8px;z-index:9999;font:11px/1.5 monospace;background:rgba(0,0,0,.72);color:#0f0;padding:6px 9px;border-radius:6px;white-space:pre;pointer-events:none';
+    el.style.cssText = 'position:fixed;top:8px;left:8px;z-index:9999;font:11px/1.5 monospace;background:rgba(0,0,0,.72);color:#0f0;padding:6px 9px;border-radius:6px;white-space:pre;pointer-events:none;max-width:340px';
     document.body.appendChild(el);
   }
+  el.style.color = lodgeDbg.renderError ? '#f55' : '#0f0';
   el.textContent =
     'lodge debug\n' +
     'THREE: ' + (lodgeDbg.three ? 'yes' : 'NO') + '\n' +
     'OBJLoader: ' + (lodgeDbg.obj ? 'yes' : 'NO') + '\n' +
     'model: ' + lodgeDbg.model + '\n' +
+    (lodgeDbg.renderError ? 'RENDER ERROR: ' + lodgeDbg.renderError + '\n' : '') +
     'render calls: ' + lodgeDbg.renders + '\n' +
     'alt used: ' + (lodgeDbg.alt == null ? '—' : lodgeDbg.alt.toFixed(1) + 'm') + ' (' + lodgeDbg.altSource + ')';
 }
@@ -771,6 +773,19 @@ function addLodgeModel(map) {
       const sun = new THREE.DirectionalLight(0xffffff, 0.9);
       sun.position.set(0.5, 1, 0.4).normalize();
       this.scene.add(sun);
+
+      // TEMPORARY diagnostic: a 40x200x40m unlit magenta tower at the exact
+      // same anchor, added synchronously (no OBJ load / network dependency).
+      // If this doesn't appear, the bug is in the render pipeline itself
+      // (matrix/positioning/WebGL state) rather than the lodge model. If it
+      // DOES appear but the lodge still doesn't, the bug is specific to the
+      // OBJ geometry. Remove once the lodge is confirmed working.
+      const testBox = new THREE.Mesh(
+        new THREE.BoxGeometry(40, 200, 40),
+        new THREE.MeshBasicMaterial({ color: 0xff00ff, side: THREE.DoubleSide })
+      );
+      testBox.position.set(0, 100, 0); // base at local y=0 (ground), rises 200m
+      this.scene.add(testBox);
 
       new THREE.OBJLoader().load('/models/Building_dnt_V02.obj', (obj) => {
         obj.traverse((c) => {
@@ -809,7 +824,9 @@ function addLodgeModel(map) {
     render(gl, options) {
       const doDbg = lodgeDbg.renders < 3 || lodgeDbg.renders % 120 === 0;
       lodgeDbg.renders++;
-      if (!this.model) { if (doDbg) showLodgeDbg(); return; } // still loading
+      // NOTE: no longer bails out when the OBJ hasn't loaded yet — the scene
+      // already has the lights + magenta diagnostic test box added
+      // synchronously in onAdd, so it should draw regardless of model state.
       // Glue to the visible (exaggerated) terrain surface each frame. The
       // query is asked for the EXAGGERATED elevation (matching the terrain
       // style's `exaggeration: 1.2`, see initMap) so the building sits flush
@@ -844,8 +861,19 @@ function addLodgeModel(map) {
         .scale(new THREE.Vector3(s, -s, s))
         .multiply(rotX);
       this.camera.projectionMatrix = m.multiply(l);
-      this.renderer.resetState();
-      this.renderer.render(this.scene, this.camera);
+      // The render-calls counter above increments before this point, so if
+      // this actual WebGL draw call throws every frame, the badge would
+      // still show a healthy climbing count while nothing ever reaches the
+      // screen. Catch and surface any such error instead of failing silently.
+      try {
+        this.renderer.resetState();
+        this.renderer.render(this.scene, this.camera);
+        lodgeDbg.renderError = null;
+      } catch (err) {
+        lodgeDbg.renderError = String((err && err.message) || err);
+        console.error('[lodge] renderer.render threw', err);
+      }
+      if (doDbg) showLodgeDbg();
       this.map.triggerRepaint();
     },
   };
