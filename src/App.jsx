@@ -790,7 +790,7 @@ function buildAltModelData(summitData, baseData, r) {
         precipProbability: summitData.hourly.precipitation_probability?.[i] ?? null,
         snowfall: summitSnowfall,
         snowfraction: summitSnowfall > 0 ? summitSnowfall / Math.max(summitPrecip, 0.1) : 0,
-        wind: summitData.hourly.windspeed_700hPa?.[i],
+        wind: summitData.hourly.windspeed_700hPa?.[i] ?? null,
         windDir: summitData.hourly.winddirection_700hPa?.[i] ?? 0,
         weatherCode: summitData.hourly.weather_code?.[i]
       },
@@ -800,7 +800,7 @@ function buildAltModelData(summitData, baseData, r) {
         precipProbability: baseData.hourly.precipitation_probability?.[i] ?? null,
         snowfall: baseSnowfall,
         snowfraction: baseSnowfall > 0 ? baseSnowfall / Math.max(basePrecip, 0.1) : 0,
-        wind: summitData.hourly.windspeed_850hPa?.[i],
+        wind: summitData.hourly.windspeed_850hPa?.[i] ?? null,
         windDir: summitData.hourly.winddirection_850hPa?.[i] ?? 0,
         weatherCode: baseData.hourly.weather_code?.[i]
       }
@@ -1039,7 +1039,9 @@ function SnowfallForecast({ resort, setResort }) {
         const ecmwfSummitUrl = `https://api.open-meteo.com/v1/forecast?latitude=${r.lat}&longitude=${r.lon}&elevation=${r.summitElev}&hourly=temperature_2m,precipitation,precipitation_probability,snowfall,weather_code,windspeed_700hPa,winddirection_700hPa,windspeed_850hPa,winddirection_850hPa&models=ecmwf_ifs025&temperature_unit=celsius&wind_speed_unit=kmh&timezone=${r.timezone}&forecast_days=16`
         const ecmwfBaseUrl = `https://api.open-meteo.com/v1/forecast?latitude=${r.lat}&longitude=${r.lon}&elevation=${r.baseElev}&hourly=temperature_2m,precipitation,precipitation_probability,snowfall,weather_code&models=ecmwf_ifs025&temperature_unit=celsius&timezone=${r.timezone}&forecast_days=16`
         // ECMWF's AI-based AIFS model — 0.25° global, 6-hourly steps (Open-Meteo interpolates to hourly).
-        const aifsSummitUrl = `https://api.open-meteo.com/v1/forecast?latitude=${r.lat}&longitude=${r.lon}&elevation=${r.summitElev}&hourly=temperature_2m,precipitation,precipitation_probability,snowfall,weather_code,windspeed_700hPa,winddirection_700hPa,windspeed_850hPa,winddirection_850hPa&models=ecmwf_aifs025&temperature_unit=celsius&wind_speed_unit=kmh&timezone=${r.timezone}&forecast_days=16`
+        // Unlike IFS, AIFS doesn't produce pressure-level wind (open-meteo/open-meteo#697), so
+        // requesting windspeed_700hPa/850hPa here fails the whole call and silently drops AIFS entirely.
+        const aifsSummitUrl = `https://api.open-meteo.com/v1/forecast?latitude=${r.lat}&longitude=${r.lon}&elevation=${r.summitElev}&hourly=temperature_2m,precipitation,precipitation_probability,snowfall,weather_code&models=ecmwf_aifs025&temperature_unit=celsius&wind_speed_unit=kmh&timezone=${r.timezone}&forecast_days=16`
         const aifsBaseUrl = `https://api.open-meteo.com/v1/forecast?latitude=${r.lat}&longitude=${r.lon}&elevation=${r.baseElev}&hourly=temperature_2m,precipitation,precipitation_probability,snowfall,weather_code&models=ecmwf_aifs025&temperature_unit=celsius&timezone=${r.timezone}&forecast_days=16`
         // UK Met Office seamless (global 10km, falls back from the UK-only 2km model outside Britain) — only a 7-day horizon.
         const ukmoSummitUrl = `https://api.open-meteo.com/v1/forecast?latitude=${r.lat}&longitude=${r.lon}&elevation=${r.summitElev}&hourly=temperature_2m,precipitation,precipitation_probability,snowfall,weather_code,windspeed_700hPa,winddirection_700hPa,windspeed_850hPa,winddirection_850hPa&models=ukmo_seamless&temperature_unit=celsius&wind_speed_unit=kmh&timezone=${r.timezone}&forecast_days=16`
@@ -1389,7 +1391,7 @@ function SnowfallForecast({ resort, setResort }) {
             precipitation: group.reduce((s, d) => s + d.summit.precipitation, 0),
             precipProbability: (() => { const vals = group.map(d => d.summit.precipProbability).filter(v => v !== null); return vals.length ? Math.round(vals.reduce((s, v) => s + v, 0) / vals.length) : null })(),
             snowfall: group.reduce((s, d) => s + d.summit.snowfall, 0),
-            wind: Math.max(...group.map(d => d.summit.wind)),
+            wind: (() => { const vals = group.map(d => d.summit.wind).filter(v => v != null); return vals.length ? Math.max(...vals) : null })(),
             windDir: mid.summit.windDir,
             weatherCode: mid.summit.weatherCode,
           },
@@ -1398,7 +1400,7 @@ function SnowfallForecast({ resort, setResort }) {
             precipitation: group.reduce((s, d) => s + d.base.precipitation, 0),
             precipProbability: (() => { const vals = group.map(d => d.base.precipProbability).filter(v => v !== null); return vals.length ? Math.round(vals.reduce((s, v) => s + v, 0) / vals.length) : null })(),
             snowfall: group.reduce((s, d) => s + d.base.snowfall, 0),
-            wind: Math.max(...group.map(d => d.base.wind)),
+            wind: (() => { const vals = group.map(d => d.base.wind).filter(v => v != null); return vals.length ? Math.max(...vals) : null })(),
             windDir: mid.base.windDir,
             weatherCode: mid.base.weatherCode,
           }
@@ -1425,7 +1427,7 @@ function SnowfallForecast({ resort, setResort }) {
             precipitation: group.reduce((s, d) => s + d.summit.precipitation, 0),
             precipProbability: (() => { const vals = group.map(d => d.summit.precipProbability).filter(v => v !== null); return vals.length ? Math.round(vals.reduce((s, v) => s + v, 0) / vals.length) : null })(),
             snowfall: group.reduce((s, d) => s + d.summit.snowfall, 0),
-            wind: Math.max(...group.map(d => d.summit.wind)),
+            wind: (() => { const vals = group.map(d => d.summit.wind).filter(v => v != null); return vals.length ? Math.max(...vals) : null })(),
             windDir: mid.summit.windDir,
             weatherCode: mid.summit.weatherCode,
           },
@@ -1434,7 +1436,7 @@ function SnowfallForecast({ resort, setResort }) {
             precipitation: group.reduce((s, d) => s + d.base.precipitation, 0),
             precipProbability: (() => { const vals = group.map(d => d.base.precipProbability).filter(v => v !== null); return vals.length ? Math.round(vals.reduce((s, v) => s + v, 0) / vals.length) : null })(),
             snowfall: group.reduce((s, d) => s + d.base.snowfall, 0),
-            wind: Math.max(...group.map(d => d.base.wind)),
+            wind: (() => { const vals = group.map(d => d.base.wind).filter(v => v != null); return vals.length ? Math.max(...vals) : null })(),
             windDir: mid.base.windDir,
             weatherCode: mid.base.weatherCode,
           }
@@ -2295,10 +2297,12 @@ function SnowfallForecast({ resort, setResort }) {
               <tr key={`windsummit-${m.key}`} style={{ height: '23px' }}>
                 <td style={{ width: `${snowPadding.left}px` }}>Wind {RESORTS[resort].summitElev}m {multiModel ? `(${m.label})` : ''}</td>
                 {m.data.map((d, i) => {
-                  const windKmh = Math.round(d.summit.wind)
+                  const windKmh = d.summit.wind != null ? Math.round(d.summit.wind) : null
                   const arrow = getWindArrow(d.summit.windDir)
                   return (
-                    <td key={i} style={{ width: `${tableCellWidth}px`, background: 'rgba(26, 26, 26, 0.15)', color: m.key === 'gfs' ? undefined : m.color }}>{windKmh} <span style={{ fontSize: '18px' }}>{arrow}</span></td>
+                    <td key={i} style={{ width: `${tableCellWidth}px`, background: 'rgba(26, 26, 26, 0.15)', color: m.key === 'gfs' ? undefined : m.color }}>
+                      {windKmh != null ? <>{windKmh} <span style={{ fontSize: '18px' }}>{arrow}</span></> : '—'}
+                    </td>
                   )
                 })}
               </tr>
@@ -2308,10 +2312,12 @@ function SnowfallForecast({ resort, setResort }) {
               <tr key={`windbase-${m.key}`} style={{ height: '23px' }}>
                 <td style={{ width: `${snowPadding.left}px` }}>Wind {RESORTS[resort].baseElev}m {multiModel ? `(${m.label})` : ''}</td>
                 {m.data.map((d, i) => {
-                  const windKmh = Math.round(d.base.wind)
+                  const windKmh = d.base.wind != null ? Math.round(d.base.wind) : null
                   const arrow = getWindArrow(d.base.windDir)
                   return (
-                    <td key={i} style={{ width: `${tableCellWidth}px`, background: 'rgba(26, 26, 26, 0.15)', color: m.key === 'gfs' ? undefined : m.color }}>{windKmh} <span style={{ fontSize: '18px' }}>{arrow}</span></td>
+                    <td key={i} style={{ width: `${tableCellWidth}px`, background: 'rgba(26, 26, 26, 0.15)', color: m.key === 'gfs' ? undefined : m.color }}>
+                      {windKmh != null ? <>{windKmh} <span style={{ fontSize: '18px' }}>{arrow}</span></> : '—'}
+                    </td>
                   )
                 })}
               </tr>
