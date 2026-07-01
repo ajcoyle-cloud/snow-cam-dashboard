@@ -877,7 +877,16 @@ function initMap() {
     initStationPill();
 
     // 3D lodge model — Whakapapa only (Iwikau Village).
-    if (resortKey === 'ruapehu') addLodgeModel(map);
+    if (resortKey === 'ruapehu') {
+      addLodgeModel(map);
+      // Diagnostic locator pin at the exact model coordinate: independent of
+      // three.js/WebGL, so if the 3D lodge is invisible this still marks the
+      // spot and tells us whether it's a placement vs rendering problem.
+      new maplibregl.Marker({ color: '#ff2d55' })
+        .setLngLat(LODGE.lngLat)
+        .setPopup(new maplibregl.Popup({ offset: 24 }).setText('WTMC lodge — Iwikau Village'))
+        .addTo(map);
+    }
   });
 
   map.addControl(new maplibregl.NavigationControl({ visualizePitch: true, showZoom: true, showCompass: true }), 'top-right');
