@@ -743,7 +743,8 @@ function showLodgeDbg() {
     'render calls: ' + lodgeDbg.renders + '\n' +
     'alt used: ' + (lodgeDbg.alt == null ? '—' : lodgeDbg.alt.toFixed(1) + 'm') + ' (' + lodgeDbg.altSource + ')\n' +
     'mvp valid: ' + (lodgeDbg.mvpOk == null ? '—' : lodgeDbg.mvpOk) + '  sample: ' + (lodgeDbg.mvpSample || '—') + '\n' +
-    'merc: ' + (lodgeDbg.merc ? 'x=' + lodgeDbg.merc.x.toFixed(5) + ' y=' + lodgeDbg.merc.y.toFixed(5) + ' z=' + lodgeDbg.merc.z.toExponential(3) + ' s=' + lodgeDbg.merc.s.toExponential(3) : '—');
+    'merc: ' + (lodgeDbg.merc ? 'x=' + lodgeDbg.merc.x.toFixed(5) + ' y=' + lodgeDbg.merc.y.toFixed(5) + ' z=' + lodgeDbg.merc.z.toExponential(3) + ' s=' + lodgeDbg.merc.s.toExponential(3) : '—') + '\n' +
+    'test box: depthTest OFF (should always draw on top if pipeline works)';
 }
 
 function addLodgeModel(map) {
@@ -782,10 +783,17 @@ function addLodgeModel(map) {
       // (matrix/positioning/WebGL state) rather than the lodge model. If it
       // DOES appear but the lodge still doesn't, the bug is specific to the
       // OBJ geometry. Remove once the lodge is confirmed working.
+      // depthTest: false — MapLibre's 3D custom layers share the terrain's
+      // depth buffer (LEQUAL test). If our manually-computed depth isn't
+      // calibrated identically to terrain's own shader-computed depth, the
+      // whole box could uniformly fail the depth test and be discarded as
+      // "behind the mountain" even though it's visually grounded correctly.
+      // Ignoring depth here forces it to draw regardless, to test that theory.
       const testBox = new THREE.Mesh(
         new THREE.BoxGeometry(40, 200, 40),
-        new THREE.MeshBasicMaterial({ color: 0xff00ff, side: THREE.DoubleSide })
+        new THREE.MeshBasicMaterial({ color: 0xff00ff, side: THREE.DoubleSide, depthTest: false })
       );
+      testBox.renderOrder = 999;
       testBox.position.set(0, 100, 0); // base at local y=0 (ground), rises 200m
       this.scene.add(testBox);
 
