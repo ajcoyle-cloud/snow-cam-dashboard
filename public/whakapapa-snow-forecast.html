@@ -705,8 +705,12 @@ function fmtTime(iso) {
 // geo-anchored at Iwikau Village and glued to the (exaggerated) terrain surface
 // so it sits at ground level. Position/scale are intentionally easy to tweak.
 const LODGE = {
-  lngLat: [175.5583, -39.2542], // Iwikau Village — nudge to taste
-  fallbackAltM: 1630,           // used until the DEM tile for this point loads (Whakapapa base elev per RESORTS)
+  // ~20m east of the "Base" pseudo pill (pwRenderPseudoPills, resortKey ===
+  // 'ruapehu': lat -39.236672, lon 175.556259, elev 1630) so the lodge and the
+  // pill are unambiguously the same spot on the map, offset just enough that
+  // the two markers don't overlap.
+  lngLat: [175.556491, -39.236672],
+  fallbackAltM: 1630,           // matches the Base pseudo pill's configured elevation
   targetWidthM: 30,             // real-world footprint width the model is scaled to
   bearingDeg: 0,                // yaw about vertical; 0 = model's +Z faces north
 };
@@ -793,11 +797,21 @@ function addLodgeModel(map) {
       const doDbg = lodgeDbg.renders < 3 || lodgeDbg.renders % 120 === 0;
       lodgeDbg.renders++;
       if (!this.model) { if (doDbg) showLodgeDbg(); return; } // still loading
-      // Glue to the visible (exaggerated) terrain surface each frame.
+      // Glue to the visible (exaggerated) terrain surface each frame. The DEM
+      // tileset occasionally returns a spurious spike well above the real
+      // ground here (same issue the click-probe handler works around by
+      // clamping to TOP_ELEV — see its comment above) — a village-elevation
+      // point reading back hundreds of metres high floats the building in
+      // mid-air, invisible off-screen. Distrust any reading too far from the
+      // known ground elevation and use the fallback instead.
+      const MAX_DEVIATION_M = 150;
       let alt = this.map.queryTerrainElevation(LODGE.lngLat, { exaggerated: true });
       if (alt == null || isNaN(alt)) {
         alt = LODGE.fallbackAltM;
         lodgeDbg.altSource = 'FALLBACK — real DEM query returned null';
+      } else if (Math.abs(alt - LODGE.fallbackAltM) > MAX_DEVIATION_M) {
+        lodgeDbg.altSource = 'FALLBACK — live query (' + alt.toFixed(0) + 'm) looked spurious';
+        alt = LODGE.fallbackAltM;
       } else {
         lodgeDbg.altSource = 'live terrain query';
       }
@@ -922,7 +936,7 @@ function initMap() {
       // spot and tells us whether it's a placement vs rendering problem.
       new maplibregl.Marker({ color: '#ff2d55' })
         .setLngLat(LODGE.lngLat)
-        .setPopup(new maplibregl.Popup({ offset: 24 }).setText('WTMC lodge — Iwikau Village'))
+        .setPopup(new maplibregl.Popup({ offset: 24 }).setText('WTMC lodge — next to Base pseudo pill'))
         .addTo(map);
     }
   });
