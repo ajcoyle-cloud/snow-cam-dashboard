@@ -744,6 +744,7 @@ function showLodgeDbg() {
     'alt used: ' + (lodgeDbg.alt == null ? '—' : lodgeDbg.alt.toFixed(1) + 'm') + ' (' + lodgeDbg.altSource + ')\n' +
     'mvp valid: ' + (lodgeDbg.mvpOk == null ? '—' : lodgeDbg.mvpOk) + '  sample: ' + (lodgeDbg.mvpSample || '—') + '\n' +
     'merc: ' + (lodgeDbg.merc ? 'x=' + lodgeDbg.merc.x.toFixed(5) + ' y=' + lodgeDbg.merc.y.toFixed(5) + ' z=' + lodgeDbg.merc.z.toExponential(3) + ' s=' + lodgeDbg.merc.s.toExponential(3) : '—') + '\n' +
+    'viewport forced: ' + (lodgeDbg.viewport || '—') + '  canvas: ' + (document.querySelector('#map canvas') ? document.querySelector('#map canvas').width + 'x' + document.querySelector('#map canvas').height : '—') + '\n' +
     'test box: depthTest OFF (should always draw on top if pipeline works)';
 }
 
@@ -880,6 +881,16 @@ function addLodgeModel(map) {
       // screen. Catch and surface any such error instead of failing silently.
       try {
         this.renderer.resetState();
+        // three.js's resetState() (see state.reset() in WebGLState.js) resets
+        // blend/depth/stencil/framebuffer but NEVER touches the viewport —
+        // and we never call setViewport/setSize anywhere either. So the
+        // active viewport is just whatever MapLibre's or three.js's own
+        // internal cache last left it as; if the two libraries' caches
+        // disagree about the real GL state (classic shared-context hazard),
+        // our draws could silently land in a stale/wrong rectangle. Force it
+        // to the full drawing buffer every frame, bypassing both caches.
+        this.renderer.setViewport(0, 0, gl.drawingBufferWidth, gl.drawingBufferHeight);
+        lodgeDbg.viewport = gl.drawingBufferWidth + 'x' + gl.drawingBufferHeight;
         this.renderer.render(this.scene, this.camera);
         lodgeDbg.renderError = null;
       } catch (err) {
