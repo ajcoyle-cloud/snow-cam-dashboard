@@ -1695,15 +1695,18 @@ function SnowfallForecast({ resort, setResort }) {
   const tableCellWidth = viewMode === 'fit' ? FIT_GROUP * cellWidth : cellWidth
 
   let maxPrecip = Math.max(
+    // Scaled off the same average-model values the bars actually draw, not
+    // raw GFS — otherwise a taller averaged bar could clip past the axis max.
     ...displayData.map((d, idx) => {
+      const src = averageForecastDataRaw?.[idx] ?? d
       const val = Math.max(
-        d.summit.precipitation,
-        d.summit.snowfall,
-        d.base.precipitation,
-        d.base.snowfall
+        src.summit.precipitation,
+        src.summit.snowfall,
+        src.base.precipitation,
+        src.base.snowfall
       )
       if (val > 20) {
-        console.log(`High precip at index ${idx} (${d.datetime.toLocaleString()}): summit precip=${d.summit.precipitation}, summit snowfall=${d.summit.snowfall}, base precip=${d.base.precipitation}, base snowfall=${d.base.snowfall}`)
+        console.log(`High precip at index ${idx} (${d.datetime.toLocaleString()}): summit precip=${src.summit.precipitation}, summit snowfall=${src.summit.snowfall}, base precip=${src.base.precipitation}, base snowfall=${src.base.snowfall}`)
       }
       return val
     }),
@@ -2083,11 +2086,16 @@ function SnowfallForecast({ resort, setResort }) {
             )
           })}
 
-          {/* Precipitation bars - colored by rain/snow, height based on snowfall when cold */}
+          {/* Precipitation bars - colored by rain/snow, height based on snowfall when cold.
+              Sourced from the model average (not raw GFS) so the bars match the
+              table's default Average row, regardless of what's ticked in the
+              Models dropdown. */}
           {displayData.map((d, i) => {
-            const temp = elevation === 'summit' ? d.summit.temp : d.base.temp
-            const precipVal = elevation === 'summit' ? d.summit.precipitation : d.base.precipitation
-            const snowfallVal = elevation === 'summit' ? d.summit.snowfall : d.base.snowfall
+            const avgHour = averageForecastDataRaw?.[i]
+            const barData = avgHour ? (elevation === 'summit' ? avgHour.summit : avgHour.base) : (elevation === 'summit' ? d.summit : d.base)
+            const temp = barData.temp
+            const precipVal = barData.precipitation
+            const snowfallVal = barData.snowfall
             const isSnow = temp < 0
 
             // Use snowfall amount if snow, otherwise precipitation
@@ -2283,7 +2291,10 @@ function SnowfallForecast({ resort, setResort }) {
         {/* Hover tooltip - at top of vertical line */}
         {hoveredIndex !== null && displayData[hoveredIndex] && (() => {
           const d = displayData[hoveredIndex]
-          const data = elevation === 'summit' ? d.summit : d.base
+          // Same average-model source as the bars, so the tooltip numbers match
+          // what's actually drawn instead of silently reverting to raw GFS.
+          const avgHour = averageForecastDataRaw?.[hoveredIndex]
+          const data = avgHour ? (elevation === 'summit' ? avgHour.summit : avgHour.base) : (elevation === 'summit' ? d.summit : d.base)
           const temp = data.temp
           const precip = data.precipitation
           const snowfall = data.snowfall
