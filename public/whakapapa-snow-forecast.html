@@ -690,9 +690,18 @@ function buildModelHours(summit, base, gfs) {
     if (fl == null && baseT != null && summitT != null && baseT !== summitT) {
       fl = LOC.baseElev + (baseT * (LOC.summitElev - LOC.baseElev)) / (baseT - summitT);
     }
-    const snowMm = summit.snowfall?.[i] != null
+    let snowMm = summit.snowfall?.[i] != null
       ? Math.min(summit.snowfall[i] * 10, MAX_HOURLY_SNOWFALL_MM)
       : null;
+    // Some models (notably AIFS, which predicts total precip but has no true
+    // rain/snow-separation microphysics) intermittently report 0mm snowfall
+    // despite sub-zero temps and real precipitation — a known upstream data
+    // gap, not an absence of snow. Estimate from precip using the same ~7:1
+    // snow-to-liquid ratio the main dashboard falls back to in this case.
+    const summitPrecip = summit.precipitation?.[i] ?? null;
+    if (summitT < 0 && summitPrecip > 0 && snowMm === 0) {
+      snowMm = Math.min(summitPrecip * 7, MAX_HOURLY_SNOWFALL_MM);
+    }
     return {
       time: t,
       temp: summitT,
@@ -738,11 +747,11 @@ async function loadForecast() {
     const base = `https://api.open-meteo.com/v1/forecast?latitude=${LOC.lat}&longitude=${LOC.lon}&temperature_unit=celsius&timezone=${LOC.timezone}&forecast_days=16`;
     const gfsSummitUrl = `${base}&wind_speed_unit=kmh&elevation=${LOC.summitElev}&hourly=temperature_2m,precipitation,snowfall,freezinglevel_height,windspeed_700hPa,winddirection_700hPa&models=gfs_global`;
     const gfsBaseUrl = `${base}&elevation=${LOC.baseElev}&hourly=temperature_2m&models=gfs_global`;
-    const ecmwfSummitUrl = `${base}&elevation=${LOC.summitElev}&hourly=temperature_2m,snowfall&models=ecmwf_ifs025`;
+    const ecmwfSummitUrl = `${base}&elevation=${LOC.summitElev}&hourly=temperature_2m,precipitation,snowfall&models=ecmwf_ifs025`;
     const ecmwfBaseUrl = `${base}&elevation=${LOC.baseElev}&hourly=temperature_2m&models=ecmwf_ifs025`;
-    const aifsSummitUrl = `${base}&elevation=${LOC.summitElev}&hourly=temperature_2m,snowfall&models=ecmwf_aifs025_single`;
+    const aifsSummitUrl = `${base}&elevation=${LOC.summitElev}&hourly=temperature_2m,precipitation,snowfall&models=ecmwf_aifs025_single`;
     const aifsBaseUrl = `${base}&elevation=${LOC.baseElev}&hourly=temperature_2m&models=ecmwf_aifs025_single`;
-    const ukmoSummitUrl = `${base}&elevation=${LOC.summitElev}&hourly=temperature_2m,snowfall&models=ukmo_seamless`;
+    const ukmoSummitUrl = `${base}&elevation=${LOC.summitElev}&hourly=temperature_2m,precipitation,snowfall&models=ukmo_seamless`;
     const ukmoBaseUrl = `${base}&elevation=${LOC.baseElev}&hourly=temperature_2m&models=ukmo_seamless`;
 
     const [gfsRes, gfsBaseRes, ecmwfSummitRes, ecmwfBaseRes, aifsSummitRes, aifsBaseRes, ukmoSummitRes, ukmoBaseRes] = await Promise.all([
