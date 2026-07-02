@@ -1723,12 +1723,21 @@ function SnowfallForecast({ resort, setResort }) {
 
   console.log(`maxPrecip: ${maxPrecip}mm`)
 
-  // Scale freezing level with an elevation range that always covers the
-  // resort's summit plus headroom, so high-elevation resorts (e.g. Loveland,
-  // summit ~3500m) don't get their freezing-level lines clipped off the top
-  // of a chart sized for NZ resorts (summit ~2300m).
+  // Scale freezing level off the data actually being forecast for this resort,
+  // not a flat worst-case ceiling — a fixed 5500m floor (chosen so Loveland's
+  // ~3500m summit never clips) squashed every NZ resort's much lower
+  // freezing-level range into the bottom third of the chart. Bounding by
+  // whichever model line reaches highest keeps it clip-free for any resort
+  // while giving low-elevation resorts far more vertical resolution.
   const minElevationChart = 0
-  const maxElevationChart = Math.max(5500, RESORTS[resort].summitElev + 1500)
+  const freezingValues = [
+    ...displayData.map(d => d.freezingLevelGFS),
+    ...(ecmwfFreezingData || []),
+    ...(aifsFreezingData || []),
+    ...(ukmoFreezingData || []),
+  ].filter(v => v != null)
+  const maxObservedFreezing = freezingValues.length ? Math.max(...freezingValues) : RESORTS[resort].summitElev
+  const maxElevationChart = Math.max(RESORTS[resort].summitElev + 500, maxObservedFreezing + 300)
   const freezingLevelScale = (elevation_m) => {
     const elevRange = maxElevationChart - minElevationChart
     return snowPadding.top + snowPlotHeight - (((elevation_m - minElevationChart) / elevRange) * snowPlotHeight)
