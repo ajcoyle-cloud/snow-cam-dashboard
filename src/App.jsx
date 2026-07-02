@@ -721,10 +721,10 @@ const RESORTS = {
   ruapehu: { name: 'Whakapapa', lat: -39.28, lon: 175.57, summitElev: 2300, baseElev: 1630, timezone: 'Pacific/Auckland', metservicePath: 'mountains-and-parks/national-parks/tongariro' },
   cardrona: { name: 'Cardrona', lat: -44.76, lon: 169.0, summitElev: 1860, baseElev: 1640, timezone: 'Pacific/Auckland', metservicePath: 'mountains-and-parks/ski-fields/cardrona' },
   loveland: { name: 'Loveland', lat: 39.65, lon: -105.49, summitElev: 3500, baseElev: 3100, timezone: 'America/Denver' },
-  mtlyford: { name: 'Mt Lyford', lat: -42.446503, lon: 173.143418, summitElev: 1800, baseElev: 1340, timezone: 'Pacific/Auckland' },
-  roundhill: { name: 'Roundhill', lat: -43.825421, lon: 170.656220, summitElev: 2170, baseElev: 1800, timezone: 'Pacific/Auckland', pwObsStations: ['tekapo-balmoral', 'clayton', 'burkes-pass'] },
+  mtlyford: { name: 'Mt Lyford', lat: -42.446503, lon: 173.143418, summitElev: 1800, baseElev: 1340, timezone: 'Pacific/Auckland', metservicePath: 'mountains-and-parks/ski-fields/mount-lyford' },
+  roundhill: { name: 'Roundhill', lat: -43.825421, lon: 170.656220, summitElev: 2170, baseElev: 1800, timezone: 'Pacific/Auckland', metservicePath: 'mountains-and-parks/ski-fields/roundhill', pwObsStations: ['tekapo-balmoral', 'clayton', 'burkes-pass'] },
   mtvernon: { name: 'Mt Vernon', lat: 39.72011925175132, lon: -105.26872905339022, summitElev: 2190, baseElev: 1800, timezone: 'America/Denver', pwObsStations: ['bjc', 'c99', '0co'] },
-  treblecone: { name: 'Treble Cone', lat: -44.633063, lon: 168.896105, summitElev: 2088, baseElev: 1260, timezone: 'Pacific/Auckland', pwObsStations: ['pub-corner', 'treble-cone'] },
+  treblecone: { name: 'Treble Cone', lat: -44.633063, lon: 168.896105, summitElev: 2088, baseElev: 1260, timezone: 'Pacific/Auckland', metservicePath: 'mountains-and-parks/ski-fields/treble-cone', pwObsStations: ['pub-corner', 'treble-cone'] },
 }
 
 // --- MetService freezing-level helpers ---------------------------------------
@@ -1329,7 +1329,13 @@ function SnowfallForecast({ resort, setResort }) {
             if (msRes.ok) {
               const msJson = await msRes.json()
               const msDays = extractMetserviceDays(msJson)
-              if (msDays.length > 0) setMetserviceFzl(msDays)
+              if (msDays.length > 0) {
+                setMetserviceFzl(msDays)
+              } else {
+                console.log('MetService: no fzlStatement days found in', r.metservicePath, msJson)
+              }
+            } else {
+              console.log('MetService fetch failed:', msRes.status, r.metservicePath)
             }
           }
         } catch (e) {
@@ -1571,15 +1577,26 @@ function SnowfallForecast({ resort, setResort }) {
     if (rows.length === 1) return unit ? `${base} ${unit}` : base
     return idx === 0 ? `${base} (${rows[idx].label})` : `(${rows[idx].label})`
   }
-  // Small expand/collapse arrow, shown once per group on its first row.
-  const expandArrow = (groupKey) => (
-    <button
-      onClick={() => setExpandedRows((s) => ({ ...s, [groupKey]: !s[groupKey] }))}
-      title={expandedRows[groupKey] ? 'Collapse to Average' : 'Expand to show each model'}
-      style={{ background: 'none', border: 'none', color: '#888', cursor: 'pointer', padding: 0, marginRight: 5, fontSize: '10px', verticalAlign: 'middle' }}
+  // The whole label cell (not just the arrow glyph) is the tap target — small
+  // arrow-only buttons are too fiddly to hit, especially on touch.
+  const labelCell = (groupKey, rows, idx, base, unit = '') => (
+    <td
+      onClick={idx === 0 ? () => setExpandedRows((s) => ({ ...s, [groupKey]: !s[groupKey] })) : undefined}
+      title={idx === 0 ? (expandedRows[groupKey] ? 'Collapse to Average' : 'Expand to show each model') : undefined}
+      style={{
+        width: `${snowPadding.left}px`,
+        color: rows.length > 1 && idx === 0 ? '#fff' : undefined,
+        cursor: idx === 0 ? 'pointer' : 'default',
+        userSelect: 'none',
+      }}
     >
-      {expandedRows[groupKey] ? '▾' : '▸'}
-    </button>
+      {idx === 0 && (
+        <span aria-hidden="true" style={{ display: 'inline-block', color: '#888', marginRight: 5, fontSize: '10px' }}>
+          {expandedRows[groupKey] ? '▾' : '▸'}
+        </span>
+      )}
+      {groupRowLabel(rows, idx, base, unit)}
+    </td>
   )
 
   // Chart dimensions
@@ -1642,8 +1659,14 @@ function SnowfallForecast({ resort, setResort }) {
     return pts
   }
 
-  // Snowfall chart dimensions for hourly data
-  const snowChartHeight = viewMode === 'fit' ? Math.max(220, Math.min(430, windowHeight * 0.42)) : 430
+  // Snowfall chart dimensions for hourly data. Sized to fill whatever's left of
+  // the viewport after the title/controls/footer and the COLLAPSED table (7
+  // rows) — not however many rows happen to be expanded right now — so the
+  // default view always fits one screen with no scrollbar, and expanding a
+  // table row grows the page (letting .main-content's natural overflow-y:
+  // auto scroll) instead of shrinking the chart to compensate.
+  const RESERVED_CHROME_HEIGHT = 310
+  const snowChartHeight = Math.max(280, windowHeight - RESERVED_CHROME_HEIGHT)
   const snowPadding = { top: 60, right: isMobile ? 18 : 40, bottom: 38, left: isMobile ? 70 : 95 }
   // On mobile, "Fit to Screen" must NOT squash 16 day-columns into ~360px — that
   // makes values wrap to stacked digits and the date labels collide. Instead
@@ -1913,7 +1936,36 @@ function SnowfallForecast({ resort, setResort }) {
                     checked={showFreezing[m.key]}
                     disabled={!m.available}
                     onChange={() => setShowFreezing(s => ({ ...s, [m.key]: !s[m.key] }))}
+                    style={{ position: 'absolute', opacity: 0, width: 0, height: 0 }}
                   />
+                  {/* iOS-style toggle track/knob — the checkbox above stays for state + a11y. */}
+                  <span
+                    aria-hidden="true"
+                    style={{
+                      display: 'inline-block',
+                      flexShrink: 0,
+                      width: 30,
+                      height: 17,
+                      borderRadius: 9,
+                      background: showFreezing[m.key] ? m.color : '#3a3a3c',
+                      position: 'relative',
+                      transition: 'background 0.15s ease',
+                    }}
+                  >
+                    <span
+                      style={{
+                        position: 'absolute',
+                        top: 1.5,
+                        left: showFreezing[m.key] ? 15 : 1.5,
+                        width: 14,
+                        height: 14,
+                        borderRadius: '50%',
+                        background: '#fff',
+                        boxShadow: '0 1px 3px rgba(0,0,0,0.4)',
+                        transition: 'left 0.15s ease',
+                      }}
+                    />
+                  </span>
                   <span style={{ display: 'inline-block', width: 10, height: 3, background: m.color, borderRadius: 2 }} />
                   {m.label}
                 </label>
@@ -2343,9 +2395,7 @@ function SnowfallForecast({ resort, setResort }) {
             {/* Temperature rows */}
             {rowsForGroup('temp').map((m, idx, rows) => (
               <tr key={`temp-${m.key}`} style={{ height: '23px' }}>
-                <td style={{ width: `${snowPadding.left}px`, color: rows.length > 1 && idx === 0 ? '#fff' : undefined }}>
-                  {idx === 0 && expandArrow('temp')}{groupRowLabel(rows, idx, 'Temp', '(°C)')}
-                </td>
+                {labelCell('temp', rows, idx, 'Temp', '(°C)')}
                 {m.data.map((d, i) => {
                   const val = elevation === 'summit' ? d.summit.temp : d.base.temp
                   return (
@@ -2359,9 +2409,7 @@ function SnowfallForecast({ resort, setResort }) {
             {/* Condition rows */}
             {rowsForGroup('condition').map((m, idx, rows) => (
               <tr key={`cond-${m.key}`} style={{ height: '23px' }}>
-                <td style={{ width: `${snowPadding.left}px`, color: rows.length > 1 && idx === 0 ? '#fff' : undefined }}>
-                  {idx === 0 && expandArrow('condition')}{groupRowLabel(rows, idx, 'Condition')}
-                </td>
+                {labelCell('condition', rows, idx, 'Condition')}
                 {m.data.map((d, i) => {
                   const data = elevation === 'summit' ? d.summit : d.base
                   const icon = data.weatherCode != null
@@ -2378,9 +2426,7 @@ function SnowfallForecast({ resort, setResort }) {
             {/* Precip rows */}
             {rowsForGroup('precip').map((m, idx, rows) => (
               <tr key={`precip-${m.key}`} style={{ height: '23px' }}>
-                <td style={{ width: `${snowPadding.left}px`, color: rows.length > 1 && idx === 0 ? '#fff' : undefined }}>
-                  {idx === 0 && expandArrow('precip')}{groupRowLabel(rows, idx, 'Precip', '(mm)')}
-                </td>
+                {labelCell('precip', rows, idx, 'Precip', '(mm)')}
                 {m.data.map((d, i) => {
                   const data = elevation === 'summit' ? d.summit : d.base
                   const precip = data.precipitation
@@ -2402,9 +2448,7 @@ function SnowfallForecast({ resort, setResort }) {
             {/* Snowfall rows */}
             {rowsForGroup('snowfall').map((m, idx, rows) => (
               <tr key={`snow-${m.key}`} style={{ height: '23px' }}>
-                <td style={{ width: `${snowPadding.left}px`, color: rows.length > 1 && idx === 0 ? '#fff' : undefined }}>
-                  {idx === 0 && expandArrow('snowfall')}{groupRowLabel(rows, idx, 'Snowfall', '(cm)')}
-                </td>
+                {labelCell('snowfall', rows, idx, 'Snowfall', '(cm)')}
                 {m.data.map((d, i) => {
                   const dayIndex = viewMode === 'fit' ? Math.floor(i * FIT_GROUP / 24) : Math.floor(i / 24)
                   const isDayEven = dayIndex % 2 === 0
@@ -2433,9 +2477,7 @@ function SnowfallForecast({ resort, setResort }) {
             {/* Wind at summit rows */}
             {rowsForGroup('windSummit').map((m, idx, rows) => (
               <tr key={`windsummit-${m.key}`} style={{ height: '23px' }}>
-                <td style={{ width: `${snowPadding.left}px`, color: rows.length > 1 && idx === 0 ? '#fff' : undefined }}>
-                  {idx === 0 && expandArrow('windSummit')}{groupRowLabel(rows, idx, `Wind ${RESORTS[resort].summitElev}m`)}
-                </td>
+                {labelCell('windSummit', rows, idx, `Wind ${RESORTS[resort].summitElev}m`)}
                 {m.data.map((d, i) => {
                   const windKmh = d.summit.wind != null ? Math.round(d.summit.wind) : null
                   const arrow = getWindArrow(d.summit.windDir)
@@ -2450,9 +2492,7 @@ function SnowfallForecast({ resort, setResort }) {
             {/* Wind at base rows */}
             {rowsForGroup('windBase').map((m, idx, rows) => (
               <tr key={`windbase-${m.key}`} style={{ height: '23px' }}>
-                <td style={{ width: `${snowPadding.left}px`, color: rows.length > 1 && idx === 0 ? '#fff' : undefined }}>
-                  {idx === 0 && expandArrow('windBase')}{groupRowLabel(rows, idx, `Wind ${RESORTS[resort].baseElev}m`)}
-                </td>
+                {labelCell('windBase', rows, idx, `Wind ${RESORTS[resort].baseElev}m`)}
                 {m.data.map((d, i) => {
                   const windKmh = d.base.wind != null ? Math.round(d.base.wind) : null
                   const arrow = getWindArrow(d.base.windDir)
@@ -2467,9 +2507,7 @@ function SnowfallForecast({ resort, setResort }) {
             {/* Freezing level rows */}
             {rowsForGroup('freezing').map((m, idx, rows) => (
               <tr key={`freezing-${m.key}`} style={{ height: '23px' }}>
-                <td style={{ width: `${snowPadding.left}px`, color: rows.length > 1 && idx === 0 ? '#fff' : undefined }}>
-                  {idx === 0 && expandArrow('freezing')}{groupRowLabel(rows, idx, 'Freezing', '(m)')}
-                </td>
+                {labelCell('freezing', rows, idx, 'Freezing', '(m)')}
                 {m.data.map((d, i) => {
                   const val = m.getFreezing(d)
                   const isAboveSummit = val > RESORTS[resort].summitElev
