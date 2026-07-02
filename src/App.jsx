@@ -717,6 +717,11 @@ function GridSizeSwitcher({ cols, setCols }) {
   )
 }
 
+// Falling snow survives ~300m into air above the freezing level before it
+// melts, so the snow line sits this far below the freezing level rather than
+// exactly at it (matches the rule used by the standalone 3D snowfall map).
+const SNOW_LINE_BUFFER_M = 300
+
 const RESORTS = {
   ruapehu: { name: 'Whakapapa', lat: -39.28, lon: 175.57, summitElev: 2300, baseElev: 1630, timezone: 'Pacific/Auckland', metservicePath: 'mountains-and-parks/national-parks/tongariro' },
   cardrona: { name: 'Cardrona', lat: -44.76, lon: 169.0, summitElev: 1860, baseElev: 1640, timezone: 'Pacific/Auckland', metservicePath: 'mountains-and-parks/ski-fields/cardrona' },
@@ -2105,7 +2110,9 @@ function SnowfallForecast({ resort, setResort }) {
             const temp = barData.temp
             const precipVal = barData.precipitation
             const snowfallVal = barData.snowfall
-            const isSnow = temp < 0
+            const elev = elevation === 'summit' ? RESORTS[resort].summitElev : RESORTS[resort].baseElev
+            const freezingLevel = averageFreezingData[i]
+            const isSnow = freezingLevel != null ? (freezingLevel - SNOW_LINE_BUFFER_M) < elev : temp < 0
 
             // Use snowfall amount if snow, otherwise precipitation
             const displayVal = isSnow ? snowfallVal : precipVal
@@ -2309,7 +2316,9 @@ function SnowfallForecast({ resort, setResort }) {
           const snowfall = data.snowfall
           const wind = data.wind
           const windDir = data.windDir
-          const isSnow = temp < 0
+          const tooltipElev = elevation === 'summit' ? RESORTS[resort].summitElev : RESORTS[resort].baseElev
+          const tooltipFreezingLevel = averageFreezingData[hoveredIndex]
+          const isSnow = tooltipFreezingLevel != null ? (tooltipFreezingLevel - SNOW_LINE_BUFFER_M) < tooltipElev : temp < 0
           const precipDisplay = precip.toFixed(1)
           const snowDisplay = snowfall.toFixed(1)
 
@@ -2460,7 +2469,7 @@ function SnowfallForecast({ resort, setResort }) {
                   const prob = data.precipProbability
                   const elev = elevation === 'summit' ? RESORTS[resort].summitElev : RESORTS[resort].baseElev
                   const freezingLevel = m.getPrecipFreezing(d)
-                  const isSnow = freezingLevel < elev && snowfall > 0.1
+                  const isSnow = (freezingLevel - SNOW_LINE_BUFFER_M) < elev && snowfall > 0.1
                   const mainVal = isSnow ? '' : (precip < 0.1 ? '' : precip.toFixed(1))
                   return (
                     <td key={i} style={{ width: `${tableCellWidth}px`, background: 'rgba(26, 26, 26, 0.15)', lineHeight: 1.1, paddingTop: '1px', paddingBottom: '1px', color: m.key === 'gfs' ? undefined : m.color }}>
