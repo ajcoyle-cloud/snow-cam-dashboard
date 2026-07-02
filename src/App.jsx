@@ -2565,22 +2565,41 @@ function ForecastMap3D({ resort, setResort }) {
 }
 
 const NAV_ITEMS = [
-  { id: 'webcams', label: 'Webcams', Icon: Camera },
-  { id: 'forecast', label: 'Forecast', Icon: LineChart },
-  { id: 'map', label: 'Map', Icon: MapIcon },
+  { id: 'webcams', label: 'Webcams', Icon: Camera, path: '/' },
+  { id: 'forecast', label: 'Forecast', Icon: LineChart, path: '/forecast' },
+  { id: 'map', label: 'Map', Icon: MapIcon, path: '/map' },
 ]
+const tabForPath = (pathname) => NAV_ITEMS.find(n => n.path === pathname)?.id
 
 export default function App() {
-  // Restore the last-viewed tab and resort from localStorage so reopening the
-  // app returns the user to where they left off. (The map view mode itself is
-  // remembered separately inside the forecast-map iframe.)
+  // Each tab gets a real URL (/, /forecast, /map) via pushState — no full
+  // reload, but it's a genuine path change, so Vercel Analytics (which
+  // watches the History API) logs each tab as its own page view, and
+  // back/forward and direct/shared links to a tab work. The URL takes
+  // priority on load; otherwise fall back to the last-viewed tab in
+  // localStorage, then default to Webcams.
   const [activeTab, setActiveTab] = useState(() => {
+    const fromUrl = tabForPath(window.location.pathname)
+    if (fromUrl) return fromUrl
     try {
       const t = localStorage.getItem('sc-active-tab')
       if (t && NAV_ITEMS.some(n => n.id === t)) return t
     } catch (e) {}
     return 'webcams'
   })
+  const goToTab = (id) => {
+    setActiveTab(id)
+    const path = NAV_ITEMS.find(n => n.id === id)?.path
+    if (path && path !== window.location.pathname) window.history.pushState({}, '', path)
+  }
+  useEffect(() => {
+    const onPopState = () => {
+      const id = tabForPath(window.location.pathname)
+      if (id) setActiveTab(id)
+    }
+    window.addEventListener('popstate', onPopState)
+    return () => window.removeEventListener('popstate', onPopState)
+  }, [])
   const [resort, setResort] = useState(() => {
     try {
       const r = localStorage.getItem('sc-resort')
@@ -2596,7 +2615,14 @@ export default function App() {
     return 4
   })
 
-  useEffect(() => { try { localStorage.setItem('sc-active-tab', activeTab) } catch (e) {} }, [activeTab])
+  useEffect(() => {
+    try { localStorage.setItem('sc-active-tab', activeTab) } catch (e) {}
+    // Keep the address bar in sync even when activeTab changed some other way
+    // (e.g. restored from localStorage on a bare "/" load) — replaceState so
+    // it doesn't add a spurious back-button entry or double-fire pushState.
+    const path = NAV_ITEMS.find(n => n.id === activeTab)?.path
+    if (path && path !== window.location.pathname) window.history.replaceState({}, '', path)
+  }, [activeTab])
   useEffect(() => { try { localStorage.setItem('sc-resort', resort) } catch (e) {} }, [resort])
   useEffect(() => { try { localStorage.setItem('sc-grid-cols', String(gridCols)) } catch (e) {} }, [gridCols])
 
@@ -2607,7 +2633,7 @@ export default function App() {
           <button
             key={id}
             className={`sidebar-item ${activeTab === id ? 'active' : ''}`}
-            onClick={() => setActiveTab(id)}
+            onClick={() => goToTab(id)}
           >
             <Icon size={20} strokeWidth={1.75} />
             <span>{label}</span>
