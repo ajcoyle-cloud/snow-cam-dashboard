@@ -1377,6 +1377,10 @@ function setViewMode(mode) {
   pwPersist('sp-view-mode', mode);
   document.querySelectorAll('#mode-switch .pill-btn').forEach(b => b.classList.toggle('active', b.dataset.mode === mode));
   document.getElementById('period-switch').style.display = mode === 'accumulated' ? 'flex' : 'none';
+  // No forecast data backs the Live map (it's real-time observations), so the
+  // model switcher has nothing to switch — hide it there.
+  document.getElementById('model-switch').style.display = mode === 'live' ? 'none' : 'block';
+  if (mode === 'live') closeModelMenu();
   document.getElementById('timeline').style.display = mode === 'hourly' ? 'flex' : 'none';
   document.getElementById('speed-select').style.display = mode === 'hourly' ? 'flex' : 'none';
   document.getElementById('info-hourly').style.display = mode === 'hourly' ? 'block' : 'none';
