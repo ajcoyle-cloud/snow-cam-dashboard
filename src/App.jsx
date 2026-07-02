@@ -845,6 +845,12 @@ function buildAverageForecastData(sources) {
     const vals = rows.map(pick).filter(v => v !== null && v !== undefined)
     return vals.length ? vals.reduce((s, v) => s + v, 0) / vals.length : null
   }
+  // Averaging already-rounded model values produces a raw float (e.g.
+  // 1766.66666667) — round the result to the nearest 10m for display.
+  const avgFreezing = (rows, pick) => {
+    const v = avg(rows, pick)
+    return v !== null ? Math.round(v / 10) * 10 : null
+  }
 
   return base.map((_, i) => {
     const rows = loaded.map(s => s[i]).filter(Boolean)
@@ -852,7 +858,7 @@ function buildAverageForecastData(sources) {
     return {
       time: first.time,
       datetime: first.datetime,
-      freezingLevel: avg(rows, (d) => d.freezingLevelGFS ?? d.freezingLevel),
+      freezingLevel: avgFreezing(rows, (d) => d.freezingLevelGFS ?? d.freezingLevel),
       summit: {
         temp: avg(rows, (d) => d.summit.temp),
         precipitation: avg(rows, (d) => d.summit.precipitation) ?? 0,
