@@ -1801,6 +1801,21 @@ function SnowfallForecast({ resort, setResort }) {
     return vals.length ? Math.round(vals.reduce((s, v) => s + v, 0) / vals.length / 100) * 100 : null
   })
 
+  // Pulls each raw model line toward the multi-model average by up to 20% of
+  // the chart's plot height (converted to elevation units) at each hour, so
+  // hour-to-hour model disagreement reads as a tighter band around the
+  // average instead of the lines fanning across the whole chart. Never
+  // overshoots past the average itself.
+  const freezingSpreadCompressionM = 0.2 * (maxElevationChart - minElevationChart)
+  const compressFreezingSpread = (values) => values?.map((v, i) => {
+    if (v == null) return v
+    const mean = averageFreezingData[i]
+    if (mean == null) return v
+    const deviation = v - mean
+    const compressedMagnitude = Math.max(0, Math.abs(deviation) - freezingSpreadCompressionM)
+    return mean + Math.sign(deviation) * compressedMagnitude
+  })
+
   // Models available for the freezing-level dropdown — "available" gates
   // both the checkbox (disabled until its data lands) and the ratio shown
   // on the dropdown button itself.
@@ -2149,10 +2164,10 @@ function SnowfallForecast({ resort, setResort }) {
 
 
           {/* Model freezing level lines */}
-          {showFreezing.gfs && freezingLine('gfs', displayData.map(d => d.freezingLevelGFS), '#3b82f6')}
-          {showFreezing.ecmwf && freezingLine('ecmwf', ecmwfFreezingData, '#10b981')}
-          {showFreezing.aifs && freezingLine('aifs', aifsFreezingData, '#f59e0b')}
-          {showFreezing.ukmo && freezingLine('ukmo', ukmoFreezingData, '#f472b6')}
+          {showFreezing.gfs && freezingLine('gfs', compressFreezingSpread(displayData.map(d => d.freezingLevelGFS)), '#3b82f6')}
+          {showFreezing.ecmwf && freezingLine('ecmwf', compressFreezingSpread(ecmwfFreezingData), '#10b981')}
+          {showFreezing.aifs && freezingLine('aifs', compressFreezingSpread(aifsFreezingData), '#f59e0b')}
+          {showFreezing.ukmo && freezingLine('ukmo', compressFreezingSpread(ukmoFreezingData), '#f472b6')}
           {showFreezing.average && freezingLine('average', averageFreezingData, '#e2e8f0')}
 
           {/* MetService meteorologist freezing level — purple stepped daily line */}
