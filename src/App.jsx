@@ -1801,19 +1801,18 @@ function SnowfallForecast({ resort, setResort }) {
     return vals.length ? Math.round(vals.reduce((s, v) => s + v, 0) / vals.length / 100) * 100 : null
   })
 
-  // Pulls each raw model line toward the multi-model average by up to 20% of
-  // the chart's plot height (converted to elevation units) at each hour, so
-  // hour-to-hour model disagreement reads as a tighter band around the
-  // average instead of the lines fanning across the whole chart. Never
-  // overshoots past the average itself.
-  const freezingSpreadCompressionM = 0.2 * (maxElevationChart - minElevationChart)
+  // Pulls each raw model line toward the multi-model average by 20% at each
+  // hour (a relative shrink, not a fixed pixel/metre offset), so hour-to-hour
+  // model disagreement reads as a tighter band around the average instead of
+  // the lines fanning across the whole chart. A fixed-offset version was
+  // tried first but fully collapsed the lines onto one whenever real model
+  // spread was under ~20% of the chart height, which is the common case —
+  // this scaled version always keeps the lines visibly distinct.
   const compressFreezingSpread = (values) => values?.map((v, i) => {
     if (v == null) return v
     const mean = averageFreezingData[i]
     if (mean == null) return v
-    const deviation = v - mean
-    const compressedMagnitude = Math.max(0, Math.abs(deviation) - freezingSpreadCompressionM)
-    return mean + Math.sign(deviation) * compressedMagnitude
+    return mean + (v - mean) * 0.8
   })
 
   // Models available for the freezing-level dropdown — "available" gates
