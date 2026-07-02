@@ -164,6 +164,43 @@
   .pill-btn.active { background: #333; color: #fff; }
   #period-switch { display: none; }
 
+  /* ── Model switcher (top-right) — single-select, same visual language as
+     the Models dropdown on the forecast table/graph page. ─────────────── */
+  #model-switch { position: absolute; top: 20px; right: 20px; z-index: 15; }
+  /* In fullscreen, #map-close (40px, right:64px) sits under where this
+     button would otherwise land — drop it below the icon row instead. */
+  #map-screen.is-fullscreen #model-switch { top: 72px; }
+  #model-switch-btn {
+    display: flex; align-items: center; gap: 8px;
+    background: rgba(0,0,0,0.6); backdrop-filter: blur(14px);
+    color: #fff; border: none; border-radius: 999px;
+    padding: 10px 16px; font-size: 0.78rem; font-weight: 700;
+    cursor: pointer; font-family: inherit; white-space: nowrap;
+    box-shadow: 0 4px 24px rgba(0,0,0,0.3);
+  }
+  .model-switch-arrow { font-size: 0.65em; opacity: 0.7; transition: transform 0.15s; }
+  #model-switch.open .model-switch-arrow { transform: rotate(180deg); }
+  #model-switch-list {
+    display: none;
+    position: absolute; top: calc(100% + 8px); right: 0;
+    background: rgba(20,20,20,0.92); backdrop-filter: blur(14px);
+    border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 12px; padding: 4px 0; min-width: 160px;
+    box-shadow: 0 8px 28px rgba(0,0,0,0.5);
+  }
+  #model-switch.open #model-switch-list { display: block; }
+  .model-option {
+    display: flex; align-items: center; gap: 9px; width: 100%;
+    background: transparent; border: none; color: rgba(255,255,255,0.75);
+    font-size: 0.82rem; font-weight: 600; text-align: left;
+    padding: 9px 16px; cursor: pointer; font-family: inherit;
+  }
+  .model-option:hover { background: rgba(255,255,255,0.06); color: #fff; }
+  .model-option.active { background: rgba(255,255,255,0.1); color: #fff; }
+  .model-option:disabled { opacity: 0.35; cursor: not-allowed; }
+  .model-option:disabled:hover { background: transparent; }
+  .model-option-swatch { width: 10px; height: 10px; border-radius: 3px; flex-shrink: 0; }
+
   /* ── Freezing-level sparkline (live mode, just above the time slider) ── */
   #fl-overlay {
     position: absolute; left: 20px; right: 20px; bottom: 80px; height: 162px;
@@ -337,6 +374,12 @@
     #speed-select { top: 60px; bottom: auto; right: 12px; padding: 4px; }
     .speed-btn { padding: 6px 8px; font-size: 0.66rem; }
 
+    /* Model switcher: its own third row, top-right (row 1 = resort switch +
+       mode pills, row 2 = obs/rotate toggles + playback speed). */
+    #model-switch { top: 106px; right: 12px; }
+    #map-screen.is-fullscreen #model-switch { top: 106px; }
+    #model-switch-btn { padding: 8px 12px; font-size: 0.72rem; }
+
     /* Freezing-level sparkline: overlay it across the bottom of the map, but only
        while the drawer is hidden (it would fight the open drawer otherwise).
        Lifted clear of the launcher button + timeslider. JS sets its inline display
@@ -464,6 +507,14 @@
       <button class="pill-btn" data-days="10" onclick="setPeriod(10)">10</button>
       <button class="pill-btn" data-days="15" onclick="setPeriod(15)">15</button>
     </div>
+  </div>
+
+  <div id="model-switch">
+    <button id="model-switch-btn" onclick="toggleModelMenu()">
+      <span id="model-switch-label">Average</span>
+      <span class="model-switch-arrow">▼</span>
+    </button>
+    <div id="model-switch-list"></div>
   </div>
 
   <div id="snow-info">
@@ -603,72 +654,179 @@ document.title = `${LOC.name} — Snowfall Elevation Forecast`;
 document.getElementById('map-title').textContent = LOC.shortName || LOC.name;
 
 let forecastHours = [];
+// Per-model hourly series — { gfs, ecmwf, aifs, ukmo, average }, each either
+// an array or null (model failed/unavailable this load). `forecastHours`
+// above always points at whichever of these is currently selected; every
+// existing hourly/accumulated renderer reads `forecastHours` by reference,
+// so switching models is just repointing it and re-running the current view.
+let modelHours = { gfs: null, ecmwf: null, aifs: null, ukmo: null, average: null };
+let selectedModel = 'average';
 
-// ── Fetch hourly forecast from Open-Meteo, GFS + ECMWF averaged ─────────────
-// GFS exposes a direct freezing-level field; ECMWF doesn't (Open-Meteo always
-// returns null for it), so ECMWF's freezing level is derived the same way the
-// main dashboard does it — linear interpolation between a summit and base
-// temperature sample. Snowfall and freezing level are then averaged across
-// both models so the map isn't fully exposed to one model's individual bias
-// or glitches.
+// GFS occasionally spits out a spurious single-hour precip/snow spike at a
+// given grid cell (a model artifact, especially near steep terrain). Cap any
+// one hour's snowfall so a single glitchy reading can't blow out the
+// multi-day accumulated total.
+const MAX_HOURLY_SNOWFALL_MM = 60; // ~6cm/hr, generous even for a true storm pulse
+
+// A fetch that never rejects — resolves to null on any network-level failure
+// (not just a bad status) instead of taking down the whole Promise.all, since
+// AIFS/ECMWF/UKMO are optional and GFS must never be blocked by their failure.
+function fetchOrNull(url) {
+  return fetch(url).then(r => r.ok ? r : null).catch(() => null);
+}
+
+// Build one model's hourly series. GFS exposes a direct freezing-level field
+// and precip/wind; the other models don't, so their freezing level is derived
+// the same way the main dashboard does it — linear interpolation between a
+// summit and base temperature sample — and they borrow GFS's precip/wind
+// (the only source that has it) rather than going without.
+function buildModelHours(summit, base, gfs) {
+  if (!summit) return null;
+  const useDirectFL = !!summit.freezinglevel_height;
+  return summit.time.map((t, i) => {
+    const summitT = summit.temperature_2m[i];
+    const baseT = base?.temperature_2m?.[i] ?? null;
+    let fl = useDirectFL ? summit.freezinglevel_height[i] : null;
+    if (fl == null && baseT != null && summitT != null && baseT !== summitT) {
+      fl = LOC.baseElev + (baseT * (LOC.summitElev - LOC.baseElev)) / (baseT - summitT);
+    }
+    const snowMm = summit.snowfall?.[i] != null
+      ? Math.min(summit.snowfall[i] * 10, MAX_HOURLY_SNOWFALL_MM)
+      : null;
+    return {
+      time: t,
+      temp: summitT,
+      baseTemp: baseT,
+      precip: gfs?.precipitation?.[i] ?? null,
+      snowfallMm: snowMm,
+      freezingLevel: fl,
+      windSpeedKmh: gfs?.windspeed_700hPa?.[i] ?? null,
+      windDirDeg: gfs?.winddirection_700hPa?.[i] ?? null
+    };
+  }).filter(r => r.temp != null && r.freezingLevel != null && r.snowfallMm != null);
+}
+
+// The "Average" model — mean of every loaded model's temp/snowfall/freezing
+// level per hour. Precip/wind aren't averaged (only GFS has them at all).
+function buildAverageHours(sources) {
+  const loaded = sources.filter(Boolean);
+  if (loaded.length === 0) return null;
+  const base = loaded.reduce((longest, s) => s.length > longest.length ? s : longest, loaded[0]);
+  return base.map((_, i) => {
+    const rows = loaded.map(s => s[i]).filter(Boolean);
+    if (rows.length === 0) return null;
+    const avg = (pick) => {
+      const vals = rows.map(pick).filter(v => v != null);
+      return vals.length ? vals.reduce((s, v) => s + v, 0) / vals.length : null;
+    };
+    const first = rows[0];
+    return {
+      time: first.time,
+      temp: avg(r => r.temp),
+      baseTemp: avg(r => r.baseTemp),
+      precip: first.precip,
+      snowfallMm: avg(r => r.snowfallMm),
+      freezingLevel: avg(r => r.freezingLevel),
+      windSpeedKmh: first.windSpeedKmh,
+      windDirDeg: first.windDirDeg
+    };
+  }).filter(Boolean).filter(r => r.temp != null && r.freezingLevel != null && r.snowfallMm != null);
+}
+
 async function loadForecast() {
   try {
     const base = `https://api.open-meteo.com/v1/forecast?latitude=${LOC.lat}&longitude=${LOC.lon}&temperature_unit=celsius&timezone=${LOC.timezone}&forecast_days=16`;
     const gfsSummitUrl = `${base}&wind_speed_unit=kmh&elevation=${LOC.summitElev}&hourly=temperature_2m,precipitation,snowfall,freezinglevel_height,windspeed_700hPa,winddirection_700hPa&models=gfs_global`;
+    const gfsBaseUrl = `${base}&elevation=${LOC.baseElev}&hourly=temperature_2m&models=gfs_global`;
     const ecmwfSummitUrl = `${base}&elevation=${LOC.summitElev}&hourly=temperature_2m,snowfall&models=ecmwf_ifs025`;
     const ecmwfBaseUrl = `${base}&elevation=${LOC.baseElev}&hourly=temperature_2m&models=ecmwf_ifs025`;
+    const aifsSummitUrl = `${base}&elevation=${LOC.summitElev}&hourly=temperature_2m,snowfall&models=ecmwf_aifs025_single`;
+    const aifsBaseUrl = `${base}&elevation=${LOC.baseElev}&hourly=temperature_2m&models=ecmwf_aifs025_single`;
+    const ukmoSummitUrl = `${base}&elevation=${LOC.summitElev}&hourly=temperature_2m,snowfall&models=ukmo_seamless`;
+    const ukmoBaseUrl = `${base}&elevation=${LOC.baseElev}&hourly=temperature_2m&models=ukmo_seamless`;
 
-    const [gfsRes, ecmwfSummitRes, ecmwfBaseRes] = await Promise.all([
-      fetch(gfsSummitUrl), fetch(ecmwfSummitUrl), fetch(ecmwfBaseUrl)
+    const [gfsRes, gfsBaseRes, ecmwfSummitRes, ecmwfBaseRes, aifsSummitRes, aifsBaseRes, ukmoSummitRes, ukmoBaseRes] = await Promise.all([
+      fetchOrNull(gfsSummitUrl), fetchOrNull(gfsBaseUrl),
+      fetchOrNull(ecmwfSummitUrl), fetchOrNull(ecmwfBaseUrl),
+      fetchOrNull(aifsSummitUrl), fetchOrNull(aifsBaseUrl),
+      fetchOrNull(ukmoSummitUrl), fetchOrNull(ukmoBaseUrl),
     ]);
-    if (!gfsRes.ok) throw new Error(`Open-Meteo responded ${gfsRes.status}`);
+    if (!gfsRes) throw new Error('Open-Meteo GFS request failed');
     const gfs = (await gfsRes.json()).hourly;
-    const ecmwfSummit = ecmwfSummitRes.ok ? (await ecmwfSummitRes.json()).hourly : null;
-    const ecmwfBase = ecmwfBaseRes.ok ? (await ecmwfBaseRes.json()).hourly : null;
+    const gfsBase = gfsBaseRes ? (await gfsBaseRes.json()).hourly : null;
+    const ecmwfSummit = ecmwfSummitRes ? (await ecmwfSummitRes.json()).hourly : null;
+    const ecmwfBase = ecmwfBaseRes ? (await ecmwfBaseRes.json()).hourly : null;
+    const aifsSummit = aifsSummitRes ? (await aifsSummitRes.json()).hourly : null;
+    const aifsBase = aifsBaseRes ? (await aifsBaseRes.json()).hourly : null;
+    const ukmoSummit = ukmoSummitRes ? (await ukmoSummitRes.json()).hourly : null;
+    const ukmoBase = ukmoBaseRes ? (await ukmoBaseRes.json()).hourly : null;
 
-    // GFS occasionally spits out a spurious single-hour precip/snow spike at a
-    // given grid cell (a model artifact, especially near steep terrain). Cap
-    // any one hour's snowfall so a single glitchy reading can't blow out the
-    // multi-day accumulated total.
-    const MAX_HOURLY_SNOWFALL_MM = 60; // ~6cm/hr, generous even for a true storm pulse
-
-    forecastHours = gfs.time.map((t, i) => {
-      const gfsFL = gfs.freezinglevel_height[i];
-      const gfsSnowMm = Math.min((gfs.snowfall[i] || 0) * 10, MAX_HOURLY_SNOWFALL_MM);
-      const gfsTemp = gfs.temperature_2m[i];
-
-      let ecmwfFL = null;
-      if (ecmwfSummit && ecmwfBase) {
-        const summitT = ecmwfSummit.temperature_2m[i];
-        const baseT = ecmwfBase.temperature_2m[i];
-        if (summitT != null && baseT != null && summitT !== baseT) {
-          ecmwfFL = LOC.baseElev + (baseT * (LOC.summitElev - LOC.baseElev)) / (baseT - summitT);
-        }
-      }
-      const ecmwfSnowMm = ecmwfSummit?.snowfall?.[i] != null
-        ? Math.min(ecmwfSummit.snowfall[i] * 10, MAX_HOURLY_SNOWFALL_MM)
-        : null;
-      const ecmwfTemp = ecmwfSummit?.temperature_2m?.[i] ?? null;
-
-      const baseT = ecmwfBase?.temperature_2m?.[i] ?? null;
-      return {
-        time: t,
-        temp: ecmwfTemp != null ? (gfsTemp + ecmwfTemp) / 2 : gfsTemp,
-        baseTemp: baseT,  // for HOURLY view lapse rate calculation (forecast-based)
-        precip: gfs.precipitation[i],
-        snowfallMm: ecmwfSnowMm != null ? (gfsSnowMm + ecmwfSnowMm) / 2 : gfsSnowMm,
-        freezingLevel: ecmwfFL != null ? (gfsFL + ecmwfFL) / 2 : gfsFL,
-        // GFS only — used purely to drive the decorative wind streamline
-        // overlay, not averaged with ECMWF like the other fields.
-        windSpeedKmh: gfs.windspeed_700hPa?.[i] ?? null,
-        windDirDeg: gfs.winddirection_700hPa?.[i] ?? null
-      };
-    }).filter(r => r.temp != null);
+    modelHours.gfs = buildModelHours(gfs, gfsBase, gfs);
+    modelHours.ecmwf = buildModelHours(ecmwfSummit, ecmwfBase, gfs);
+    modelHours.aifs = buildModelHours(aifsSummit, aifsBase, gfs);
+    modelHours.ukmo = buildModelHours(ukmoSummit, ukmoBase, gfs);
+    modelHours.average = buildAverageHours([modelHours.gfs, modelHours.ecmwf, modelHours.aifs, modelHours.ukmo]);
   } catch (err) {
-    forecastHours = buildDemoForecast();
+    modelHours = { gfs: buildDemoForecast(), ecmwf: null, aifs: null, ukmo: null, average: null };
   }
+  restoreSelectedModel();
+  buildModelMenu();
+  forecastHours = modelHours[selectedModel] || modelHours.average || modelHours.gfs || [];
   openFromQueryParams();
 }
+
+// Which model is shown persists across resort switches (this page reloads
+// fresh in the iframe each time), same pattern as restoreViewMode() below.
+function restoreSelectedModel() {
+  let saved = null;
+  try { saved = localStorage.getItem('sp-map-model'); } catch (e) {}
+  selectedModel = (saved && modelHours[saved]) ? saved : (modelHours.average ? 'average' : 'gfs');
+}
+
+function selectModel(key) {
+  if (!modelHours[key] || key === selectedModel) { closeModelMenu(); return; }
+  selectedModel = key;
+  pwPersist('sp-map-model', key);
+  forecastHours = modelHours[key];
+  buildModelMenu();
+  closeModelMenu();
+  if (viewMode === 'accumulated') renderAccumulatedView();
+  else if (viewMode === 'hourly') openMapView(Math.min(currentIndex, forecastHours.length - 1));
+}
+
+const MODEL_META = {
+  average: { label: 'Average', color: '#e2e8f0' },
+  gfs: { label: 'GFS Model', color: '#3b82f6' },
+  ecmwf: { label: 'ECMWF IFS', color: '#10b981' },
+  aifs: { label: 'AIFS', color: '#f59e0b' },
+  ukmo: { label: 'UKMO', color: '#f472b6' },
+};
+
+function buildModelMenu() {
+  const btn = document.getElementById('model-switch-label');
+  const list = document.getElementById('model-switch-list');
+  if (!btn || !list) return;
+  btn.textContent = MODEL_META[selectedModel]?.label || 'Average';
+  list.innerHTML = Object.keys(MODEL_META).map(key => {
+    const available = !!modelHours[key];
+    const active = key === selectedModel;
+    return `<button class="model-option ${active ? 'active' : ''}" ${available ? '' : 'disabled'} onclick="selectModel('${key}')">
+      <span class="model-option-swatch" style="background:${MODEL_META[key].color}"></span>
+      ${MODEL_META[key].label}
+    </button>`;
+  }).join('');
+}
+
+function toggleModelMenu() {
+  document.getElementById('model-switch').classList.toggle('open');
+}
+function closeModelMenu() {
+  document.getElementById('model-switch')?.classList.remove('open');
+}
+document.addEventListener('click', (e) => {
+  const el = document.getElementById('model-switch');
+  if (el && el.classList.contains('open') && !el.contains(e.target)) closeModelMenu();
+});
 
 // Fallback so the demo still works offline / if the API is unreachable.
 function buildDemoForecast() {
