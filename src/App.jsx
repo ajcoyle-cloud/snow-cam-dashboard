@@ -2,6 +2,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { Camera, LineChart, Map as MapIcon } from 'lucide-react'
 import HLS from 'hls.js'
+import { track } from '@vercel/analytics'
 import './App.css'
 
 const METEOBLUE_API_KEY = import.meta.env.VITE_METEOBLUE_API_KEY || 'DEMO'
@@ -498,6 +499,7 @@ function CameraCard({ camera, allCameras = [] }) {
   const handleFullscreenOpen = () => {
     setFullscreenCam(camera)
     setCameraIndex(0)
+    track('cam_view', { camera: camera.name })
   }
 
   if (broken) return null
@@ -706,7 +708,7 @@ function GridSizeSwitcher({ cols, setCols }) {
         <button
           key={n}
           className={`grid-size-option ${cols === n ? 'active' : ''}`}
-          onClick={() => setCols(n)}
+          onClick={() => { setCols(n); track('grid_cols_change', { cols: n }) }}
           aria-label={`${n} cameras wide`}
           aria-pressed={cols === n}
         >
@@ -1049,6 +1051,7 @@ function ResortSelector({ resort, setResort }) {
               onClick={() => {
                 setResort(key)
                 setIsOpen(false)
+                track('resort_change', { resort: r.name })
               }}
             >
               {r.name}
@@ -1587,7 +1590,7 @@ function SnowfallForecast({ resort, setResort }) {
   // arrow-only buttons are too fiddly to hit, especially on touch.
   const labelCell = (groupKey, rows, idx, base, unit = '') => (
     <td
-      onClick={idx === 0 ? () => setExpandedRows((s) => ({ ...s, [groupKey]: !s[groupKey] })) : undefined}
+      onClick={idx === 0 ? () => { setExpandedRows((s) => ({ ...s, [groupKey]: !s[groupKey] })); track('table_row_expand', { group: groupKey, expanded: !expandedRows[groupKey] }) } : undefined}
       title={idx === 0 ? (expandedRows[groupKey] ? 'Collapse to Average' : 'Expand to show each model') : undefined}
       style={{
         width: `${snowPadding.left}px`,
@@ -1842,13 +1845,13 @@ function SnowfallForecast({ resort, setResort }) {
           <div className="elevation-toggle">
             <button
               className={`toggle-btn ${viewMode === 'hourly' ? 'active' : ''}`}
-              onClick={() => setViewMode('hourly')}
+              onClick={() => { setViewMode('hourly'); track('view_mode_change', { mode: 'hourly' }) }}
             >
               Hourly
             </button>
             <button
               className={`toggle-btn ${viewMode === 'fit' ? 'active' : ''}`}
-              onClick={() => setViewMode('fit')}
+              onClick={() => { setViewMode('fit'); track('view_mode_change', { mode: 'fit' }) }}
             >
               Fit to Screen
             </button>
@@ -1887,13 +1890,13 @@ function SnowfallForecast({ resort, setResort }) {
         <div className="elevation-toggle">
           <button
             className={`toggle-btn ${elevation === 'summit' ? 'active' : ''}`}
-            onClick={() => setElevation('summit')}
+            onClick={() => { setElevation('summit'); track('elevation_change', { elevation: 'summit' }) }}
           >
             {RESORTS[resort].summitElev}m
           </button>
           <button
             className={`toggle-btn ${elevation === 'base' ? 'active' : ''}`}
-            onClick={() => setElevation('base')}
+            onClick={() => { setElevation('base'); track('elevation_change', { elevation: 'base' }) }}
           >
             {RESORTS[resort].baseElev}m
           </button>
@@ -1903,7 +1906,7 @@ function SnowfallForecast({ resort, setResort }) {
         <div className="elevation-toggle">
           <button
             className={`toggle-btn ${showCloud ? 'active' : ''}`}
-            onClick={() => setShowCloud(s => !s)}
+            onClick={() => { setShowCloud(s => !s); track('cloud_toggle', { enabled: !showCloud }) }}
             disabled={!cloudData}
             style={{ fontSize: '0.8em', opacity: !cloudData ? 0.5 : 1, cursor: !cloudData ? 'not-allowed' : 'pointer' }}
           >
@@ -1941,7 +1944,7 @@ function SnowfallForecast({ resort, setResort }) {
                     type="checkbox"
                     checked={showFreezing[m.key]}
                     disabled={!m.available}
-                    onChange={() => setShowFreezing(s => ({ ...s, [m.key]: !s[m.key] }))}
+                    onChange={() => { setShowFreezing(s => ({ ...s, [m.key]: !s[m.key] })); track('model_toggle', { model: m.key, enabled: !showFreezing[m.key] }) }}
                     style={{ position: 'absolute', opacity: 0, width: 0, height: 0 }}
                   />
                   {/* iOS-style toggle track/knob — the checkbox above stays for state + a11y. */}
