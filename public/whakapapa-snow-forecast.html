@@ -270,6 +270,20 @@
     border: 2px solid #fff; box-shadow: 0 1px 4px rgba(0,0,0,0.5);
   }
 
+  /* ── Other-resort navigation pills (shown when zoomed out) ─────────────── */
+  .resort-pill {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 6px 13px; border-radius: 999px;
+    font-size: 0.82rem; font-weight: 700; line-height: 1;
+    background: #000; color: #fff; text-shadow: 0 1px 3px rgba(0,0,0,0.55);
+    border: 1.5px solid rgba(255,255,255,0.75);
+    box-shadow: 0 2px 8px rgba(0,0,0,0.5);
+    cursor: pointer; white-space: nowrap; user-select: none;
+    transition: transform 0.12s ease, box-shadow 0.12s ease, opacity 0.25s ease;
+  }
+  .resort-pill:hover { transform: scale(1.07); box-shadow: 0 3px 12px rgba(0,0,0,0.6); }
+  .resort-pill .resort-pill-temp { color: rgba(255,255,255,0.7); font-weight: 600; }
+
   .obs-modal-backdrop {
     position: absolute; inset: 0; z-index: 1200;
     background: rgba(0,0,0,0.55); backdrop-filter: blur(3px);
@@ -626,6 +640,21 @@ const requestedResort = new URLSearchParams(window.location.search).get('resort'
 const resortKey = VALID_RESORT_KEYS.has(requestedResort) ? requestedResort : 'ruapehu';
 const LOC = RESORT_CONFIG[resortKey];
 
+// ── Other-resort navigation pills (shown when zoomed out) ──────────────────
+// Lets the user jump straight to another resort's map from within the map
+// itself, without going back to the React app's location switcher. Pills sit
+// at each OTHER resort's actual lat/lon (not their camera-framing "center",
+// which is deliberately offset from the real location for some resorts) and
+// stay hidden until the user zooms out past RESORT_PILL_MAX_ZOOM, so they
+// don't clutter the default close-up 3D view.
+const RESORT_PILL_MAX_ZOOM = 11;
+const RESORT_PILL_LABELS = {
+  ruapehu: 'Whakapapa', cardrona: 'Cardrona', loveland: 'Loveland',
+  mtlyford: 'Mt Lyford', roundhill: 'Roundhill', mtvernon: 'Mt Vernon', treblecone: 'Treble Cone'
+};
+const OTHER_RESORT_KEYS = Object.keys(RESORT_CONFIG).filter(k => k !== resortKey);
+let resortPillMarkers = {};
+
 // Whakapapa ski field lift lines (chairlifts, gondola, T-bars, carpets, rope
 // tows) sourced from the lodge trail-map project's LIFTS dataset — drawn for
 // the ruapehu/Whakapapa resort (Cardrona has its own dataset below).
@@ -673,6 +702,69 @@ const MAX_HOURLY_SNOWFALL_MM = 60; // ~6cm/hr, generous even for a true storm pu
 // AIFS/ECMWF/UKMO are optional and GFS must never be blocked by their failure.
 function fetchOrNull(url) {
   return fetch(url).then(r => r.ok ? r : null).catch(() => null);
+}
+
+// Lightweight "now" temperature at another resort's base elevation, for the
+// navigation pill label — deliberately not the full multi-model hourly fetch
+// (buildModelHours etc.) that this page does for its OWN resort, since all we
+// need here is a single current value per other resort.
+async function fetchOtherResortTemp(key) {
+  const r = RESORT_CONFIG[key];
+  const url = `https://api.open-meteo.com/v1/forecast?latitude=${r.lat}&longitude=${r.lon}&elevation=${r.baseElev}&current=temperature_2m&temperature_unit=celsius&timezone=${r.timezone}&models=gfs_global`;
+  const res = await fetchOrNull(url);
+  if (!res) return null;
+  try {
+    const json = await res.json();
+    return json.current?.temperature_2m ?? null;
+  } catch (e) {
+    return null;
+  }
+}
+
+// Switches the active resort: persists the choice so the main React app's
+// location switcher picks it up too, then either tells the parent (if this
+// page is embedded in the app's map tab, which just re-keys its iframe to the
+// new resort) or, if opened standalone, navigates this tab itself.
+function navigateToResort(key) {
+  try { localStorage.setItem('sc-resort', key); } catch (e) {}
+  if (window.parent !== window) {
+    window.parent.postMessage({ type: 'resort-select', resort: key }, '*');
+  } else {
+    const url = new URL(window.location.href);
+    url.searchParams.set('resort', key);
+    window.location.href = url.toString();
+  }
+}
+
+function updateResortPillVisibility() {
+  const show = map.getZoom() <= RESORT_PILL_MAX_ZOOM;
+  for (const key in resortPillMarkers) {
+    resortPillMarkers[key].getElement().style.display = show ? '' : 'none';
+  }
+}
+
+function initResortPills() {
+  OTHER_RESORT_KEYS.forEach((key) => {
+    const r = RESORT_CONFIG[key];
+    const el = document.createElement('div');
+    el.className = 'resort-pill';
+    el.innerHTML = `${RESORT_PILL_LABELS[key] || key} <span class="resort-pill-temp"></span>`;
+    el.addEventListener('click', (e) => {
+      e.stopPropagation();
+      // Smoothly fly to the target resort's tuned camera preset first, then
+      // switch resorts (which reloads the terrain/forecast data) once the
+      // animation settles — the fly is purely a visual transition.
+      map.flyTo({ center: r.center, zoom: r.zoom, pitch: r.pitch, bearing: r.bearing, duration: 2500, essential: true });
+      map.once('moveend', () => navigateToResort(key));
+    });
+    resortPillMarkers[key] = new maplibregl.Marker({ element: el, anchor: 'center' }).setLngLat([r.lon, r.lat]).addTo(map);
+    fetchOtherResortTemp(key).then((temp) => {
+      const tempEl = el.querySelector('.resort-pill-temp');
+      if (tempEl && temp != null) tempEl.textContent = `${temp.toFixed(1)}°C`;
+    });
+  });
+  updateResortPillVisibility();
+  map.on('zoom', updateResortPillVisibility);
 }
 
 // Build one model's hourly series. GFS exposes a direct freezing-level field
@@ -952,6 +1044,9 @@ function initMap() {
     }
     // Live PredictWind observation pills + temperature profile (both resorts).
     initStationPill();
+    // Other-resort navigation pills — present in every view mode (live,
+    // hourly, accumulated), gated only by zoom level.
+    initResortPills();
   });
 
   map.addControl(new maplibregl.NavigationControl({ visualizePitch: true, showZoom: true, showCompass: true }), 'top-right');

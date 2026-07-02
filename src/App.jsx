@@ -2591,6 +2591,20 @@ function ForecastMap3D({ resort, setResort }) {
   }
   const src = `/whakapapa-snow-forecast.html?resort=${resort}`
 
+  // The map iframe's own "other resort" navigation pills post this message
+  // when tapped, so switching resorts from inside the map also updates the
+  // location switcher above it (the iframe's key={src} then remounts it with
+  // the new resort's terrain/forecast data).
+  useEffect(() => {
+    const handleMessage = (event) => {
+      if (event.data?.type === 'resort-select' && event.data?.resort && RESORTS[event.data.resort]) {
+        setResort(event.data.resort)
+      }
+    }
+    window.addEventListener('message', handleMessage)
+    return () => window.removeEventListener('message', handleMessage)
+  }, [setResort])
+
   return (
     <div className="map-3d-wrap" style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
       <div className="map-resort-switch" style={{ display: 'flex', justifyContent: 'center', padding: '10px 0' }}>
