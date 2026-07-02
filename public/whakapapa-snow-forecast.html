@@ -2645,11 +2645,16 @@ function pwRenderFreezingOverlay() {
 }
 
 // Render pseudo temperature pills for ski field elevations (resort-specific).
+// Disabled everywhere — only real weather-station observations show as pills
+// now. Kept as a no-op (rather than removing every call site) so it stays
+// harmless if something still calls it, and so a future re-enable is a
+// one-line change.
 function pwRenderPseudoPills() {
-  // Remove existing pseudo pills
+  // Remove any pseudo pills already on the map, then bail before building more.
   for (const el of document.querySelectorAll('.pseudo-pill')) {
     if (el.marker) el.marker.remove();
   }
+  return;
   // Pseudo pills: elevation and position per resort
   let pseudos = [];
   if (resortKey === 'cardrona') {
