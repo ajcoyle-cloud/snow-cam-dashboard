@@ -87,15 +87,16 @@
     <input type="range" id="satMin" min="0" max="100" value="45">
     <label>Min brightness <span class="val" id="valMinV">15%</span></label>
     <input type="range" id="valMin" min="0" max="100" value="15">
-    <label>Max brightness <span class="val" id="valMaxV">99%</span></label>
-    <input type="range" id="valMax" min="0" max="100" value="99">
+    <label>Max brightness <span class="val" id="valMaxV">100%</span></label>
+    <input type="range" id="valMax" min="0" max="100" value="100">
     <div class="toggles">
       <label><input type="checkbox" id="hueYellow" checked> yellow/gold</label>
       <label><input type="checkbox" id="hueGreen" checked> green</label>
       <label><input type="checkbox" id="hueBlue" checked> blue</label>
       <label><input type="checkbox" id="hueRed" checked> red/purple</label>
     </div>
-    <div class="hint">Keeps only saturated pixels in the checked hue bands — filters out the dark basemap, white coastlines and pale label text. Tune the sliders until only the echo colour blobs survive in the preview below.</div>
+    <label style="display:flex;align-items:center;gap:6px;margin-top:10px;"><input type="checkbox" id="showCoastline" style="width:auto;margin:0;"> Show coastline reference</label>
+    <div class="hint">Keeps only saturated pixels in the checked hue bands — filters out the dark basemap, white coastlines and pale label text. Tune the sliders until only the echo colour blobs survive in the preview below. The coastline checkbox keeps the source image's own thin white coastline stroke too (measured: sat ~3%, brightness 100% — under the saturation gate above) as a placement check against the real satellite coastline once draped.</div>
     <div id="previewWrap" class="checker"><canvas id="previewCanvas"></canvas></div>
     <div id="status"></div>
   </div>
@@ -238,11 +239,13 @@ function cropAndIsolate(img, targetCanvas) {
   const imgData = ctx.getImageData(0, 0, cw, ch);
   const d = imgData.data;
   const satMin = +$('satMin').value, valMin = +$('valMin').value, valMax = +$('valMax').value;
+  const showCoastline = $('showCoastline').checked;
   let kept = 0;
   for (let i = 0; i < d.length; i += 4) {
     const [h, s, v] = rgbToHsv(d[i], d[i + 1], d[i + 2]);
     const isRain = s >= satMin && v >= valMin && v <= valMax && hueAllowed(h);
-    if (isRain) { kept++; } else { d[i + 3] = 0; }
+    const isCoastline = showCoastline && s < 15 && v >= 90;
+    if (isRain || isCoastline) { kept++; } else { d[i + 3] = 0; }
   }
   ctx.putImageData(imgData, 0, 0);
   return { canvas, kept, total: cw * ch };
@@ -535,7 +538,7 @@ Object.values(cropEls).forEach((el) => el.addEventListener('input', () => { sync
   $(id + 'V').textContent = $(id).value + '%';
   processImage();
 }));
-['hueYellow', 'hueGreen', 'hueBlue', 'hueRed'].forEach((id) => $(id).addEventListener('change', processImage));
+['hueYellow', 'hueGreen', 'hueBlue', 'hueRed', 'showCoastline'].forEach((id) => $(id).addEventListener('change', processImage));
 $('opacity').addEventListener('input', () => {
   $('opV').textContent = $('opacity').value + '%';
   if (map && map.getLayer('radar-layer')) map.setPaintProperty('radar-layer', 'raster-opacity', (+$('opacity').value) / 100);

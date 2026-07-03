@@ -24,7 +24,7 @@ export const RADAR_CALIBRATION = {
   isolate: {
     minSaturation: 45,
     minBrightness: 15,
-    maxBrightness: 99,
+    maxBrightness: 100,
     hueBands: { yellowGold: true, green: true, blue: true, redPurple: true },
   },
 
