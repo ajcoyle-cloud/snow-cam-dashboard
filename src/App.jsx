@@ -2591,32 +2591,62 @@ function ForecastMap3D({ resort, setResort }) {
   }
   const src = `/whakapapa-snow-forecast.html?resort=${resort}`
 
-  // The map iframe's own "other resort" navigation pills post this message
-  // when tapped, so switching resorts from inside the map also updates the
-  // location switcher above it (the iframe's key={src} then remounts it with
-  // the new resort's terrain/forecast data).
+  // Switching resorts remounts the iframe (key={src}), which briefly flashes
+  // the old map disappearing before the new one has anything to show. Cover
+  // that with an opaque overlay from the moment the switch is triggered until
+  // the new iframe tells us its map has actually rendered something
+  // ('map-ready') — with a generous fallback timeout in case that message
+  // never arrives (e.g. the new resort's map fails to load at all).
+  const [transitioning, setTransitioning] = useState(false)
+  const transitionTimeoutRef = useRef(null)
+
   useEffect(() => {
     const handleMessage = (event) => {
       if (event.data?.type === 'resort-select' && event.data?.resort && RESORTS[event.data.resort]) {
+        setTransitioning(true)
         setResort(event.data.resort)
+      } else if (event.data?.type === 'map-ready') {
+        setTransitioning(false)
       }
     }
     window.addEventListener('message', handleMessage)
     return () => window.removeEventListener('message', handleMessage)
   }, [setResort])
 
+  useEffect(() => {
+    if (!transitioning) return
+    transitionTimeoutRef.current = setTimeout(() => setTransitioning(false), 8000)
+    return () => clearTimeout(transitionTimeoutRef.current)
+  }, [transitioning])
+
   return (
     <div className="map-3d-wrap" style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
       <div className="map-resort-switch" style={{ display: 'flex', justifyContent: 'center', padding: '10px 0' }}>
         <ResortSelector resort={resort} setResort={setResort} />
       </div>
-      <iframe
-        key={src}
-        className="map-3d-frame"
-        src={src}
-        style={{ width: '100%', flex: 1, minHeight: 0, border: 'none', borderRadius: 0, display: 'block' }}
-        allowFullScreen
-      />
+      <div style={{ position: 'relative', width: '100%', flex: 1, minHeight: 0 }}>
+        <iframe
+          key={src}
+          className="map-3d-frame"
+          src={src}
+          style={{ width: '100%', height: '100%', border: 'none', borderRadius: 0, display: 'block' }}
+          allowFullScreen
+        />
+        <div
+          className="map-transition-overlay"
+          style={{
+            position: 'absolute', inset: 0, background: '#0a0e14',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            opacity: transitioning ? 1 : 0,
+            pointerEvents: transitioning ? 'auto' : 'none',
+            transition: 'opacity 0.35s ease',
+          }}
+        >
+          <div style={{ color: 'rgba(255,255,255,0.6)', fontSize: '14px', fontWeight: 600, letterSpacing: '0.02em' }}>
+            {RESORTS[resort]?.name || 'Loading'}…
+          </div>
+        </div>
+      </div>
     </div>
   )
 }

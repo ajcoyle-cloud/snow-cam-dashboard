@@ -885,6 +885,8 @@ async function loadForecast() {
   buildModelMenu();
   forecastHours = modelHours[selectedModel] || modelHours.average || modelHours.gfs || [];
   openFromQueryParams();
+  initialViewReady = true;
+  maybeSignalMapReady();
 }
 
 // Which model is shown persists across resort switches (this page reloads
@@ -969,6 +971,21 @@ function fmtTime(iso) {
 
 // ── Map ────────────────────────────────────────────────────────────────────
 let map = null;
+
+// Tells the parent app (if embedded) once there's actually something worth
+// looking at — the map style has attached AND the first view (hourly/live/
+// accumulated) has rendered — so it can hold a cover overlay over the old
+// content until this new resort's map is ready, instead of flashing a blank/
+// half-loaded map during the iframe swap. Needs both flags: which one
+// finishes first depends on network timing (map tiles vs. weather fetch).
+let mapStyleReady = false;
+let initialViewReady = false;
+function maybeSignalMapReady() {
+  if (!mapStyleReady || !initialViewReady || window.parent === window) return;
+  // A short buffer so at least the first pass of terrain/satellite tiles has
+  // a moment to paint before the parent reveals this iframe.
+  setTimeout(() => window.parent.postMessage({ type: 'map-ready' }, '*'), 300);
+}
 
 function initMap() {
   if (map) return;
@@ -1058,6 +1075,8 @@ function initMap() {
     // Other-resort navigation pills — present in every view mode (live,
     // hourly, accumulated), gated only by zoom level.
     initResortPills();
+    mapStyleReady = true;
+    maybeSignalMapReady();
   });
 
   map.addControl(new maplibregl.NavigationControl({ visualizePitch: true, showZoom: true, showCompass: true }), 'top-right');
