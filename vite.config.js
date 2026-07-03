@@ -56,6 +56,17 @@ export default defineConfig({
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/cam-archive/, ''),
       },
+      // MetService's national rain radar composite (as used by weatherwatch.co.nz),
+      // published as timestamped frames <YYYYMMDDHHmm>.gif on a public-but-unlisted
+      // S3 bucket (no ListBucket permission, so frames must be requested/probed by
+      // name — see src/radarFeed.js) at a ~7.5-min cadence. No CORS headers, and the
+      // overlay pipeline needs pixel-level canvas access (crop/HSV isolate), so the
+      // bytes must come through this same-origin proxy rather than a direct <img src>.
+      '/radar-feed': {
+        target: 'https://weatherwatch-maps.s3.ap-southeast-2.amazonaws.com',
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/radar-feed/, '/metservice/rainradar-realtime'),
+      },
       // PredictWind NowCasting observation tiles (packed station tracks) have
       // no CORS headers, so proxy them too:
       // /pw-obs/<path>  ->  https://forecast.predictwind.com/observations/<path>

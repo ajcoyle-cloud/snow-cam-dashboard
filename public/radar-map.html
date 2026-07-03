@@ -1,0 +1,398 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>NZ Rain Radar — 3D</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/maplibre-gl@5.23.0/dist/maplibre-gl.min.css" />
+<script src="https://cdn.jsdelivr.net/npm/maplibre-gl@5.23.0/dist/maplibre-gl.js"></script>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif; background: #0f1c30; color: #fff; }
+  #map-screen { position: fixed; inset: 0; }
+  #map { width: 100%; height: 100%; }
+
+  .maplibregl-ctrl-top-left .maplibregl-ctrl-group {
+    background: rgba(20,20,20,0.78); backdrop-filter: blur(14px);
+    border: none; border-radius: 9999px; overflow: hidden; box-shadow: 0 4px 16px rgba(0,0,0,0.35);
+  }
+  .maplibregl-ctrl-top-left .maplibregl-ctrl-group button { background-color: transparent; width: 32px; height: 32px; }
+  .maplibregl-ctrl-top-left .maplibregl-ctrl-group button + button { border-top: 1px solid rgba(255,255,255,0.15); }
+  .maplibregl-ctrl-top-left .maplibregl-ctrl-group button:hover { background-color: rgba(255,255,255,0.15); }
+  .maplibregl-ctrl-top-left .maplibregl-ctrl-icon { filter: invert(1) brightness(1.6); }
+
+  /* ── Timeline scrubber — same recipe as whakapapa-snow-forecast.html's #timeline ── */
+  #timeline {
+    position: absolute; left: 20px; right: 20px; bottom: 20px; z-index: 10;
+    display: flex; align-items: center; gap: 14px;
+    background: rgba(0,0,0,0.6); backdrop-filter: blur(14px);
+    border-radius: 30px; padding: 10px 18px; box-shadow: 0 6px 26px rgba(0,0,0,0.35);
+    opacity: 0; pointer-events: none; transition: opacity 0.3s ease;
+  }
+  #timeline.ready { opacity: 1; pointer-events: auto; }
+  #tl-play {
+    flex-shrink: 0; background: rgba(255,255,255,0.14); color: #fff; border: none;
+    width: 38px; height: 38px; border-radius: 50%; cursor: pointer;
+    font-size: 1rem; display: flex; align-items: center; justify-content: center;
+    transition: background 0.15s;
+  }
+  #tl-play:hover { background: rgba(255,255,255,0.26); }
+  #tl-slider {
+    flex: 1; -webkit-appearance: none; appearance: none;
+    height: 6px; border-radius: 3px; background: rgba(255,255,255,0.25);
+    cursor: pointer; outline: none;
+  }
+  #tl-slider::-webkit-slider-thumb {
+    -webkit-appearance: none; width: 18px; height: 18px; border-radius: 50%;
+    background: #fff; box-shadow: 0 2px 8px rgba(0,0,0,0.4); cursor: pointer; border: 3px solid #333;
+  }
+  #tl-slider::-moz-range-thumb {
+    width: 18px; height: 18px; border-radius: 50%; background: #fff;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.4); cursor: pointer; border: 3px solid #333;
+  }
+  .tl-step {
+    flex-shrink: 0; background: transparent; color: rgba(255,255,255,0.85); border: none;
+    font-size: 1.2rem; cursor: pointer; width: 26px; height: 38px;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .tl-step:hover:not(:disabled) { color: #fff; }
+  .tl-step:disabled { opacity: 0.3; cursor: default; }
+  #tl-label {
+    flex-shrink: 0; color: #fff; font-size: 0.78rem; font-weight: 600;
+    min-width: 120px; text-align: right; font-variant-numeric: tabular-nums;
+  }
+  #tl-live-badge {
+    flex-shrink: 0; font-size: 0.62rem; font-weight: 700; letter-spacing: 0.04em;
+    color: #f87171; margin-right: -4px; opacity: 0; transition: opacity 0.2s;
+  }
+  #tl-live-badge.on { opacity: 1; }
+
+  @media (max-width: 640px) {
+    #timeline { left: 10px; right: 10px; padding: 8px 12px; gap: 8px; }
+    #tl-label { min-width: 0; font-size: 0.7rem; }
+  }
+
+  #banner {
+    position: absolute; inset: 0; z-index: 5; display: flex; align-items: center; justify-content: center;
+    text-align: center; padding: 40px; color: rgba(255,255,255,0.6); font-size: 0.85rem; line-height: 1.5;
+    background: #0f1c30; transition: opacity 0.3s ease;
+  }
+  #banner.hidden { opacity: 0; pointer-events: none; }
+</style>
+</head>
+<body>
+
+<div id="map-screen">
+  <div id="map"></div>
+  <div id="banner">Loading live radar…</div>
+  <div id="timeline">
+    <span id="tl-live-badge">● LIVE</span>
+    <button id="tl-play">▶</button>
+    <button class="tl-step" id="tl-prev">‹</button>
+    <input type="range" id="tl-slider" min="0" max="0" step="1" value="0">
+    <button class="tl-step" id="tl-next">›</button>
+    <span id="tl-label">—</span>
+  </div>
+</div>
+
+<script>
+// Hand-calibrated against the MetService/weatherwatch.co.nz national radar
+// composite — see src/radarCalibration.js (source of truth; mirrored here
+// since this is a static page outside the React build) for how these were
+// derived (coastline auto-align + manual corner drag in public/radar-test/).
+const RADAR_CALIBRATION = {
+  crop: { topPct: 0, bottomPct: 0, leftPct: 0, rightPct: 0 },
+  isolate: {
+    minSaturation: 45, minBrightness: 15, maxBrightness: 99,
+    hueBands: { yellowGold: true, green: true, blue: true, redPurple: true },
+  },
+  corners: [
+    [164.4873046875, -32.54681317351514],
+    [-178.2421875, -32.36140331527542],
+    [-177.4951171875, -48.719961222646276],
+    [164.267578125, -48.60385760823253],
+  ],
+  opacity: 0.9,
+};
+
+// ---------- 3D NZ base map ----------
+let map = null;
+try {
+  if (typeof maplibregl === 'undefined') throw new Error('maplibre-gl failed to load from CDN');
+  map = new maplibregl.Map({
+    container: 'map',
+    center: [172.8, -41.2],
+    zoom: 5.3,
+    pitch: 48,
+    bearing: 0,
+    maxPitch: 85,
+    attributionControl: false,
+    style: {
+      version: 8,
+      sources: {
+        terrain: { type: 'raster-dem', url: 'https://tiles.mapterhorn.com/tilejson.json', tileSize: 512 },
+        satellite: {
+          type: 'raster',
+          tiles: ['https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'],
+          tileSize: 256,
+          attribution: 'Tiles &copy; Esri'
+        }
+      },
+      layers: [
+        { id: 'background', type: 'background', paint: { 'background-color': '#0b1a2e' } },
+        { id: 'satellite', type: 'raster', source: 'satellite', paint: { 'raster-opacity': 1, 'raster-saturation': -0.2 } },
+        { id: 'hillshade', type: 'hillshade', source: 'terrain', paint: { 'hillshade-exaggeration': 0.5 } }
+      ],
+      terrain: { source: 'terrain', exaggeration: 1.4 }
+    }
+  });
+  map.addControl(new maplibregl.NavigationControl(), 'top-left');
+} catch (e) {
+  console.error('Map init failed:', e);
+  showBanner('Map unavailable — the terrain/satellite tile service could not be reached.');
+}
+
+function showBanner(text) {
+  const b = document.getElementById('banner');
+  b.textContent = text;
+  b.classList.remove('hidden');
+  // The parent (RadarMap3D in App.jsx) keeps this iframe at opacity:0 until it
+  // hears 'map-ready', so it can fade in cleanly instead of flashing a blank
+  // frame. An error banner is just as much a "stable thing to show the user"
+  // as a working map — without this, a failure here would stay invisible
+  // forever behind the parent's opacity:0.
+  window.parent.postMessage({ type: 'map-ready' }, '*');
+}
+function hideBanner() {
+  document.getElementById('banner').classList.add('hidden');
+}
+
+// ---------- live feed ----------
+// MetService's national rain radar composite (as used by weatherwatch.co.nz),
+// published as timestamped frames on an S3 bucket with no ListBucket
+// permission (so the latest frame has to be predicted/probed, not listed)
+// and no CORS headers (so frames are fetched through the /radar-feed proxy —
+// see vite.config.js / vercel.json — rather than a direct cross-origin
+// <img src>, since isolating rain pixels needs canvas pixel access).
+// See src/radarFeed.js for the full writeup of the slot schedule.
+const SLOT_MINUTES = [5, 13, 20, 28, 35, 43, 50, 58];
+const pad2 = (n) => String(n).padStart(2, '0');
+function filenameFor(date) {
+  return '' + date.getUTCFullYear() + pad2(date.getUTCMonth() + 1) + pad2(date.getUTCDate()) + pad2(date.getUTCHours()) + pad2(date.getUTCMinutes());
+}
+function candidateTimestamps(count, from) {
+  const out = [];
+  let cursor = new Date(from || new Date());
+  while (out.length < count) {
+    const hourMinutes = SLOT_MINUTES.filter((m) => m <= cursor.getUTCMinutes());
+    let slot;
+    if (hourMinutes.length > 0) {
+      slot = new Date(cursor);
+      slot.setUTCMinutes(hourMinutes[hourMinutes.length - 1], 0, 0);
+    } else {
+      slot = new Date(cursor);
+      slot.setUTCHours(slot.getUTCHours() - 1, SLOT_MINUTES[SLOT_MINUTES.length - 1], 0, 0);
+    }
+    out.push(filenameFor(slot));
+    cursor = new Date(slot.getTime() - 60000);
+  }
+  return out;
+}
+function frameUrl(ts) { return `/radar-feed/${ts}.gif`; }
+function tsToDate(ts) {
+  return new Date(Date.UTC(+ts.slice(0, 4), +ts.slice(4, 6) - 1, +ts.slice(6, 8), +ts.slice(8, 10), +ts.slice(10, 12)));
+}
+function formatTs(ts) {
+  return tsToDate(ts).toLocaleString('en-NZ', { weekday: 'short', hour: '2-digit', minute: '2-digit' });
+}
+
+// ---------- crop + HSV isolate (same pipeline as public/radar-test/) ----------
+function rgbToHsv(r, g, b) {
+  r /= 255; g /= 255; b /= 255;
+  const max = Math.max(r, g, b), min = Math.min(r, g, b), d = max - min;
+  let h = 0;
+  if (d !== 0) {
+    if (max === r) h = ((g - b) / d) % 6;
+    else if (max === g) h = (b - r) / d + 2;
+    else h = (r - g) / d + 4;
+    h *= 60;
+    if (h < 0) h += 360;
+  }
+  return [h, max === 0 ? 0 : (d / max) * 100, max * 100];
+}
+function hueAllowed(h) {
+  const bands = RADAR_CALIBRATION.isolate.hueBands;
+  if (bands.yellowGold && h >= 35 && h < 70) return true;
+  if (bands.green && h >= 70 && h < 160) return true;
+  if (bands.blue && h >= 160 && h < 280) return true;
+  if (bands.redPurple && (h >= 280 || h < 35)) return true;
+  return false;
+}
+function cropAndIsolate(img) {
+  const { crop, isolate } = RADAR_CALIBRATION;
+  const iw = img.naturalWidth, ih = img.naturalHeight;
+  const top = Math.round(ih * crop.topPct / 100), bottom = Math.round(ih * crop.bottomPct / 100);
+  const left = Math.round(iw * crop.leftPct / 100), right = Math.round(iw * crop.rightPct / 100);
+  const cw = Math.max(1, iw - left - right), ch = Math.max(1, ih - top - bottom);
+  const canvas = document.createElement('canvas');
+  canvas.width = cw; canvas.height = ch;
+  const ctx = canvas.getContext('2d');
+  ctx.drawImage(img, left, top, cw, ch, 0, 0, cw, ch);
+  const imgData = ctx.getImageData(0, 0, cw, ch);
+  const d = imgData.data;
+  for (let i = 0; i < d.length; i += 4) {
+    const [h, s, v] = rgbToHsv(d[i], d[i + 1], d[i + 2]);
+    const isRain = s >= isolate.minSaturation && v >= isolate.minBrightness && v <= isolate.maxBrightness && hueAllowed(h);
+    if (!isRain) d[i + 3] = 0;
+  }
+  ctx.putImageData(imgData, 0, 0);
+  return canvas;
+}
+
+async function fetchAndProcessFrame(ts) {
+  const res = await fetch(frameUrl(ts));
+  if (!res.ok) return null;
+  const blob = await res.blob();
+  const blobUrl = URL.createObjectURL(blob);
+  try {
+    const img = await new Promise((resolve, reject) => {
+      const im = new Image();
+      im.onload = () => resolve(im);
+      im.onerror = reject;
+      im.src = blobUrl;
+    });
+    return { timestamp: ts, dataUrl: cropAndIsolate(img).toDataURL('image/png') };
+  } finally {
+    URL.revokeObjectURL(blobUrl);
+  }
+}
+
+// ---------- frames + timeline state ----------
+let frames = [];       // [{ timestamp, dataUrl }], oldest -> newest
+let currentIndex = -1;
+let playTimer = null;
+const FRAME_INTERVAL_MS = 450;
+const MAX_FRAMES = 12;
+const REFRESH_POLL_MS = 90000;
+
+function drawFrame(i) {
+  if (!map || !frames[i]) return;
+  currentIndex = i;
+  const f = frames[i];
+  if (!map.getSource('radar-src')) {
+    map.addSource('radar-src', { type: 'image', url: f.dataUrl, coordinates: RADAR_CALIBRATION.corners });
+    map.addLayer({
+      id: 'radar-layer', type: 'raster', source: 'radar-src',
+      paint: { 'raster-opacity': RADAR_CALIBRATION.opacity, 'raster-fade-duration': 0 }
+    });
+  } else {
+    map.getSource('radar-src').updateImage({ url: f.dataUrl });
+  }
+  document.getElementById('tl-slider').value = i;
+  document.getElementById('tl-prev').disabled = i <= 0;
+  document.getElementById('tl-next').disabled = i >= frames.length - 1;
+  document.getElementById('tl-label').textContent = formatTs(f.timestamp);
+  document.getElementById('tl-live-badge').classList.toggle('on', i === frames.length - 1);
+}
+
+function stepFrame(delta) {
+  stopPlay();
+  drawFrame(Math.max(0, Math.min(frames.length - 1, currentIndex + delta)));
+}
+
+function togglePlay() {
+  if (playTimer) stopPlay(); else startPlay();
+}
+function startPlay() {
+  if (frames.length < 2) return;
+  if (currentIndex >= frames.length - 1) drawFrame(0); // restart from the beginning
+  document.getElementById('tl-play').textContent = '⏸';
+  playTimer = setInterval(() => {
+    if (currentIndex >= frames.length - 1) { stopPlay(); return; }
+    drawFrame(currentIndex + 1);
+  }, FRAME_INTERVAL_MS);
+}
+function stopPlay() {
+  if (playTimer) { clearInterval(playTimer); playTimer = null; }
+  document.getElementById('tl-play').textContent = '▶';
+}
+
+document.getElementById('tl-play').addEventListener('click', togglePlay);
+document.getElementById('tl-prev').addEventListener('click', () => stepFrame(-1));
+document.getElementById('tl-next').addEventListener('click', () => stepFrame(1));
+document.getElementById('tl-slider').addEventListener('input', (e) => {
+  stopPlay();
+  drawFrame(parseInt(e.target.value, 10));
+});
+window.addEventListener('keydown', (e) => {
+  if (e.code === 'Space') {
+    const ae = document.activeElement;
+    if (ae && (ae.tagName === 'TEXTAREA' || (ae.tagName === 'INPUT' && ae.type === 'text'))) return;
+    e.preventDefault();
+    togglePlay();
+  }
+});
+
+// ---------- load + live refresh ----------
+async function loadInitialFrames() {
+  const found = [];
+  for (const ts of candidateTimestamps(20)) {
+    if (found.length >= MAX_FRAMES) break;
+    const frame = await fetchAndProcessFrame(ts).catch(() => null);
+    if (frame) found.push(frame);
+  }
+  if (found.length === 0) {
+    showBanner('No live radar frames available right now — the feed may be temporarily down. Try reloading in a few minutes.');
+    return;
+  }
+  frames = found.reverse(); // oldest -> newest
+  document.getElementById('tl-slider').max = frames.length - 1;
+  drawFrame(frames.length - 1);
+  document.getElementById('timeline').classList.add('ready');
+  hideBanner();
+  window.parent.postMessage({ type: 'map-ready' }, '*');
+}
+
+// Polls for a newer frame than the one we already have; if the user is
+// currently viewing the latest frame ("live"), auto-advances to it so
+// playback tracks reality without yanking the view if they've scrubbed back.
+async function pollForNewFrame() {
+  if (frames.length === 0) return;
+  const latestKnown = frames[frames.length - 1].timestamp;
+  const candidates = candidateTimestamps(4).filter((ts) => ts > latestKnown).reverse(); // oldest-of-the-new-ones first
+  for (const ts of candidates) {
+    const frame = await fetchAndProcessFrame(ts).catch(() => null);
+    if (!frame) continue;
+    const wasAtLive = currentIndex === frames.length - 1 && !playTimer;
+    const currentTs = frames[currentIndex]?.timestamp;
+    frames.push(frame);
+    if (frames.length > MAX_FRAMES) frames.shift();
+    document.getElementById('tl-slider').max = frames.length - 1;
+    if (wasAtLive) {
+      drawFrame(frames.length - 1);
+    } else {
+      // keep the scrub position pointing at the same frame it was on, even
+      // if an older one fell off the front of the MAX_FRAMES window
+      const idx = frames.findIndex((f) => f.timestamp === currentTs);
+      currentIndex = idx >= 0 ? idx : 0;
+      document.getElementById('tl-slider').value = currentIndex;
+      document.getElementById('tl-prev').disabled = currentIndex <= 0;
+      document.getElementById('tl-next').disabled = currentIndex >= frames.length - 1;
+    }
+  }
+}
+
+function init() {
+  loadInitialFrames();
+  setInterval(pollForNewFrame, REFRESH_POLL_MS);
+}
+
+// Only start fetching/animating frames once there's an actual map to drape
+// them onto — if maplibre or the tile hosts are unreachable, the catch block
+// above already put a clear message in #banner; leave it showing rather than
+// fetching frames nothing will display and then hiding the error underneath it.
+if (map) map.on('load', init);
+</script>
+
+</body>
+</html>
