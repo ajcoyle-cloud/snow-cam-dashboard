@@ -1097,19 +1097,22 @@ let map = null;
 let mapStyleReady = false;
 function maybeSignalMapReady() {
   if (!mapStyleReady || window.parent === window) return;
-  // A short buffer so at least the first pass of terrain/satellite tiles has
-  // a moment to paint before the parent reveals this iframe.
-  setTimeout(() => {
-    // The decorative auto-rotate has been running continuously since this
-    // page loaded (see rotateStep()), so by now the camera has drifted some
-    // arbitrary amount past LOC's default bearing — however long the load
-    // happened to take. The resort-pill flyTo on the PREVIOUS page always
-    // targets that same static default, so without this the reveal would
-    // land at a different, unpredictable bearing every time. Snap back to
-    // the exact default right before revealing so the two always match.
-    map.jumpTo({ center: LOC.center, zoom: LOC.zoom, pitch: LOC.pitch, bearing: LOC.bearing });
+  // The decorative auto-rotate has been running continuously since this
+  // page loaded (see rotateStep()), so by now the camera has drifted some
+  // arbitrary amount past LOC's default bearing — however long the load
+  // happened to take. The resort-pill flyTo on the PREVIOUS page always
+  // targets that same static default, so without this the reveal would
+  // land at a different, unpredictable bearing every time. Snap back to
+  // the exact default right before revealing so the two always match.
+  map.jumpTo({ center: LOC.center, zoom: LOC.zoom, pitch: LOC.pitch, bearing: LOC.bearing });
+  // The snap can itself require a few new edge tiles (rotating back to the
+  // default bearing changes what's at the corners of the frustum) — wait
+  // for a second 'idle' so the revealed frame is guaranteed fully loaded at
+  // the EXACT bearing it's revealed at, not just the one it was idle at a
+  // moment ago.
+  map.once('idle', () => {
     window.parent.postMessage({ type: 'map-ready' }, '*');
-  }, 300);
+  });
 }
 
 function initMap() {
@@ -1201,7 +1204,15 @@ function initMap() {
     // hourly, accumulated), gated only by zoom level.
     initResortPills();
     mapStyleReady = true;
-    maybeSignalMapReady();
+    // 'load' only means the style/sources attached, not that terrain/
+    // satellite tiles have actually finished loading and rendering —
+    // revealing this frame right here left it visibly still settling
+    // (terrain popping in) for a moment after the crossfade, which never
+    // quite matched where the pill's flyTo (on the OLD, already-loaded page)
+    // had landed after its full 2.5s animation. 'idle' fires once camera
+    // transitions are done AND every requested tile has loaded, so waiting
+    // for it guarantees this frame is the fully-settled one.
+    map.once('idle', maybeSignalMapReady);
   });
 
   map.addControl(new maplibregl.NavigationControl({ visualizePitch: true, showZoom: true, showCompass: true }), 'top-right');
