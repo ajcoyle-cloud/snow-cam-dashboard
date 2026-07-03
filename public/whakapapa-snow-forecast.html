@@ -895,12 +895,22 @@ function initResortPills() {
     el.innerHTML = `${RESORT_PILL_LABELS[key] || key} <span class="resort-pill-temp"></span>`;
     el.addEventListener('click', (e) => {
       e.stopPropagation();
-      // Smoothly fly to the target resort's tuned camera preset. For every
-      // OTHER resort, switch resorts once the animation settles (which
-      // reloads the terrain/forecast data); for this resort's own pill,
-      // flying back to its default view is all there is to do.
-      map.flyTo({ center: r.center, zoom: r.zoom, pitch: r.pitch, bearing: r.bearing, duration: 2500, essential: true });
-      if (!isSelf) map.once('moveend', () => navigateToResort(key));
+      if (isSelf) {
+        // This resort's own pill — same map instance, so flying back to its
+        // default always lands exactly right.
+        map.flyTo({ center: r.center, zoom: r.zoom, pitch: r.pitch, bearing: r.bearing, duration: 2000, essential: true });
+        return;
+      }
+      // Switching to a DIFFERENT resort. Deliberately do NOT fly THIS (old)
+      // map to the new coordinates: it would land there without the
+      // destination's terrain loaded, so its camera sits too high/pulled-back,
+      // and it could never match the freshly-loaded new resort (a separate
+      // iframe instance) — that mismatch was the whole "fly-in doesn't match
+      // the loaded view" bug. Navigate straight away and let the NEW map
+      // perform the fly-in from its own settled, terrain-correct state (see
+      // maybeSignalMapReady), so the fly-in always ends exactly on the loaded
+      // default view.
+      navigateToResort(key);
     });
     resortPillMarkers[key] = new maplibregl.Marker({ element: el, anchor: 'center' }).setLngLat([r.lon, r.lat]).addTo(map);
   });
@@ -1215,33 +1225,23 @@ function maybeSignalMapReady() {
   // moment ago.
   map.once('idle', () => {
     waitForTerrainStable(() => {
-      // Re-assert the EXACT default view. MapLibre only recomputes the
-      // camera's terrain-relative altitude when `center` genuinely changes,
-      // so re-setting it to the value it already holds is a no-op — the nudge
-      // (move to a slightly-off point) followed immediately by the restore
-      // (a genuine change back to exact) forces that recompute against the
-      // now-settled terrain. Both jumpTos run in one synchronous tick, so
-      // only the exact final state ever paints — no visible jitter.
-      const applyExact = () => {
-        const nudge = 0.0002;
-        map.jumpTo({ center: [LOC.center[0] + nudge, LOC.center[1] + nudge], zoom: LOC.zoom + 0.01, pitch: LOC.pitch, bearing: LOC.bearing });
-        map.jumpTo({ center: LOC.center, zoom: LOC.zoom, pitch: LOC.pitch, bearing: LOC.bearing });
-      };
-      applyExact();
+      // Perform the fly-in on THIS map — the new resort's own instance, with
+      // its terrain already loaded and settled (waitForTerrainStable above).
+      // Reveal at a pulled-back "establishing" pose, then fly in to the exact
+      // default. Because the fly happens on the instance that actually stays,
+      // landing on loaded terrain, the fly-in ALWAYS ends precisely on the
+      // settled default view. The previous approach flew the OLD map to the
+      // new coordinates (destination terrain not loaded → camera too high) and
+      // then crossfaded to a different, correctly-framed new instance, which
+      // is why the fly-in landing never matched the loaded view.
+      const startZoom = Math.max(LOC.zoom - 1.4, 9);
+      map.jumpTo({ center: LOC.center, zoom: startZoom, pitch: LOC.pitch, bearing: LOC.bearing });
       window.parent.postMessage({ type: 'map-ready' }, '*');
-      // The parent crossfades this frame in over ~0.4s. Keep re-asserting the
-      // exact camera across that window so if the DEM elevation makes one
-      // last tiny move after reveal, it's snapped back while the frame is
-      // still fading in (mostly hidden) rather than left visibly off. This is
-      // what makes the previously-intermittent reveal deterministic.
-      let reasserts = 0;
-      const reassertTimer = setInterval(() => {
-        applyExact();
-        if (++reasserts >= 7) { // ~7 × 90ms ≈ 630ms, covers the full 0.4s fade + margin
-          clearInterval(reassertTimer);
-          if (typeof window.__resumeAutoRotateForTransition === 'function') window.__resumeAutoRotateForTransition();
-        }
-      }, 90);
+      map.flyTo({ center: LOC.center, zoom: LOC.zoom, pitch: LOC.pitch, bearing: LOC.bearing, duration: 1600, essential: true });
+      // Resume the decorative auto-rotate only after the fly-in has finished.
+      setTimeout(() => {
+        if (typeof window.__resumeAutoRotateForTransition === 'function') window.__resumeAutoRotateForTransition();
+      }, 1800);
     });
   });
 }
