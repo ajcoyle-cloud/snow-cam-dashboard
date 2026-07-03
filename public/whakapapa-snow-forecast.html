@@ -704,6 +704,65 @@ function fetchOrNull(url) {
   return fetch(url).then(r => r.ok ? r : null).catch(() => null);
 }
 
+// Session-scoped response cache, keyed by the exact request URL (every
+// resort/model/elevation combination is a distinct, deterministic URL — see
+// forecastUrlsFor). sessionStorage (not an in-memory object) is what makes
+// this actually useful: switching resorts via a pill does a full page reload
+// of the iframe, which wipes any in-memory state, but sessionStorage persists
+// across same-tab navigations. So the background prefetch below, run from
+// whichever resort's page is open now, leaves data behind for the NEXT
+// resort's fresh page load to find already sitting there.
+const FORECAST_CACHE_TTL_MS = 20 * 60 * 1000; // forecasts don't change fast enough to need shorter
+function forecastCacheGet(url) {
+  try {
+    const raw = sessionStorage.getItem('wf-cache:' + url);
+    if (!raw) return null;
+    const { t, data } = JSON.parse(raw);
+    if (Date.now() - t > FORECAST_CACHE_TTL_MS) return null;
+    return data;
+  } catch (e) {
+    return null;
+  }
+}
+function forecastCacheSet(url, data) {
+  try { sessionStorage.setItem('wf-cache:' + url, JSON.stringify({ t: Date.now(), data })); } catch (e) {}
+}
+
+// Fetches and parses one Open-Meteo URL to JSON, serving a cached copy when
+// one's fresh instead of hitting the network at all. Resolves to null on any
+// failure, same contract as fetchOrNull.
+async function fetchJsonCached(url) {
+  const cached = forecastCacheGet(url);
+  if (cached) return cached;
+  const res = await fetchOrNull(url);
+  if (!res) return null;
+  try {
+    const json = await res.json();
+    forecastCacheSet(url, json);
+    return json;
+  } catch (e) {
+    return null;
+  }
+}
+
+// Quietly warms the cache for every OTHER resort, one at a time (not all in
+// parallel — this is a nice-to-have background task, not worth competing for
+// bandwidth with anything the user is actually looking at). Skips any URL
+// that's already cached and fresh, so this is cheap to call repeatedly.
+let otherResortsPrefetched = false;
+async function prefetchOtherResorts() {
+  if (otherResortsPrefetched) return;
+  otherResortsPrefetched = true;
+  for (const key of Object.keys(RESORT_CONFIG)) {
+    if (key === resortKey) continue;
+    const urls = Object.values(forecastUrlsFor(RESORT_CONFIG[key]));
+    for (const url of urls) {
+      if (forecastCacheGet(url)) continue;
+      await fetchJsonCached(url);
+    }
+  }
+}
+
 // Lightweight "now" temperature at another resort's base elevation, for the
 // navigation pill label — deliberately not the full multi-model hourly fetch
 // (buildModelHours etc.) that this page does for its OWN resort, since all we
@@ -866,38 +925,51 @@ function buildAverageHours(sources) {
   }).filter(Boolean).filter(r => r.temp != null && r.freezingLevel != null && r.snowfallMm != null);
 }
 
+// The 8 Open-Meteo requests one resort's forecast needs (summit+base for
+// each of GFS/ECMWF/AIFS/UKMO). Shared between this page's own fetch and the
+// background prefetch of every OTHER resort, so both build identical URLs
+// (required for the response cache below to actually hit).
+function forecastUrlsFor(r) {
+  const base = `https://api.open-meteo.com/v1/forecast?latitude=${r.lat}&longitude=${r.lon}&temperature_unit=celsius&timezone=${r.timezone}&forecast_days=16`;
+  return {
+    gfsSummitUrl: `${base}&wind_speed_unit=kmh&elevation=${r.summitElev}&hourly=temperature_2m,precipitation,snowfall,freezinglevel_height,windspeed_700hPa,winddirection_700hPa&models=gfs_global`,
+    gfsBaseUrl: `${base}&elevation=${r.baseElev}&hourly=temperature_2m&models=gfs_global`,
+    ecmwfSummitUrl: `${base}&elevation=${r.summitElev}&hourly=temperature_2m,precipitation,snowfall&models=ecmwf_ifs025`,
+    ecmwfBaseUrl: `${base}&elevation=${r.baseElev}&hourly=temperature_2m&models=ecmwf_ifs025`,
+    aifsSummitUrl: `${base}&elevation=${r.summitElev}&hourly=temperature_2m,precipitation,snowfall&models=ecmwf_aifs025_single`,
+    aifsBaseUrl: `${base}&elevation=${r.baseElev}&hourly=temperature_2m&models=ecmwf_aifs025_single`,
+    ukmoSummitUrl: `${base}&elevation=${r.summitElev}&hourly=temperature_2m,precipitation,snowfall&models=ukmo_seamless`,
+    ukmoBaseUrl: `${base}&elevation=${r.baseElev}&hourly=temperature_2m&models=ukmo_seamless`,
+  };
+}
+
 async function loadForecast() {
   try {
-    const base = `https://api.open-meteo.com/v1/forecast?latitude=${LOC.lat}&longitude=${LOC.lon}&temperature_unit=celsius&timezone=${LOC.timezone}&forecast_days=16`;
-    const gfsSummitUrl = `${base}&wind_speed_unit=kmh&elevation=${LOC.summitElev}&hourly=temperature_2m,precipitation,snowfall,freezinglevel_height,windspeed_700hPa,winddirection_700hPa&models=gfs_global`;
-    const gfsBaseUrl = `${base}&elevation=${LOC.baseElev}&hourly=temperature_2m&models=gfs_global`;
-    const ecmwfSummitUrl = `${base}&elevation=${LOC.summitElev}&hourly=temperature_2m,precipitation,snowfall&models=ecmwf_ifs025`;
-    const ecmwfBaseUrl = `${base}&elevation=${LOC.baseElev}&hourly=temperature_2m&models=ecmwf_ifs025`;
-    const aifsSummitUrl = `${base}&elevation=${LOC.summitElev}&hourly=temperature_2m,precipitation,snowfall&models=ecmwf_aifs025_single`;
-    const aifsBaseUrl = `${base}&elevation=${LOC.baseElev}&hourly=temperature_2m&models=ecmwf_aifs025_single`;
-    const ukmoSummitUrl = `${base}&elevation=${LOC.summitElev}&hourly=temperature_2m,precipitation,snowfall&models=ukmo_seamless`;
-    const ukmoBaseUrl = `${base}&elevation=${LOC.baseElev}&hourly=temperature_2m&models=ukmo_seamless`;
+    const {
+      gfsSummitUrl, gfsBaseUrl, ecmwfSummitUrl, ecmwfBaseUrl,
+      aifsSummitUrl, aifsBaseUrl, ukmoSummitUrl, ukmoBaseUrl
+    } = forecastUrlsFor(LOC);
 
-    const [gfsRes, gfsBaseRes, ecmwfSummitRes, ecmwfBaseRes, aifsSummitRes, aifsBaseRes, ukmoSummitRes, ukmoBaseRes] = await Promise.all([
-      fetchOrNull(gfsSummitUrl), fetchOrNull(gfsBaseUrl),
-      fetchOrNull(ecmwfSummitUrl), fetchOrNull(ecmwfBaseUrl),
-      fetchOrNull(aifsSummitUrl), fetchOrNull(aifsBaseUrl),
-      fetchOrNull(ukmoSummitUrl), fetchOrNull(ukmoBaseUrl),
+    const [gfs, gfsBaseJson, ecmwfSummitJson, ecmwfBaseJson, aifsSummitJson, aifsBaseJson, ukmoSummitJson, ukmoBaseJson] = await Promise.all([
+      fetchJsonCached(gfsSummitUrl), fetchJsonCached(gfsBaseUrl),
+      fetchJsonCached(ecmwfSummitUrl), fetchJsonCached(ecmwfBaseUrl),
+      fetchJsonCached(aifsSummitUrl), fetchJsonCached(aifsBaseUrl),
+      fetchJsonCached(ukmoSummitUrl), fetchJsonCached(ukmoBaseUrl),
     ]);
-    if (!gfsRes) throw new Error('Open-Meteo GFS request failed');
-    const gfs = (await gfsRes.json()).hourly;
-    const gfsBase = gfsBaseRes ? (await gfsBaseRes.json()).hourly : null;
-    const ecmwfSummit = ecmwfSummitRes ? (await ecmwfSummitRes.json()).hourly : null;
-    const ecmwfBase = ecmwfBaseRes ? (await ecmwfBaseRes.json()).hourly : null;
-    const aifsSummit = aifsSummitRes ? (await aifsSummitRes.json()).hourly : null;
-    const aifsBase = aifsBaseRes ? (await aifsBaseRes.json()).hourly : null;
-    const ukmoSummit = ukmoSummitRes ? (await ukmoSummitRes.json()).hourly : null;
-    const ukmoBase = ukmoBaseRes ? (await ukmoBaseRes.json()).hourly : null;
+    if (!gfs) throw new Error('Open-Meteo GFS request failed');
+    const gfsHourly = gfs.hourly;
+    const gfsBase = gfsBaseJson ? gfsBaseJson.hourly : null;
+    const ecmwfSummit = ecmwfSummitJson ? ecmwfSummitJson.hourly : null;
+    const ecmwfBase = ecmwfBaseJson ? ecmwfBaseJson.hourly : null;
+    const aifsSummit = aifsSummitJson ? aifsSummitJson.hourly : null;
+    const aifsBase = aifsBaseJson ? aifsBaseJson.hourly : null;
+    const ukmoSummit = ukmoSummitJson ? ukmoSummitJson.hourly : null;
+    const ukmoBase = ukmoBaseJson ? ukmoBaseJson.hourly : null;
 
-    modelHours.gfs = buildModelHours(gfs, gfsBase, gfs);
-    modelHours.ecmwf = buildModelHours(ecmwfSummit, ecmwfBase, gfs);
-    modelHours.aifs = buildModelHours(aifsSummit, aifsBase, gfs);
-    modelHours.ukmo = buildModelHours(ukmoSummit, ukmoBase, gfs);
+    modelHours.gfs = buildModelHours(gfsHourly, gfsBase, gfsHourly);
+    modelHours.ecmwf = buildModelHours(ecmwfSummit, ecmwfBase, gfsHourly);
+    modelHours.aifs = buildModelHours(aifsSummit, aifsBase, gfsHourly);
+    modelHours.ukmo = buildModelHours(ukmoSummit, ukmoBase, gfsHourly);
     modelHours.average = buildAverageHours([modelHours.gfs, modelHours.ecmwf, modelHours.aifs, modelHours.ukmo]);
   } catch (err) {
     modelHours = { gfs: buildDemoForecast(), ecmwf: null, aifs: null, ukmo: null, average: null };
@@ -909,6 +981,11 @@ async function loadForecast() {
   // In case the map style already loaded (and created the pill) before this
   // forecast data did.
   updateOwnResortPillTemp();
+  // Quietly warm the cache for every other resort now that this one's own
+  // (much more urgent) load is done, so tapping a resort pill later finds
+  // that resort's weather data already sitting in sessionStorage instead of
+  // waiting on a fresh 8-request fetch after the fly-in animation lands.
+  prefetchOtherResorts();
 }
 
 // Which model is shown persists across resort switches (this page reloads
