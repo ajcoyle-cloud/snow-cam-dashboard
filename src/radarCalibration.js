@@ -30,16 +30,22 @@ export const RADAR_CALIBRATION = {
 
   // [[lng,lat] x4] = top-left, top-right, bottom-right, bottom-left — the
   // exact shape MapLibre's `image` source `coordinates` field expects.
-  // Hand-dragged to fit the real NZ coastline on the 3D map. The two
-  // longitudes east of the antimeridian in the raw export (181.76, 182.50 —
-  // from dragging a corner onto a wrapped copy of the map near the date
-  // line) are normalized here to standard ±180° range; both forms project
-  // to the same physical location, this is just for readability.
+  // Hand-dragged to fit the real NZ coastline on the 3D map. The NE/SE
+  // longitudes are >180° (east of the antimeridian, from dragging those
+  // corners past the date line) — deliberately left UNWRAPPED. MapLibre's
+  // image source projects each corner's raw lng directly into (unbounded)
+  // Mercator X; it does not detect "this quad crosses the antimeridian" and
+  // unwrap for you. Normalizing these to signed ±180° (181.76 -> -178.24)
+  // looks equivalent but is NOT: it moves that corner to the opposite side
+  // of the Mercator projection, stretching the quad into a squashed strip
+  // across most of the globe instead of a small patch over NZ. Learned this
+  // the hard way after shipping it wrapped — keep these as continuous,
+  // unwrapped values.
   corners: [
-    [164.4873046875, -32.54681317351514],   // NW
-    [-178.2421875, -32.36140331527542],     // NE
-    [-177.4951171875, -48.719961222646276], // SE
-    [164.267578125, -48.60385760823253],    // SW
+    [164.4873046875, -32.54681317351514],  // NW
+    [181.7578125, -32.36140331527542],     // NE
+    [182.5048828125, -48.719961222646276], // SE
+    [164.267578125, -48.60385760823253],   // SW
   ],
 
   opacity: 0.9,
