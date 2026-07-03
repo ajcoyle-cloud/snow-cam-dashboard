@@ -1172,6 +1172,18 @@ function initMap() {
   // bright blue overhead fading to a pale, almost-white blue at the
   // horizon.
   map.on('load', () => {
+    // MapLibre reads the container's actual pixel size at construction time
+    // to compute the camera projection (which is what "zoom" really means in
+    // rendered terms — apparent height/distance from the ground). Inside an
+    // iframe, that size isn't always settled yet at that exact instant.
+    // Elsewhere in this file, map.resize() only gets called from inside
+    // openMapView() — which runs on the weather-fetch's timeline, entirely
+    // independent of the 'load'/'idle' sequence below that gates the reveal.
+    // That could reveal this frame at a stale/wrong size (a subtly different
+    // apparent height/zoom than the fully-settled one), only correcting
+    // itself later when that unrelated resize() finally fires. Force an
+    // accurate resize right here, before anything below depends on it.
+    map.resize();
     map.setSky({
       'sky-color': '#3a82d6',
       'horizon-color': '#cfe9fb',
