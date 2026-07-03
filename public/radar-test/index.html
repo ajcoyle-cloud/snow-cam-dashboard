@@ -116,6 +116,13 @@
   <div class="section">
     <button class="btn" id="apply">Drape on 3D map</button>
   </div>
+
+  <div class="section">
+    <h2>5. Lock in these settings</h2>
+    <div class="hint">Nothing here is saved anywhere yet — the drag adjustments only live in this browser tab. Click below to capture the current crop / colour-isolation / corner calibration as JSON, then send it back so it can be committed into the codebase as the permanent config for the real feature.</div>
+    <button class="btn" id="exportConfig">Copy calibration as JSON</button>
+    <textarea id="configOut" readonly rows="10" style="width:100%;margin-top:8px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.15);color:#fff;border-radius:6px;padding:8px;font-family:ui-monospace,monospace;font-size:0.68rem;display:none;"></textarea>
+  </div>
 </div>
 
 <script>
@@ -461,6 +468,44 @@ $('opacity').addEventListener('input', () => {
 $('autoCrop').addEventListener('click', autoDetectCrop);
 $('apply').addEventListener('click', applyToMap);
 $('autoAlign').addEventListener('click', autoAlign);
+
+// ---------- lock in: serialize the current calibration so it can be pasted
+// back and committed as a permanent config, instead of living only in this
+// browser tab's in-memory state (draggable corners are never persisted). ----------
+$('exportConfig').addEventListener('click', async () => {
+  const config = {
+    crop: {
+      topPct: +cropEls.top.value, bottomPct: +cropEls.bottom.value,
+      leftPct: +cropEls.left.value, rightPct: +cropEls.right.value,
+    },
+    isolate: {
+      minSaturation: +$('satMin').value, minBrightness: +$('valMin').value, maxBrightness: +$('valMax').value,
+      hueBands: {
+        yellowGold: $('hueYellow').checked, green: $('hueGreen').checked,
+        blue: $('hueBlue').checked, redPurple: $('hueRed').checked,
+      },
+    },
+    // corners = [[lng,lat] x4] TL,TR,BR,BL, i.e. exactly what MapLibre's image
+    // source `coordinates` wants. Falls back to the N/S/E/W boxes if you never
+    // clicked "Drape on 3D map" (so corners were never dragged into being).
+    corners: cornerCoords || (() => {
+      const N = +$('bN').value, S = +$('bS').value, W = +$('bW').value, E = +$('bE').value;
+      return [[W, N], [E, N], [E, S], [W, S]];
+    })(),
+    opacity: +$('opacity').value / 100,
+  };
+  const json = JSON.stringify(config, null, 2);
+  const out = $('configOut');
+  out.style.display = 'block';
+  out.value = json;
+  out.select();
+  try {
+    await navigator.clipboard.writeText(json);
+    $('status').textContent = 'Calibration copied to clipboard — paste it back to lock it in.';
+  } catch (e) {
+    $('status').textContent = 'Clipboard blocked — the JSON is selected below, copy it manually.';
+  }
+});
 ['bN', 'bS', 'bW', 'bE'].forEach((id) => $(id).addEventListener('change', () => { if (map && map.getSource('radar-src')) applyToMap(); }));
 
 $('drop').addEventListener('click', () => $('fileInput').click());
