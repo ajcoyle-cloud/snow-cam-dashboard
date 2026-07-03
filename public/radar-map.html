@@ -106,10 +106,14 @@ const RADAR_CALIBRATION = {
     minSaturation: 45, minBrightness: 15, maxBrightness: 99,
     hueBands: { yellowGold: true, green: true, blue: true, redPurple: true },
   },
+  // NE/SE longitudes are intentionally >180° (unwrapped) — see the long
+  // comment in src/radarCalibration.js. Wrapping these to signed ±180°
+  // stretches the drape into a squashed strip clear across the Mercator
+  // projection instead of a small patch over NZ.
   corners: [
     [164.4873046875, -32.54681317351514],
-    [-178.2421875, -32.36140331527542],
-    [-177.4951171875, -48.719961222646276],
+    [181.7578125, -32.36140331527542],
+    [182.5048828125, -48.719961222646276],
     [164.267578125, -48.60385760823253],
   ],
   opacity: 0.9,
