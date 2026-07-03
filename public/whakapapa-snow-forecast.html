@@ -1086,7 +1086,17 @@ function maybeSignalMapReady() {
   if (!mapStyleReady || window.parent === window) return;
   // A short buffer so at least the first pass of terrain/satellite tiles has
   // a moment to paint before the parent reveals this iframe.
-  setTimeout(() => window.parent.postMessage({ type: 'map-ready' }, '*'), 300);
+  setTimeout(() => {
+    // The decorative auto-rotate has been running continuously since this
+    // page loaded (see rotateStep()), so by now the camera has drifted some
+    // arbitrary amount past LOC's default bearing — however long the load
+    // happened to take. The resort-pill flyTo on the PREVIOUS page always
+    // targets that same static default, so without this the reveal would
+    // land at a different, unpredictable bearing every time. Snap back to
+    // the exact default right before revealing so the two always match.
+    map.jumpTo({ center: LOC.center, zoom: LOC.zoom, pitch: LOC.pitch, bearing: LOC.bearing });
+    window.parent.postMessage({ type: 'map-ready' }, '*');
+  }, 300);
 }
 
 function initMap() {
