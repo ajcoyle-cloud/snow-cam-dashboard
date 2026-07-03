@@ -134,15 +134,6 @@
   #map-screen.is-fullscreen #map-enlarge { display: none; }
   #map-screen.is-fullscreen #map-close { display: block; }
 
-  /* Temporary diagnostic camera readout — see the HTML comment above #cam-debug. */
-  #cam-debug {
-    position: absolute; bottom: 8px; left: 8px; z-index: 25;
-    background: rgba(0,0,0,0.72); color: #7fffb0; font-weight: 700;
-    font-family: 'SF Mono', ui-monospace, Menlo, Consolas, monospace;
-    font-size: 0.72rem; line-height: 1.5; padding: 6px 10px; border-radius: 8px;
-    white-space: pre; pointer-events: none; border: 1px solid rgba(127,255,176,0.35);
-  }
-
   /* ── Click-to-probe popup ──────────────────────────────────────────── */
   .click-popup {
     position: absolute; z-index: 30; transform: translate(-50%, -130%);
@@ -518,12 +509,6 @@
   </button>
   <button id="map-close" onclick="exitFullscreenView()" title="Close fullscreen">✕</button>
   <div id="map-title"></div>
-  <!-- Temporary diagnostic readout for tracking down the fly-in-vs-default-view
-       camera mismatch — shows live zoom/pitch/bearing/center so a screenshot of
-       the fly-in landing frame and one of the default-load frame can be
-       compared number-for-number, not just by eye. Safe to remove once that's
-       resolved. -->
-  <div id="cam-debug"></div>
 
   <div id="top-controls">
     <div class="pill-group" id="mode-switch">
@@ -615,8 +600,10 @@ const RESORT_CONFIG = {
     name: 'Cardrona Alpine Resort',
     lat: -44.76, lon: 169.0, summitElev: 1860, baseElev: 1640, timezone: 'Pacific/Auckland',
     topElev: 1950, // approx summit ridge for the colour ramp's upper bound
-    // Camera framing targets the actual ski basin (not the weather sample point above).
-    center: [168.9501, -44.8676], zoom: 13.6, pitch: 62, bearing: 200
+    // Camera framing targets the actual ski basin (not the weather sample point
+    // above). Center panned WNW of the basin so the basin sits further to the
+    // LEFT of the frame (with bearing 200°, screen-left ≈ compass ESE).
+    center: [168.9355, -44.8638], zoom: 13.6, pitch: 62, bearing: 200
   },
   loveland: {
     name: 'Loveland Ski Area',
@@ -640,7 +627,7 @@ const RESORT_CONFIG = {
     name: 'Mt Vernon',
     lat: 39.72011925175132, lon: -105.26872905339022, summitElev: 2190, baseElev: 1800, timezone: 'America/Denver',
     topElev: 3000, // colour ramp upper bound — must sit at/above the highest terrain in view (DEM reaches ~2920m here) or terrain above it gets painted the clamped last-stop colour
-    center: [-105.26872905339022, 39.72011925175132], zoom: 12.5, pitch: 62, bearing: 180
+    center: [-105.26872905339022, 39.72011925175132], zoom: 13.4, pitch: 62, bearing: 180
   },
   treblecone: {
     name: 'Treble Cone',
@@ -897,8 +884,13 @@ function initResortPills() {
       e.stopPropagation();
       if (isSelf) {
         // This resort's own pill — same map instance, so flying back to its
-        // default always lands exactly right.
+        // default always lands exactly right. Ramp auto-rotate back in once
+        // it settles (the pill click itself stopped rotation via the
+        // interaction listener).
         map.flyTo({ center: r.center, zoom: r.zoom, pitch: r.pitch, bearing: r.bearing, duration: 2000, essential: true });
+        map.once('moveend', () => {
+          if (typeof window.__startAutoRotateRampIn === 'function') window.__startAutoRotateRampIn();
+        });
         return;
       }
       // Switching to a DIFFERENT resort. Deliberately do NOT fly THIS (old)
@@ -1139,26 +1131,6 @@ function fmtTime(iso) {
 // ── Map ────────────────────────────────────────────────────────────────────
 let map = null;
 
-// Temporary diagnostic readout — see the HTML comment above #cam-debug.
-// Wrapped defensively: this is a nice-to-have debugging aid called
-// synchronously right after map construction (before map.on('load', ...) is
-// even registered) — it must never be able to throw and take the rest of
-// initMap()'s setup down with it.
-function updateCamDebug() {
-  try {
-    const el = document.getElementById('cam-debug');
-    if (!el || !map) return;
-    const c = map.getCenter();
-    const containerEl = document.getElementById('map');
-    const canvas = map.getCanvas ? map.getCanvas() : null;
-    el.textContent =
-      `zoom ${map.getZoom().toFixed(3)}  pitch ${map.getPitch().toFixed(2)}°  bearing ${map.getBearing().toFixed(2)}°\n` +
-      `lng ${c.lng.toFixed(5)}  lat ${c.lat.toFixed(5)}\n` +
-      `container ${containerEl?.clientWidth}x${containerEl?.clientHeight}` +
-      `  canvas ${canvas?.width}x${canvas?.height}  dpr ${window.devicePixelRatio}`;
-  } catch (e) {}
-}
-
 // Tells the parent app (if embedded) once there's actually something worth
 // looking at, so it can hold a cover overlay over the old content until this
 // new resort's map is ready instead of flashing a blank/half-loaded map
@@ -1198,20 +1170,10 @@ function waitForTerrainStable(cb, prev, stableCount, attempt) {
 
 function maybeSignalMapReady() {
   if (!mapStyleReady || window.parent === window) return;
-  // Auto-rotate never stops on its own, so it would keep advancing the
-  // bearing right through the snap below and the ~0.5s it takes the parent
-  // to actually finish the crossfade after 'map-ready' — undoing part of
-  // what the snap fixed by the time the user can see this frame. Pause it
-  // for exactly that window; resumed below once the reveal has had time to
-  // complete.
-  if (typeof window.__pauseAutoRotateForTransition === 'function') window.__pauseAutoRotateForTransition();
-  // The decorative auto-rotate has been running continuously since this
-  // page loaded (see rotateStep()), so by now the camera has drifted some
-  // arbitrary amount past LOC's default bearing — however long the load
-  // happened to take. The resort-pill flyTo on the PREVIOUS page always
-  // targets that same static default, so without this the reveal would
-  // land at a different, unpredictable bearing every time. Snap back to
-  // the exact default right before revealing so the two always match.
+  // Auto-rotate does not run during load/fly-in (it's only kicked off once
+  // the fly-in lands), so there's nothing to pause here — the camera bearing
+  // is wherever the constructor set it. Snap to the exact default bearing so
+  // the establishing pose and fly-in start from a known orientation.
   map.jumpTo({ center: LOC.center, zoom: LOC.zoom, pitch: LOC.pitch, bearing: LOC.bearing });
   // Cheap and harmless even if unnecessary: forces MapLibre to re-derive its
   // internal projection state from the container's current size right after
@@ -1250,9 +1212,10 @@ function maybeSignalMapReady() {
         // exact pose afterward. In this MapLibre's terrain camera, jumping to
         // the same zoom the fly just reached recomputes the camera height and
         // lurches into a visibly closer view, so the "pin" was itself the big
-        // jump at the end of the animation.
+        // jump at the end of the animation. Once landed, ramp the decorative
+        // auto-rotate in from a standstill.
         map.once('moveend', () => {
-          if (typeof window.__resumeAutoRotateForTransition === 'function') window.__resumeAutoRotateForTransition();
+          if (typeof window.__startAutoRotateRampIn === 'function') window.__startAutoRotateRampIn();
         });
       }, 450);
     });
@@ -1303,9 +1266,6 @@ function initMap() {
       terrain: { source: 'terrain', exaggeration: 1.2 }
     }
   });
-
-  updateCamDebug();
-  map.on('move', updateCamDebug);
 
   // MapLibre reads the container's actual pixel size to compute the camera
   // projection — for a pitched 3D view, that's what determines the real
@@ -1441,33 +1401,44 @@ function initMap() {
     windInteractionActive = false;
   });
 
-  // Very slow auto-rotate on the initial view, purely decorative — stops for
-  // good the moment the user actually touches the map (drag, zoom, pinch,
-  // scroll), so it never fights with their own camera control. Paused by
-  // default for now (not auto-started on load) while the fly-in/default-view
-  // camera sync issue is being tracked down with screenshot comparisons —
-  // still toggleable via the rotate button.
+  // Very slow auto-rotate, purely decorative — stops for good the moment the
+  // user actually touches the map (drag, zoom, pinch, scroll) so it never
+  // fights their own camera control. It does NOT start on load: it's kicked
+  // off (ramped in) once the fly-in lands the camera on the default view (see
+  // the fly-in reveal and the self-pill handler), so nothing rotates during
+  // the approach. Also toggleable via the rotate button.
+  const AUTO_ROTATE_SPEED = 0.015;   // degrees per frame at full speed
+  const AUTO_ROTATE_RAMP_MS = 2500;  // ease the speed up from 0 over this long
   let autoRotateActive = false;
+  let autoRotateRampStart = null;    // performance.now() when a ramp began; null = full speed
   const mapEl = document.getElementById('map');
   const rotateStep = () => {
     if (!autoRotateActive) return;
-    map.setBearing(map.getBearing() + 0.015);
+    let speed = AUTO_ROTATE_SPEED;
+    if (autoRotateRampStart != null) {
+      const t = Math.min((performance.now() - autoRotateRampStart) / AUTO_ROTATE_RAMP_MS, 1);
+      speed = AUTO_ROTATE_SPEED * (t * t); // quadratic ease-in: starts still, builds smoothly to full
+      if (t >= 1) autoRotateRampStart = null;
+    }
+    map.setBearing(map.getBearing() + speed);
     requestAnimationFrame(rotateStep);
   };
   const stopAutoRotate = () => {
     autoRotateActive = false;
+    autoRotateRampStart = null;
     document.getElementById('rotate-toggle').classList.remove('active');
   };
-  const startAutoRotate = () => {
+  const startAutoRotate = (ramp) => {
     if (autoRotateActive) return;
     autoRotateActive = true;
+    autoRotateRampStart = ramp ? performance.now() : null;
     document.getElementById('rotate-toggle').classList.add('active');
     requestAnimationFrame(rotateStep);
     armInteractionStop();
   };
   // Auto-rotate stops for good the moment the user touches the map (drag, zoom,
   // pinch, scroll) so it never fights their own camera control — re-armed each
-  // time rotation is (re)started via the toggle button.
+  // time rotation is (re)started.
   const armInteractionStop = () => {
     ['mousedown', 'touchstart', 'wheel'].forEach((evt) =>
       mapEl.addEventListener(evt, stopAutoRotate, { once: true, passive: true })
@@ -1476,26 +1447,11 @@ function initMap() {
   // Exposed for the top-left rotate button.
   window.toggleAutoRotate = () => {
     if (autoRotateActive) stopAutoRotate();
-    else startAutoRotate();
+    else startAutoRotate(true);
   };
-  // Auto-rotate never stops on its own, so it keeps drifting the bearing
-  // during the narrow window between the camera snap in maybeSignalMapReady()
-  // and the parent actually finishing the crossfade a few hundred ms later —
-  // undoing part of what the snap just fixed. Pause it for exactly that
-  // window (only if it was actually running — don't override a user's own
-  // earlier interaction that already stopped it) rather than disabling the
-  // normal decorative behavior altogether.
-  let autoRotatePausedForTransition = false;
-  window.__pauseAutoRotateForTransition = () => {
-    if (autoRotateActive) { autoRotateActive = false; autoRotatePausedForTransition = true; }
-  };
-  window.__resumeAutoRotateForTransition = () => {
-    if (autoRotatePausedForTransition) {
-      autoRotatePausedForTransition = false;
-      autoRotateActive = true;
-      requestAnimationFrame(rotateStep);
-    }
-  };
+  // Called once the camera lands on the default view (fly-in complete) to ramp
+  // the decorative rotation in from a standstill.
+  window.__startAutoRotateRampIn = () => startAutoRotate(true);
 }
 
 // Decorative only: applies the single selected hour's wind speed/direction
