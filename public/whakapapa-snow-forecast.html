@@ -1233,6 +1233,25 @@ function initMap() {
   updateCamDebug();
   map.on('move', updateCamDebug);
 
+  // MapLibre reads the container's actual pixel size to compute the camera
+  // projection — for a pitched 3D view, that's what determines the real
+  // field of view for a given "zoom" number, not just how large things look.
+  // A single resize() call at 'load' (see below) assumed the container was
+  // already at its final size by then, but comparing a fly-in landing
+  // screenshot against a freshly-loaded page at IDENTICAL zoom/pitch/bearing
+  // showed drastically different fields of view (wide vs. tightly cropped) —
+  // exactly what a wrong canvas size at first render would cause, since a
+  // one-shot resize() can still fire before the iframe's layout has actually
+  // settled. Watch the container itself and resize on every real change
+  // instead of guessing when "settled" is.
+  try {
+    map.resize(); // immediate correction; ResizeObserver's own first callback is async
+    const mapContainerEl = document.getElementById('map');
+    if (mapContainerEl && typeof ResizeObserver !== 'undefined') {
+      new ResizeObserver(() => map.resize()).observe(mapContainerEl);
+    }
+  } catch (e) {}
+
   // Clear "bluebird" sky, only visible above the horizon when the camera
   // pitches up further than the default view. Set via Map#setSky once the
   // style has actually finished loading — calling it immediately after
@@ -1245,18 +1264,8 @@ function initMap() {
   // bright blue overhead fading to a pale, almost-white blue at the
   // horizon.
   map.on('load', () => {
-    // MapLibre reads the container's actual pixel size at construction time
-    // to compute the camera projection (which is what "zoom" really means in
-    // rendered terms — apparent height/distance from the ground). Inside an
-    // iframe, that size isn't always settled yet at that exact instant.
-    // Elsewhere in this file, map.resize() only gets called from inside
-    // openMapView() — which runs on the weather-fetch's timeline, entirely
-    // independent of the 'load'/'idle' sequence below that gates the reveal.
-    // That could reveal this frame at a stale/wrong size (a subtly different
-    // apparent height/zoom than the fully-settled one), only correcting
-    // itself later when that unrelated resize() finally fires. Force an
-    // accurate resize right here, before anything below depends on it.
-    map.resize();
+    // Container sizing is handled by the ResizeObserver set up right after
+    // construction, above.
     map.setSky({
       'sky-color': '#3a82d6',
       'horizon-color': '#cfe9fb',
