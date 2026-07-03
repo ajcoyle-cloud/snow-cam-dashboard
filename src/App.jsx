@@ -2589,35 +2589,62 @@ function ForecastMap3D({ resort, setResort }) {
     mtvernon: { name: 'Mt Vernon' },
     treblecone: { name: 'Treble Cone' },
   }
-  const src = `/whakapapa-snow-forecast.html?resort=${resort}`
+  const srcFor = (r) => `/whakapapa-snow-forecast.html?resort=${r}`
 
-  // Switching resorts remounts the iframe (key={src}), which briefly flashes
-  // the old map disappearing before the new one has anything to show. Cover
-  // that with an opaque overlay from the moment the switch is triggered until
-  // the new iframe tells us its map has actually rendered something
-  // ('map-ready') — with a generous fallback timeout in case that message
-  // never arrives (e.g. the new resort's map fails to load at all).
-  const [transitioning, setTransitioning] = useState(false)
-  const transitionTimeoutRef = useRef(null)
+  // Switching resorts used to remount the iframe (key={src}) outright, which
+  // flashed the old map disappearing before the new one had anything to
+  // show. Instead, keep every in-flight frame stacked (old ones underneath,
+  // newest on top) — the old one stays fully visible and interactive the
+  // whole time, and the new one fades in on top only once it reports
+  // 'map-ready', which crossfades the two instead of cutting between them.
+  // If the new one is ever slow, the user just keeps looking at the old
+  // (still-correct) map instead of a blank one.
+  const [frames, setFrames] = useState(() => [{ id: resort, src: srcFor(resort), ready: true }])
 
   useEffect(() => {
     const handleMessage = (event) => {
       if (event.data?.type === 'resort-select' && event.data?.resort && RESORTS[event.data.resort]) {
-        setTransitioning(true)
         setResort(event.data.resort)
       } else if (event.data?.type === 'map-ready') {
-        setTransitioning(false)
+        setFrames((prev) => {
+          const lastIdx = prev.length - 1
+          if (lastIdx < 0 || prev[lastIdx].ready) return prev
+          return prev.map((f, i) => (i === lastIdx ? { ...f, ready: true } : f))
+        })
       }
     }
     window.addEventListener('message', handleMessage)
     return () => window.removeEventListener('message', handleMessage)
   }, [setResort])
 
+  // A resort switch (from the location switcher above, not just a map pill)
+  // pushes a new frame on top rather than replacing the old one outright.
   useEffect(() => {
-    if (!transitioning) return
-    transitionTimeoutRef.current = setTimeout(() => setTransitioning(false), 8000)
-    return () => clearTimeout(transitionTimeoutRef.current)
-  }, [transitioning])
+    setFrames((prev) => (prev[prev.length - 1]?.id === resort ? prev : [...prev, { id: resort, src: srcFor(resort), ready: false }]))
+  }, [resort])
+
+  // Once the newest frame is ready, drop every older one shortly after (long
+  // enough for its fade-in to finish) — they're fully hidden underneath by
+  // then regardless, this just frees up the now-pointless iframes/WebGL
+  // contexts.
+  useEffect(() => {
+    const newest = frames[frames.length - 1]
+    if (frames.length <= 1 || !newest?.ready) return
+    const t = setTimeout(() => setFrames((prev) => (prev.length > 1 ? [prev[prev.length - 1]] : prev)), 500)
+    return () => clearTimeout(t)
+  }, [frames])
+
+  // Fallback: force the newest frame "ready" (revealing it, even if
+  // half-loaded) if it never signals readiness itself, so a broken resort
+  // doesn't leave the old map stacked underneath forever.
+  useEffect(() => {
+    const newest = frames[frames.length - 1]
+    if (frames.length <= 1 || newest?.ready) return
+    const t = setTimeout(() => {
+      setFrames((prev) => prev.map((f, i) => (i === prev.length - 1 ? { ...f, ready: true } : f)))
+    }, 8000)
+    return () => clearTimeout(t)
+  }, [frames])
 
   return (
     <div className="map-3d-wrap" style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
@@ -2625,27 +2652,26 @@ function ForecastMap3D({ resort, setResort }) {
         <ResortSelector resort={resort} setResort={setResort} />
       </div>
       <div style={{ position: 'relative', width: '100%', flex: 1, minHeight: 0 }}>
-        <iframe
-          key={src}
-          className="map-3d-frame"
-          src={src}
-          style={{ width: '100%', height: '100%', border: 'none', borderRadius: 0, display: 'block' }}
-          allowFullScreen
-        />
-        <div
-          className="map-transition-overlay"
-          style={{
-            position: 'absolute', inset: 0, background: '#0a0e14',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            opacity: transitioning ? 1 : 0,
-            pointerEvents: transitioning ? 'auto' : 'none',
-            transition: 'opacity 0.35s ease',
-          }}
-        >
-          <div style={{ color: 'rgba(255,255,255,0.6)', fontSize: '14px', fontWeight: 600, letterSpacing: '0.02em' }}>
-            {RESORTS[resort]?.name || 'Loading'}…
-          </div>
-        </div>
+        {frames.map((f, i) => {
+          const isNewest = i === frames.length - 1
+          const visible = !isNewest || f.ready
+          return (
+            <iframe
+              key={f.id}
+              className="map-3d-frame"
+              src={f.src}
+              style={{
+                position: 'absolute', inset: 0, width: '100%', height: '100%',
+                border: 'none', borderRadius: 0, display: 'block',
+                zIndex: i,
+                opacity: visible ? 1 : 0,
+                pointerEvents: isNewest && !f.ready ? 'none' : 'auto',
+                transition: 'opacity 0.4s ease',
+              }}
+              allowFullScreen
+            />
+          )
+        })}
       </div>
     </div>
   )

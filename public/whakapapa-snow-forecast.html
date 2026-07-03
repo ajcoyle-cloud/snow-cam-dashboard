@@ -1403,6 +1403,7 @@ function buildSnowRamp(hour) {
 // does rather than relying on a single 'load'/'idle' event that may fire too early.
 let applyRampToken = 0;
 function applyRampWhenReady(rampArray) {
+  if (!map) return; // map failed to initialize — nothing to paint, and must not throw here
   const token = ++applyRampToken;
   const tryApply = () => {
     if (token !== applyRampToken) return; // a newer selection was made — abandon this one
@@ -1464,8 +1465,10 @@ function openMapView(index) {
   // The terrain/satellite map must always exist regardless of whether
   // forecast data is ready yet (a slow weather fetch shouldn't leave the
   // whole map blank) — initMap() never depended on forecastHours before, and
-  // must not start doing so now.
-  initMap();
+  // must not start doing so now. Isolated in try/catch: everything below
+  // (the timeline UI / data panel) is plain DOM/data logic that has nothing
+  // to do with WebGL, and must not break just because the map did.
+  try { initMap(); } catch (e) { console.error('initMap failed', e); }
 
   // forecastHours can legitimately be empty (e.g. every model's hourly rows
   // got filtered out for this resort/period, or the weather fetch is still
@@ -1516,7 +1519,7 @@ function openMapView(index) {
     showSnowfallMarker(hour.snowfallMm >= SNOWFALL_THRESHOLD_MM ? `❄ ${hour.snowfallMm.toFixed(1)} mm/hr` : '');
   }
 
-  setTimeout(() => map.resize(), 60);
+  setTimeout(() => { if (map) map.resize(); }, 60);
 }
 
 function stepHour(delta) {
@@ -1604,7 +1607,7 @@ function renderAccumulatedView() {
   if (totalCm >= 0.1) flashSnowfallMarker(LOC.center || [LOC.lon, LOC.lat], `❄ ${totalCm.toFixed(0)} cm`);
   else removeSnowfallMarker();
 
-  setTimeout(() => map.resize(), 60);
+  setTimeout(() => { if (map) map.resize(); }, 60);
 }
 
 // Headline figures shown in the minimised drawer's grey space (accumulated mode).
@@ -1826,8 +1829,10 @@ function restoreViewMode() {
 // taking 20-30s on a slow connection despite the terrain having nothing to do
 // with that data. Kick it off immediately and independently instead; it's
 // idempotent (openMapView()'s own initMap() call below just no-ops once this
-// has already run).
-initMap();
+// has already run). Wrapped in try/catch: if map/WebGL init throws for any
+// reason, the weather fetch below absolutely must still run regardless —
+// forecastHours must never depend on the map having succeeded.
+try { initMap(); } catch (e) { console.error('initMap failed', e); }
 loadForecast();
 //
 // ── Live PredictWind observation stations ──────────────────────────────────
@@ -2599,7 +2604,7 @@ function renderLiveTempView() {
     pwRenderFreezingOverlay();
     pwRenderPseudoPills();
   }
-  setTimeout(() => map.resize(), 60);
+  setTimeout(() => { if (map) map.resize(); }, 60);
 }
 
 // ── Live time slider: scrub the past 6 hours ───────────────────────────────
