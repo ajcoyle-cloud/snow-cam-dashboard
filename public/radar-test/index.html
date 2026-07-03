@@ -66,6 +66,8 @@
     <h2>1. Source image</h2>
     <div class="drop" id="drop">Drop an image here, or click to choose a file<br><span style="opacity:.6">(defaults to the sample you uploaded)</span></div>
     <input type="file" id="fileInput" accept="image/*">
+    <button class="btn" id="loadLive" style="margin-top:8px;width:100%">Load latest live frame</button>
+    <div class="hint">Real MetService radar composite via <code>/radar-feed/&lt;timestamp&gt;.gif</code> (proxied — the bucket has no CORS headers). Frames publish on an ~7.5-min cadence with some lag, so this probes backward from now for the newest one actually available.</div>
   </div>
 
   <div class="section">
@@ -118,7 +120,20 @@
   </div>
 
   <div class="section">
-    <h2>5. Lock in these settings</h2>
+    <h2>5. Animate (live frames)</h2>
+    <button class="btn" id="buildAnim">Build animation from live feed</button>
+    <div class="hint">Fetches the last several available frames, runs each through the current crop/isolate settings, and lets you play them back draped on the map — the actual goal, not just a single static overlay.</div>
+    <div id="animControls" style="display:none;margin-top:10px;">
+      <div style="display:flex;align-items:center;gap:10px;">
+        <button class="btn secondary" id="animPlay" style="margin:0">▶ Play</button>
+        <input type="range" id="animSlider" min="0" max="0" value="0" style="flex:1">
+      </div>
+      <div id="animLabel" style="text-align:center;margin-top:6px;font-size:0.72rem;color:rgba(255,255,255,0.6);font-variant-numeric:tabular-nums;"></div>
+    </div>
+  </div>
+
+  <div class="section">
+    <h2>6. Lock in these settings</h2>
     <div class="hint">Nothing here is saved anywhere yet — the drag adjustments only live in this browser tab. Click below to capture the current crop / colour-isolation / corner calibration as JSON, then send it back so it can be committed into the codebase as the permanent config for the real feature.</div>
     <button class="btn" id="exportConfig">Copy calibration as JSON</button>
     <textarea id="configOut" readonly rows="10" style="width:100%;margin-top:8px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.15);color:#fff;border-radius:6px;padding:8px;font-family:ui-monospace,monospace;font-size:0.68rem;display:none;"></textarea>
@@ -201,11 +216,12 @@ function hueAllowed(h) {
   return false;
 }
 
-// Runs the full crop -> HSV isolate pipeline into #previewCanvas, and returns
-// the canvas so it can be handed to MapLibre as an image source.
-function processImage() {
-  if (!srcImg) return null;
-  const iw = srcImg.naturalWidth, ih = srcImg.naturalHeight;
+// Core crop -> HSV isolate pipeline, shared by the live preview (draws into
+// the given canvas, e.g. #previewCanvas) and batch animation processing
+// (draws into a fresh offscreen canvas per frame, left undisturbed by
+// whatever's currently shown in the preview).
+function cropAndIsolate(img, targetCanvas) {
+  const iw = img.naturalWidth, ih = img.naturalHeight;
   const top = Math.round(ih * cropEls.top.value / 100);
   const bottom = Math.round(ih * cropEls.bottom.value / 100);
   const left = Math.round(iw * cropEls.left.value / 100);
@@ -213,11 +229,11 @@ function processImage() {
   const cw = Math.max(1, iw - left - right);
   const ch = Math.max(1, ih - top - bottom);
 
-  const canvas = $('previewCanvas');
+  const canvas = targetCanvas || document.createElement('canvas');
   canvas.width = cw; canvas.height = ch;
   const ctx = canvas.getContext('2d');
   ctx.clearRect(0, 0, cw, ch);
-  ctx.drawImage(srcImg, left, top, cw, ch, 0, 0, cw, ch);
+  ctx.drawImage(img, left, top, cw, ch, 0, 0, cw, ch);
 
   const imgData = ctx.getImageData(0, 0, cw, ch);
   const d = imgData.data;
@@ -229,7 +245,15 @@ function processImage() {
     if (isRain) { kept++; } else { d[i + 3] = 0; }
   }
   ctx.putImageData(imgData, 0, 0);
-  $('status').textContent = `${kept.toLocaleString()} rain pixels kept of ${(cw * ch).toLocaleString()} (${(100 * kept / (cw * ch)).toFixed(1)}%)`;
+  return { canvas, kept, total: cw * ch };
+}
+
+// Runs the pipeline for the currently loaded srcImg into #previewCanvas and
+// reports pixel stats — the single-image path used by sections 1-4.
+function processImage() {
+  if (!srcImg) return null;
+  const { canvas, kept, total } = cropAndIsolate(srcImg, $('previewCanvas'));
+  $('status').textContent = `${kept.toLocaleString()} rain pixels kept of ${total.toLocaleString()} (${(100 * kept / total).toFixed(1)}%)`;
   return canvas;
 }
 
@@ -339,8 +363,50 @@ async function autoAlign() {
   $('bS').value = best.S.toFixed(2);
   $('bW').value = best.W.toFixed(2);
   $('bE').value = best.E.toFixed(2);
+  resetCornersFromBounds();
   $('status').textContent = `Auto-aligned — coastline fit ${(bestScore * 100).toFixed(0)}%. Drag the red corners to fine-tune if needed.`;
   if (map) applyToMap();
+}
+
+// ---------- live feed ----------
+// Mirrors src/radarFeed.js (duplicated here since this is a standalone static
+// page with no build step / module resolution into src/). See that file for
+// the reasoning behind the slot schedule and the probe-backward approach.
+const SLOT_MINUTES = [5, 13, 20, 28, 35, 43, 50, 58];
+const pad2 = (n) => String(n).padStart(2, '0');
+function filenameFor(date) {
+  return '' + date.getUTCFullYear() + pad2(date.getUTCMonth() + 1) + pad2(date.getUTCDate()) + pad2(date.getUTCHours()) + pad2(date.getUTCMinutes());
+}
+function candidateTimestamps(count, from) {
+  const out = [];
+  let cursor = new Date(from || new Date());
+  while (out.length < count) {
+    const hourMinutes = SLOT_MINUTES.filter((m) => m <= cursor.getUTCMinutes());
+    let slot;
+    if (hourMinutes.length > 0) {
+      slot = new Date(cursor);
+      slot.setUTCMinutes(hourMinutes[hourMinutes.length - 1], 0, 0);
+    } else {
+      slot = new Date(cursor);
+      slot.setUTCHours(slot.getUTCHours() - 1, SLOT_MINUTES[SLOT_MINUTES.length - 1], 0, 0);
+    }
+    out.push(filenameFor(slot));
+    cursor = new Date(slot.getTime() - 60000);
+  }
+  return out;
+}
+function frameUrl(ts) { return `/radar-feed/${ts}.gif`; }
+function formatTs(ts) {
+  return `${ts.slice(0, 4)}-${ts.slice(4, 6)}-${ts.slice(6, 8)} ${ts.slice(8, 10)}:${ts.slice(10, 12)} UTC`;
+}
+async function findLatestFrame(count) {
+  for (const ts of candidateTimestamps(count || 8)) {
+    try {
+      const res = await fetch(frameUrl(ts), { method: 'HEAD' });
+      if (res.ok) return { timestamp: ts, url: frameUrl(ts) };
+    } catch (e) { /* try the next candidate */ }
+  }
+  return null;
 }
 
 function loadImage(src) {
@@ -414,12 +480,21 @@ function syncCropLabels() {
 }
 
 // ---------- drape the processed canvas onto the 3D map ----------
+// Sets cornerCoords to the axis-aligned rectangle from the N/S/E/W boxes —
+// an explicit reset, used when those boxes change or auto-align runs.
+// "Drape on 3D map" itself does NOT call this: it should re-render with
+// whatever corners are already in play (calibration-loaded or hand-dragged),
+// not silently snap back to the rectangle every time you tweak a slider.
+function resetCornersFromBounds() {
+  const N = +$('bN').value, S = +$('bS').value, W = +$('bW').value, E = +$('bE').value;
+  cornerCoords = [[W, N], [E, N], [E, S], [W, S]]; // top-left, top-right, bottom-right, bottom-left
+}
+
 function applyToMap() {
   if (!map) { $('status').textContent = 'Map unavailable (tile CDN unreachable) — nothing to drape onto.'; return; }
   const canvas = processImage();
   if (!canvas) return;
-  const N = +$('bN').value, S = +$('bS').value, W = +$('bW').value, E = +$('bE').value;
-  cornerCoords = [[W, N], [E, N], [E, S], [W, S]]; // top-left, top-right, bottom-right, bottom-left
+  if (!cornerCoords) resetCornersFromBounds();
   const url = canvas.toDataURL('image/png');
 
   if (map.getLayer('radar-layer')) map.removeLayer('radar-layer');
@@ -506,7 +581,10 @@ $('exportConfig').addEventListener('click', async () => {
     $('status').textContent = 'Clipboard blocked — the JSON is selected below, copy it manually.';
   }
 });
-['bN', 'bS', 'bW', 'bE'].forEach((id) => $(id).addEventListener('change', () => { if (map && map.getSource('radar-src')) applyToMap(); }));
+['bN', 'bS', 'bW', 'bE'].forEach((id) => $(id).addEventListener('change', () => {
+  resetCornersFromBounds();
+  if (map && map.getSource('radar-src')) applyToMap();
+}));
 
 $('drop').addEventListener('click', () => $('fileInput').click());
 $('fileInput').addEventListener('change', (e) => { if (e.target.files[0]) loadFile(e.target.files[0]); });
@@ -518,12 +596,147 @@ $('drop').addEventListener('drop', (e) => {
   if (e.dataTransfer.files[0]) loadFile(e.dataTransfer.files[0]);
 });
 
-if (map) {
-  map.on('load', () => loadImage('/radar-test/sample-radar.png'));
-} else {
-  loadImage('/radar-test/sample-radar.png');
+$('loadLive').addEventListener('click', async () => {
+  $('status').textContent = 'Looking for the latest live frame…';
+  const found = await findLatestFrame(8);
+  if (!found) { $('status').textContent = 'No live frame found (feed unreachable, or all recent candidates 403/404).'; return; }
+  loadImage(found.url);
+  $('status').textContent = `Loaded live frame ${formatTs(found.timestamp)}.`;
+});
+
+// ---------- animate: fetch several recent live frames, run each through the
+// current crop/isolate settings, and flip through them on the map by
+// swapping the image source's pixels in place (cheap — same corners/quad
+// throughout, only the raster content changes per frame). ----------
+let animFrames = []; // [{ timestamp, dataUrl }], oldest -> newest
+let animPlaying = false;
+let animTimer = null;
+
+function stopAnim() {
+  animPlaying = false;
+  if (animTimer) { clearInterval(animTimer); animTimer = null; }
+  $('animPlay').textContent = '▶ Play';
 }
-syncCropLabels();
+
+function showAnimFrame(i) {
+  const f = animFrames[i];
+  if (!f || !map || !map.getSource('radar-src')) return;
+  map.getSource('radar-src').updateImage({ url: f.dataUrl });
+  $('animLabel').textContent = `${formatTs(f.timestamp)}  (${i + 1}/${animFrames.length})`;
+}
+
+async function buildAnimation() {
+  if (!map) { $('status').textContent = 'Map unavailable — cannot animate.'; return; }
+  stopAnim();
+  $('status').textContent = 'Fetching recent live frames…';
+
+  const found = [];
+  for (const ts of candidateTimestamps(16)) {
+    if (found.length >= 10) break;
+    try {
+      const res = await fetch(frameUrl(ts));
+      if (res.ok) found.push({ timestamp: ts, blob: await res.blob() });
+    } catch (e) { /* skip a missing/failed frame */ }
+  }
+  if (found.length === 0) {
+    $('status').textContent = 'No live frames available right now — try again shortly.';
+    return;
+  }
+  found.reverse(); // oldest -> newest, for natural playback
+
+  animFrames = [];
+  for (const f of found) {
+    const blobUrl = URL.createObjectURL(f.blob);
+    const img = await new Promise((resolve, reject) => {
+      const im = new Image();
+      im.onload = () => resolve(im);
+      im.onerror = reject;
+      im.src = blobUrl;
+    });
+    const { canvas } = cropAndIsolate(img);
+    animFrames.push({ timestamp: f.timestamp, dataUrl: canvas.toDataURL('image/png') });
+    URL.revokeObjectURL(blobUrl);
+  }
+
+  if (!cornerCoords) resetCornersFromBounds();
+  if (!map.getSource('radar-src')) {
+    map.addSource('radar-src', { type: 'image', url: animFrames[animFrames.length - 1].dataUrl, coordinates: cornerCoords });
+    map.addLayer({
+      id: 'radar-layer', type: 'raster', source: 'radar-src',
+      paint: { 'raster-opacity': (+$('opacity').value) / 100, 'raster-fade-duration': 0 }
+    });
+    buildCornerMarkers();
+  }
+
+  $('animControls').style.display = 'block';
+  $('animSlider').max = animFrames.length - 1;
+  $('animSlider').value = animFrames.length - 1;
+  showAnimFrame(animFrames.length - 1);
+  $('status').textContent = `Animation ready — ${animFrames.length} frames.`;
+}
+
+$('buildAnim').addEventListener('click', buildAnimation);
+$('animPlay').addEventListener('click', () => {
+  if (animFrames.length === 0) return;
+  animPlaying = !animPlaying;
+  $('animPlay').textContent = animPlaying ? '⏸ Pause' : '▶ Play';
+  if (animPlaying) {
+    animTimer = setInterval(() => {
+      const i = (+$('animSlider').value + 1) % animFrames.length;
+      $('animSlider').value = i;
+      showAnimFrame(i);
+    }, 450);
+  } else if (animTimer) {
+    clearInterval(animTimer); animTimer = null;
+  }
+});
+$('animSlider').addEventListener('input', () => {
+  stopAnim();
+  showAnimFrame(+$('animSlider').value);
+});
+
+// ---------- startup: load the bundled calibration (crop/isolate/corners
+// hand-tuned in a previous session — see src/radarCalibration.js), then try
+// the live feed before falling back to the bundled sample screenshot. ----------
+async function loadCalibration() {
+  try {
+    const res = await fetch('/radar-test/calibration.json');
+    const cal = await res.json();
+    cropEls.top.value = cal.crop.topPct; cropEls.bottom.value = cal.crop.bottomPct;
+    cropEls.left.value = cal.crop.leftPct; cropEls.right.value = cal.crop.rightPct;
+    $('satMin').value = cal.isolate.minSaturation;
+    $('valMin').value = cal.isolate.minBrightness;
+    $('valMax').value = cal.isolate.maxBrightness;
+    $('hueYellow').checked = cal.isolate.hueBands.yellowGold;
+    $('hueGreen').checked = cal.isolate.hueBands.green;
+    $('hueBlue').checked = cal.isolate.hueBands.blue;
+    $('hueRed').checked = cal.isolate.hueBands.redPurple;
+    $('opacity').value = Math.round(cal.opacity * 100);
+    cornerCoords = cal.corners.map((c) => [...c]);
+  } catch (e) {
+    console.warn('No bundled calibration found, using built-in slider defaults.', e);
+  }
+  syncCropLabels();
+  ['satMin', 'valMin', 'valMax'].forEach((id) => { $(id + 'V').textContent = $(id).value + '%'; });
+  $('opV').textContent = $('opacity').value + '%';
+}
+
+async function initialLoad() {
+  await loadCalibration();
+  const found = await findLatestFrame(8);
+  if (found) {
+    loadImage(found.url);
+    $('status').textContent = `Loaded live frame ${formatTs(found.timestamp)}.`;
+  } else {
+    loadImage('/radar-test/sample-radar.png');
+  }
+}
+
+if (map) {
+  map.on('load', initialLoad);
+} else {
+  initialLoad();
+}
 </script>
 
 </body>

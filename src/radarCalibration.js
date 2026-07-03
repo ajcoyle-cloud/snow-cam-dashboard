@@ -3,7 +3,9 @@
 // screenshot format captured 4 July 2026). Re-export from radar-test's
 // "Copy calibration as JSON" button and update this file if the source
 // image's framing ever changes (different UI chrome, different radar
-// product, etc).
+// product, etc). Mirrored as public/radar-test/calibration.json so the
+// standalone (non-bundled) prototype page can load the same values without
+// a build step — keep both in sync by hand.
 
 export const RADAR_CALIBRATION = {
   // Percent to crop off each edge before isolating rain pixels, to strip

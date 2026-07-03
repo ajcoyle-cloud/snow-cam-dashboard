@@ -9,6 +9,10 @@
       "destination": "https://webcams.whakapapa.com/:path*"
     },
     {
+      "source": "/radar-feed/:path*",
+      "destination": "https://weatherwatch-maps.s3.ap-southeast-2.amazonaws.com/metservice/rainradar-realtime/:path*"
+    },
+    {
       "source": "/pw-obs/:path*",
       "destination": "/api/pw-obs?path=:path*"
     },
