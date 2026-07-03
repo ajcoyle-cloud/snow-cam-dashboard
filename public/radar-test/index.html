@@ -99,21 +99,22 @@
   </div>
 
   <div class="section">
-    <h2>4. Georeference (drag corners to fit coastline)</h2>
-    <div class="row4">
+    <h2>4. Georeference</h2>
+    <button class="btn" id="autoAlign">Auto-align to coastline</button>
+    <div class="hint">Matches the land shape in your crop (grey basemap pixels) against real NZ coastline data and searches for the bounds that fit best — no manual entry needed for a straight-on screenshot like this one.</div>
+    <div class="row4" style="margin-top:10px">
       <div><label>North (lat)</label><input type="number" id="bN" value="-34.0" step="0.05"></div>
       <div><label>South (lat)</label><input type="number" id="bS" value="-47.6" step="0.05"></div>
       <div><label>West (lon)</label><input type="number" id="bW" value="166.3" step="0.05"></div>
       <div><label>East (lon)</label><input type="number" id="bE" value="179.0" step="0.05"></div>
     </div>
-    <div class="hint">Estimated by eye from the coastline shape (Northland tip to Stewart Island, Fiordland to East Cape). Nudge these until the yellow/blue blobs line up with the real coast below — this is exactly the calibration a live feed would only need to do once.</div>
+    <div class="hint">Starting rectangle for auto-align, and a manual fallback. After draping, the 4 red corner pins on the map are draggable — drag any one directly to fine-tune the fit (independently, so it also corrects any skew).</div>
     <label>Overlay opacity <span class="val" id="opV">90%</span></label>
     <input type="range" id="opacity" min="0" max="100" value="90">
   </div>
 
   <div class="section">
     <button class="btn" id="apply">Drape on 3D map</button>
-    <button class="btn secondary" id="toggleCorners">Show corner markers</button>
   </div>
 </div>
 
@@ -162,8 +163,9 @@ try {
 
 // ---------- state ----------
 let srcImg = null;          // loaded HTMLImageElement
-let markersOn = false;
 let cornerMarkers = [];
+let cornerCoords = null;    // [[lng,lat] x4] TL,TR,BR,BL — live once draped; corner drags mutate this directly
+let coastlineRingsCache = null;
 
 const $ = (id) => document.getElementById(id);
 const cropEls = { top: $('cropTop'), bottom: $('cropBottom'), left: $('cropLeft'), right: $('cropRight') };
@@ -222,6 +224,116 @@ function processImage() {
   ctx.putImageData(imgData, 0, 0);
   $('status').textContent = `${kept.toLocaleString()} rain pixels kept of ${(cw * ch).toLocaleString()} (${(100 * kept / (cw * ch)).toFixed(1)}%)`;
   return canvas;
+}
+
+// ---------- coastline auto-align ----------
+// Matches the land shape visible in the (pre-isolation) crop against real NZ
+// coastline geometry (public/radar-test/nz-coastline.json, trimmed from
+// @geo-maps/countries-land-10km) and searches N/S/E/W bounds for the best fit,
+// so this doesn't require manual corner-dragging for a straight, unrotated
+// screenshot. Dragging remains available afterward for any residual skew.
+async function getCoastlineRings() {
+  if (coastlineRingsCache) return coastlineRingsCache;
+  const res = await fetch('/radar-test/nz-coastline.json');
+  const data = await res.json();
+  coastlineRingsCache = data.rings;
+  return coastlineRingsCache;
+}
+
+// Land = greyish basemap pixel (low saturation, not too dark/not blown out) —
+// distinguishes the satellite/hillshade landmass from the dark sea background
+// and from the saturated rain-echo colours, without needing isolation first.
+function buildLandMask(cropCanvas, targetW) {
+  const cw = cropCanvas.width, ch = cropCanvas.height;
+  const targetH = Math.max(1, Math.round(ch * targetW / cw));
+  const c = document.createElement('canvas');
+  c.width = targetW; c.height = targetH;
+  const ctx = c.getContext('2d');
+  ctx.drawImage(cropCanvas, 0, 0, targetW, targetH);
+  const d = ctx.getImageData(0, 0, targetW, targetH).data;
+  const mask = new Uint8Array(targetW * targetH);
+  for (let i = 0, p = 0; i < d.length; i += 4, p++) {
+    const [, s, v] = rgbToHsv(d[i], d[i + 1], d[i + 2]);
+    mask[p] = (s < 28 && v > 25) ? 1 : 0;
+  }
+  return { width: targetW, height: targetH, mask };
+}
+
+function rasterizeCoastline(rings, N, S, W, E, width, height) {
+  const c = document.createElement('canvas');
+  c.width = width; c.height = height;
+  const ctx = c.getContext('2d');
+  ctx.fillStyle = '#000';
+  ctx.beginPath();
+  for (const ring of rings) {
+    ring.forEach(([lon, lat], i) => {
+      const x = (lon - W) / (E - W) * width;
+      const y = (N - lat) / (N - S) * height;
+      if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+    });
+    ctx.closePath();
+  }
+  ctx.fill('nonzero');
+  const d = ctx.getImageData(0, 0, width, height).data;
+  const mask = new Uint8Array(width * height);
+  for (let i = 0, p = 0; i < d.length; i += 4, p++) mask[p] = d[i + 3] > 0 ? 1 : 0;
+  return mask;
+}
+
+function iou(a, b) {
+  let inter = 0, union = 0;
+  for (let i = 0; i < a.length; i++) {
+    if (a[i] || b[i]) union++;
+    if (a[i] && b[i]) inter++;
+  }
+  return union === 0 ? 0 : inter / union;
+}
+
+// Coordinate-descent (pattern search) over the 4 bound scalars: cheap and
+// dependency-free, good enough since a flat screenshot only needs scale +
+// translate, not full rotation/shear (dragging covers any leftover skew).
+async function autoAlign() {
+  if (!srcImg) return;
+  $('status').textContent = 'Auto-aligning to coastline…';
+  await new Promise((r) => setTimeout(r, 30)); // let the status text paint before the sync work below
+
+  const iw = srcImg.naturalWidth, ih = srcImg.naturalHeight;
+  const top = Math.round(ih * cropEls.top.value / 100);
+  const bottom = Math.round(ih * cropEls.bottom.value / 100);
+  const left = Math.round(iw * cropEls.left.value / 100);
+  const right = Math.round(iw * cropEls.right.value / 100);
+  const cw = Math.max(1, iw - left - right), ch = Math.max(1, ih - top - bottom);
+  const cropC = document.createElement('canvas');
+  cropC.width = cw; cropC.height = ch;
+  cropC.getContext('2d').drawImage(srcImg, left, top, cw, ch, 0, 0, cw, ch);
+
+  const { width, height, mask: landMask } = buildLandMask(cropC, 140);
+  const rings = await getCoastlineRings();
+
+  let best = { N: +$('bN').value, S: +$('bS').value, W: +$('bW').value, E: +$('bE').value };
+  let bestScore = iou(landMask, rasterizeCoastline(rings, best.N, best.S, best.W, best.E, width, height));
+
+  let step = 1.5; // degrees
+  const params = ['N', 'S', 'W', 'E'];
+  for (let round = 0; round < 40 && step > 0.02; round++) {
+    let improved = false;
+    for (const p of params) {
+      for (const dir of [1, -1]) {
+        const trial = { ...best, [p]: best[p] + dir * step };
+        if (trial.N <= trial.S || trial.E <= trial.W) continue;
+        const score = iou(landMask, rasterizeCoastline(rings, trial.N, trial.S, trial.W, trial.E, width, height));
+        if (score > bestScore) { bestScore = score; best = trial; improved = true; }
+      }
+    }
+    if (!improved) step *= 0.5;
+  }
+
+  $('bN').value = best.N.toFixed(2);
+  $('bS').value = best.S.toFixed(2);
+  $('bW').value = best.W.toFixed(2);
+  $('bE').value = best.E.toFixed(2);
+  $('status').textContent = `Auto-aligned — coastline fit ${(bestScore * 100).toFixed(0)}%. Drag the red corners to fine-tune if needed.`;
+  if (map) applyToMap();
 }
 
 function loadImage(src) {
@@ -300,29 +412,38 @@ function applyToMap() {
   const canvas = processImage();
   if (!canvas) return;
   const N = +$('bN').value, S = +$('bS').value, W = +$('bW').value, E = +$('bE').value;
-  const coords = [[W, N], [E, N], [E, S], [W, S]]; // top-left, top-right, bottom-right, bottom-left
+  cornerCoords = [[W, N], [E, N], [E, S], [W, S]]; // top-left, top-right, bottom-right, bottom-left
   const url = canvas.toDataURL('image/png');
 
   if (map.getLayer('radar-layer')) map.removeLayer('radar-layer');
   if (map.getSource('radar-src')) map.removeSource('radar-src');
-  map.addSource('radar-src', { type: 'image', url, coordinates: coords });
+  map.addSource('radar-src', { type: 'image', url, coordinates: cornerCoords });
   map.addLayer({
     id: 'radar-layer', type: 'raster', source: 'radar-src',
     paint: { 'raster-opacity': (+$('opacity').value) / 100, 'raster-fade-duration': 0 }
   });
-  updateCornerMarkers(coords);
+  buildCornerMarkers();
 }
 
-function updateCornerMarkers(coords) {
+// Draggable pins for each corner of the drape quad. Dragging moves just that
+// corner (not the whole rectangle), so it also fixes skew/rotation, not only
+// scale/position — MapLibre's image source accepts any quad, not just an
+// axis-aligned one.
+function buildCornerMarkers() {
   cornerMarkers.forEach((m) => m.remove());
   cornerMarkers = [];
-  if (!markersOn) return;
   const labels = ['NW', 'NE', 'SE', 'SW'];
-  coords.forEach((c, i) => {
+  cornerCoords.forEach((c, i) => {
     const el = document.createElement('div');
     el.textContent = labels[i];
-    el.style.cssText = 'background:#ef4444;color:#fff;font-size:10px;font-weight:700;padding:2px 5px;border-radius:4px;box-shadow:0 0 0 2px #fff;';
-    cornerMarkers.push(new maplibregl.Marker({ element: el }).setLngLat(c).addTo(map));
+    el.style.cssText = 'background:#ef4444;color:#fff;font-size:10px;font-weight:700;padding:3px 6px;border-radius:4px;box-shadow:0 0 0 2px #fff;cursor:grab;user-select:none;';
+    const marker = new maplibregl.Marker({ element: el, draggable: true }).setLngLat(c).addTo(map);
+    marker.on('drag', () => {
+      const ll = marker.getLngLat();
+      cornerCoords[i] = [ll.lng, ll.lat];
+      if (map.getSource('radar-src')) map.getSource('radar-src').setCoordinates(cornerCoords);
+    });
+    cornerMarkers.push(marker);
   });
 }
 
@@ -339,11 +460,7 @@ $('opacity').addEventListener('input', () => {
 });
 $('autoCrop').addEventListener('click', autoDetectCrop);
 $('apply').addEventListener('click', applyToMap);
-$('toggleCorners').addEventListener('click', (e) => {
-  markersOn = !markersOn;
-  e.target.textContent = markersOn ? 'Hide corner markers' : 'Show corner markers';
-  if (map && map.getSource('radar-src')) applyToMap();
-});
+$('autoAlign').addEventListener('click', autoAlign);
 ['bN', 'bS', 'bW', 'bE'].forEach((id) => $(id).addEventListener('change', () => { if (map && map.getSource('radar-src')) applyToMap(); }));
 
 $('drop').addEventListener('click', () => $('fileInput').click());
