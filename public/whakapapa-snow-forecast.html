@@ -1234,14 +1234,26 @@ function maybeSignalMapReady() {
       // new coordinates (destination terrain not loaded → camera too high) and
       // then crossfaded to a different, correctly-framed new instance, which
       // is why the fly-in landing never matched the loaded view.
-      const startZoom = Math.max(LOC.zoom - 1.4, 9);
+      // Reveal at a pulled-back establishing pose, then fly in. Start well
+      // back (≈2.6 zoom levels out) so there's a real approach to see, and
+      // hold that establishing shot until the parent's ~0.4s crossfade has
+      // finished revealing this frame BEFORE the fly begins — otherwise the
+      // first chunk of the approach happens while the frame is still fading
+      // in, so you only catch the last ~1s and it feels like it rushes
+      // straight into a close-up.
+      const startZoom = Math.max(LOC.zoom - 2.6, 8.5);
       map.jumpTo({ center: LOC.center, zoom: startZoom, pitch: LOC.pitch, bearing: LOC.bearing });
       window.parent.postMessage({ type: 'map-ready' }, '*');
-      map.flyTo({ center: LOC.center, zoom: LOC.zoom, pitch: LOC.pitch, bearing: LOC.bearing, duration: 1600, essential: true });
-      // Resume the decorative auto-rotate only after the fly-in has finished.
       setTimeout(() => {
-        if (typeof window.__resumeAutoRotateForTransition === 'function') window.__resumeAutoRotateForTransition();
-      }, 1800);
+        map.flyTo({ center: LOC.center, zoom: LOC.zoom, pitch: LOC.pitch, bearing: LOC.bearing, duration: 2600, essential: true });
+        map.once('moveend', () => {
+          // Pin the exact default as the final resting pose, so any flyTo/
+          // terrain zoom drift can't leave it landing closer (or farther)
+          // than a plain default load would sit.
+          map.jumpTo({ center: LOC.center, zoom: LOC.zoom, pitch: LOC.pitch, bearing: LOC.bearing });
+          if (typeof window.__resumeAutoRotateForTransition === 'function') window.__resumeAutoRotateForTransition();
+        });
+      }, 450);
     });
   });
 }
