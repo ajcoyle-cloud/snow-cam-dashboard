@@ -1155,6 +1155,24 @@ function updateCamDebug() {
 // has been observed taking 20-30s on a slow connection; waiting on it here
 // would hold the cover on far longer than the map is actually blank for.
 let mapStyleReady = false;
+// 'idle' means requested tiles have loaded and no camera transition is in
+// progress — it does NOT guarantee the 3D terrain mesh MapLibre builds from
+// those DEM tiles has actually been incorporated yet, which can lag a frame
+// or more behind. Two screenshots at IDENTICAL zoom/pitch/bearing/center
+// showed the same peak filling the frame in one and tiny/distant in the
+// other — exactly what happens when the camera's height is computed
+// relative to a not-yet-elevated (still-flat) terrain surface. Poll for a
+// plausible elevation reading at the camera's own center point before
+// considering the frame trustworthy to reveal.
+function waitForTerrainReady(cb, attempt) {
+  attempt = attempt || 0;
+  let elev = null;
+  try { elev = map.queryTerrainElevation(LOC.center, { exaggerated: false }); } catch (e) {}
+  const plausible = elev != null && elev > LOC.baseElev * 0.5;
+  if (plausible || attempt >= 20) { cb(); return; }
+  setTimeout(() => waitForTerrainReady(cb, attempt + 1), 100);
+}
+
 function maybeSignalMapReady() {
   if (!mapStyleReady || window.parent === window) return;
   // Auto-rotate never stops on its own, so it would keep advancing the
@@ -1178,10 +1196,12 @@ function maybeSignalMapReady() {
   // the EXACT bearing it's revealed at, not just the one it was idle at a
   // moment ago.
   map.once('idle', () => {
-    window.parent.postMessage({ type: 'map-ready' }, '*');
-    setTimeout(() => {
-      if (typeof window.__resumeAutoRotateForTransition === 'function') window.__resumeAutoRotateForTransition();
-    }, 500);
+    waitForTerrainReady(() => {
+      window.parent.postMessage({ type: 'map-ready' }, '*');
+      setTimeout(() => {
+        if (typeof window.__resumeAutoRotateForTransition === 'function') window.__resumeAutoRotateForTransition();
+      }, 500);
+    });
   });
 }
 
