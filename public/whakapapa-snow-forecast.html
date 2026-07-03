@@ -45,7 +45,7 @@
   #map { width: 100%; height: 100%; }
 
   /* ── Timeline scrubber (play/pause + draggable slider) ─────────────────── */
-  #timeline, #live-timeline {
+  #timeline, #live-timeline, #radar-timeline {
     position: absolute; left: 20px; right: 20px; bottom: 20px; z-index: 10;
     display: flex; align-items: center; gap: 14px;
     background: rgba(0,0,0,0.6);
@@ -53,25 +53,25 @@
     border-radius: 30px; padding: 10px 18px;
     box-shadow: 0 6px 26px rgba(0,0,0,0.35);
   }
-  #live-timeline { display: none; }
-  #tl-play, #ltl-play {
+  #live-timeline, #radar-timeline { display: none; }
+  #tl-play, #ltl-play, #rtl-play {
     flex-shrink: 0; background: rgba(255,255,255,0.14); color: #fff; border: none;
     width: 38px; height: 38px; border-radius: 50%; cursor: pointer;
     font-size: 1rem; display: flex; align-items: center; justify-content: center;
     transition: background 0.15s;
   }
-  #tl-play:hover, #ltl-play:hover { background: rgba(255,255,255,0.26); }
-  #tl-slider, #ltl-slider {
+  #tl-play:hover, #ltl-play:hover, #rtl-play:hover { background: rgba(255,255,255,0.26); }
+  #tl-slider, #ltl-slider, #rtl-slider {
     flex: 1; -webkit-appearance: none; appearance: none;
     height: 6px; border-radius: 3px; background: rgba(255,255,255,0.25);
     cursor: pointer; outline: none;
   }
-  #tl-slider::-webkit-slider-thumb, #ltl-slider::-webkit-slider-thumb {
+  #tl-slider::-webkit-slider-thumb, #ltl-slider::-webkit-slider-thumb, #rtl-slider::-webkit-slider-thumb {
     -webkit-appearance: none; width: 18px; height: 18px; border-radius: 50%;
     background: #fff; box-shadow: 0 2px 8px rgba(0,0,0,0.4); cursor: pointer;
     border: 3px solid #333;
   }
-  #tl-slider::-moz-range-thumb, #ltl-slider::-moz-range-thumb {
+  #tl-slider::-moz-range-thumb, #ltl-slider::-moz-range-thumb, #rtl-slider::-moz-range-thumb {
     width: 18px; height: 18px; border-radius: 50%; background: #fff;
     box-shadow: 0 2px 8px rgba(0,0,0,0.4); cursor: pointer; border: 3px solid #333;
   }
@@ -82,7 +82,7 @@
   }
   .tl-step:hover:not(:disabled) { color: #fff; }
   .tl-step:disabled { opacity: 0.3; cursor: default; }
-  #tl-label, #ltl-label {
+  #tl-label, #ltl-label, #rtl-label {
     flex-shrink: 0; color: #fff; font-size: 0.78rem; font-weight: 600;
     min-width: 118px; text-align: right; font-variant-numeric: tabular-nums;
   }
@@ -415,12 +415,12 @@
 
     /* Timeline pinned to the very bottom, painted above the drawer's
        background layer (which extends down behind it — see below). */
-    #timeline, #live-timeline {
+    #timeline, #live-timeline, #radar-timeline {
       left: 12px; right: 12px; bottom: 14px;
       gap: 8px; padding: 8px 12px;
       z-index: 11;
     }
-    #tl-label, #ltl-label { min-width: 0; font-size: 0.7rem; }
+    #tl-label, #ltl-label, #rtl-label { min-width: 0; font-size: 0.7rem; }
 
     /* ── Bottom-sheet drawer ──────────────────────────────────────────── */
     /* The open drawer floats above the timeslider. The timeline is ~54px tall at
@@ -515,6 +515,7 @@
       <button class="pill-btn" data-mode="live" onclick="setViewMode('live')">Live</button>
       <button class="pill-btn active" data-mode="hourly" onclick="setViewMode('hourly')">Hourly</button>
       <button class="pill-btn" data-mode="accumulated" onclick="setViewMode('accumulated')">Accumulated</button>
+      <button class="pill-btn" data-mode="radar" onclick="setViewMode('radar')">Radar</button>
     </div>
     <div class="pill-group" id="period-switch">
       <button class="pill-btn active" data-days="5" onclick="setPeriod(5)">5</button>
@@ -579,6 +580,13 @@
     <input type="range" id="ltl-slider" min="0" max="0" step="1" value="0">
     <button class="tl-step" id="ltl-next" onclick="pwStepLive(1)">›</button>
     <span id="ltl-label">—</span>
+  </div>
+  <div id="radar-timeline">
+    <button id="rtl-play" onclick="radarTogglePlay()">▶</button>
+    <button class="tl-step" id="rtl-prev" onclick="radarStepFrame(-1)">‹</button>
+    <input type="range" id="rtl-slider" min="0" max="0" step="1" value="0">
+    <button class="tl-step" id="rtl-next" onclick="radarStepFrame(1)">›</button>
+    <span id="rtl-label">—</span>
   </div>
   <div id="speed-select">
     <button class="speed-btn" data-speed="1" onclick="setSpeed(1)">1×</button>
@@ -1276,6 +1284,7 @@ function initMap() {
       if (typeof viewMode !== 'undefined') {
         if (viewMode === 'hourly') togglePlay();
         else if (viewMode === 'live') pwTogglePlay();
+        else if (viewMode === 'radar') radarTogglePlay();
         // accumulated view has no timeline — nothing to toggle
       }
       return;
@@ -1842,9 +1851,9 @@ function setViewMode(mode) {
   pwPersist('sp-view-mode', mode);
   document.querySelectorAll('#mode-switch .pill-btn').forEach(b => b.classList.toggle('active', b.dataset.mode === mode));
   document.getElementById('period-switch').style.display = mode === 'accumulated' ? 'flex' : 'none';
-  // No forecast data backs the Live map (it's real-time observations), so the
-  // model switcher has nothing to switch — hide it there.
-  document.getElementById('model-switch').style.display = mode === 'live' ? 'none' : 'block';
+  // No forecast data backs the Live temperature map or the Radar map (neither
+  // has a model to switch), so the model switcher has nothing to do there.
+  document.getElementById('model-switch').style.display = (mode === 'live' || mode === 'radar') ? 'none' : 'block';
   if (mode === 'live') closeModelMenu();
   document.getElementById('timeline').style.display = mode === 'hourly' ? 'flex' : 'none';
   document.getElementById('speed-select').style.display = mode === 'hourly' ? 'flex' : 'none';
@@ -1852,10 +1861,11 @@ function setViewMode(mode) {
   document.getElementById('info-accum').style.display = mode === 'accumulated' ? 'block' : 'none';
   document.getElementById('info-live').style.display = mode === 'live' ? 'block' : 'none';
   document.getElementById('live-timeline').style.display = mode === 'live' ? 'flex' : 'none';
+  document.getElementById('radar-timeline').style.display = mode === 'radar' ? 'flex' : 'none';
   document.getElementById('map-screen').classList.toggle('live-mode', mode === 'live');
   document.getElementById('map-screen').classList.toggle('accum-mode', mode === 'accumulated');
-  // Snowfall pin shows on hourly + accumulated; clear it only in live view.
-  if (mode === 'live' && snowfallMarker) { snowfallMarker.remove(); snowfallMarker = null; }
+  // Snowfall pin shows on hourly + accumulated; clear it only in live/radar view.
+  if ((mode === 'live' || mode === 'radar') && snowfallMarker) { snowfallMarker.remove(); snowfallMarker = null; }
   // The minimised-drawer summary is accumulated-only; clear it elsewhere so the
   // :empty rule keeps it hidden.
   if (mode !== 'accumulated') { const dms = document.getElementById('drawer-min-summary'); if (dms) dms.innerHTML = ''; }
@@ -1866,6 +1876,8 @@ function setViewMode(mode) {
     pwStopLivePlay();
     if (pwDisplayTime != null) { pwDisplayTime = null; for (const id in pwState) pwRenderPill(id); }
   }
+  if (mode !== 'radar') radarStopPlay();
+  if (map && map.getLayer('radar-layer')) map.setLayoutProperty('radar-layer', 'visibility', mode === 'radar' ? 'visible' : 'none');
 
   if (mode === 'hourly') {
     stopPlay();
@@ -1874,6 +1886,9 @@ function setViewMode(mode) {
   } else if (mode === 'live') {
     stopPlay();
     renderLiveTempView();
+  } else if (mode === 'radar') {
+    stopPlay();
+    radarEnterMode();
   } else {
     stopPlay();
     renderAccumulatedView();
@@ -1881,6 +1896,238 @@ function setViewMode(mode) {
   // Tick the real-time freezing-level nowcast only while in live view.
   if (mode === 'live') pwStartNowcast(); else pwStopNowcast();
 }
+
+// ── Radar view: drapes the live MetService national radar composite over
+// whichever resort this map instance is showing, at its normal close-up
+// camera position — the same globally-calibrated NZ-wide overlay used by
+// public/radar-map.html, just viewed zoomed-in instead of zoomed-out.
+// See src/radarCalibration.js / src/radarFeed.js for the full writeup; the
+// constants and pipeline here are duplicated rather than imported because
+// this file, like radar-map.html, is a standalone static page outside the
+// Vite/React build. Keep all three in sync by hand if the source image's
+// framing or the feed's naming scheme ever changes.
+const RADAR_CALIBRATION = {
+  crop: { topPct: 0, bottomPct: 0, leftPct: 0, rightPct: 0 },
+  isolate: {
+    minSaturation: 45, minBrightness: 15, maxBrightness: 100,
+    hueBands: { yellowGold: true, green: true, blue: true, redPurple: true },
+  },
+  corners: [
+    [164.443359375, -32.49123028794758],
+    [181.82373046875, -32.37996146435729],
+    [182.13134765625, -48.54570549184744],
+    [164.2236328125, -48.60385760823253],
+  ],
+  opacity: 0.9,
+};
+
+const RADAR_SLOT_MINUTES = [5, 13, 20, 28, 35, 43, 50, 58];
+const radarPad2 = (n) => String(n).padStart(2, '0');
+function radarFilenameFor(date) {
+  return '' + date.getUTCFullYear() + radarPad2(date.getUTCMonth() + 1) + radarPad2(date.getUTCDate()) + radarPad2(date.getUTCHours()) + radarPad2(date.getUTCMinutes());
+}
+function radarCandidateTimestamps(count, from) {
+  const out = [];
+  let cursor = new Date(from || new Date());
+  while (out.length < count) {
+    const hourMinutes = RADAR_SLOT_MINUTES.filter((m) => m <= cursor.getUTCMinutes());
+    let slot;
+    if (hourMinutes.length > 0) {
+      slot = new Date(cursor);
+      slot.setUTCMinutes(hourMinutes[hourMinutes.length - 1], 0, 0);
+    } else {
+      slot = new Date(cursor);
+      slot.setUTCHours(slot.getUTCHours() - 1, RADAR_SLOT_MINUTES[RADAR_SLOT_MINUTES.length - 1], 0, 0);
+    }
+    out.push(radarFilenameFor(slot));
+    cursor = new Date(slot.getTime() - 60000);
+  }
+  return out;
+}
+function radarFrameUrl(ts) { return `/radar-feed/${ts}.gif`; }
+function radarFormatTs(ts) {
+  const d = new Date(Date.UTC(+ts.slice(0, 4), +ts.slice(4, 6) - 1, +ts.slice(6, 8), +ts.slice(8, 10), +ts.slice(10, 12)));
+  return d.toLocaleString('en-NZ', { weekday: 'short', hour: '2-digit', minute: '2-digit' });
+}
+function radarRgbToHsv(r, g, b) {
+  r /= 255; g /= 255; b /= 255;
+  const max = Math.max(r, g, b), min = Math.min(r, g, b), d = max - min;
+  let h = 0;
+  if (d !== 0) {
+    if (max === r) h = ((g - b) / d) % 6;
+    else if (max === g) h = (b - r) / d + 2;
+    else h = (r - g) / d + 4;
+    h *= 60;
+    if (h < 0) h += 360;
+  }
+  return [h, max === 0 ? 0 : (d / max) * 100, max * 100];
+}
+function radarHueAllowed(h) {
+  const bands = RADAR_CALIBRATION.isolate.hueBands;
+  if (bands.yellowGold && h >= 35 && h < 70) return true;
+  if (bands.green && h >= 70 && h < 160) return true;
+  if (bands.blue && h >= 160 && h < 280) return true;
+  if (bands.redPurple && (h >= 280 || h < 35)) return true;
+  return false;
+}
+function radarCropAndIsolate(img) {
+  const { crop, isolate } = RADAR_CALIBRATION;
+  const iw = img.naturalWidth, ih = img.naturalHeight;
+  const top = Math.round(ih * crop.topPct / 100), bottom = Math.round(ih * crop.bottomPct / 100);
+  const left = Math.round(iw * crop.leftPct / 100), right = Math.round(iw * crop.rightPct / 100);
+  const cw = Math.max(1, iw - left - right), ch = Math.max(1, ih - top - bottom);
+  const canvas = document.createElement('canvas');
+  canvas.width = cw; canvas.height = ch;
+  const ctx = canvas.getContext('2d');
+  ctx.drawImage(img, left, top, cw, ch, 0, 0, cw, ch);
+  const imgData = ctx.getImageData(0, 0, cw, ch);
+  const d = imgData.data;
+  for (let i = 0; i < d.length; i += 4) {
+    const [h, s, v] = radarRgbToHsv(d[i], d[i + 1], d[i + 2]);
+    const isRain = s >= isolate.minSaturation && v >= isolate.minBrightness && v <= isolate.maxBrightness && radarHueAllowed(h);
+    if (!isRain) d[i + 3] = 0;
+  }
+  ctx.putImageData(imgData, 0, 0);
+  return canvas;
+}
+async function radarFetchAndProcessFrame(ts) {
+  const res = await fetch(radarFrameUrl(ts));
+  if (!res.ok) return null;
+  const blob = await res.blob();
+  const blobUrl = URL.createObjectURL(blob);
+  try {
+    const img = await new Promise((resolve, reject) => {
+      const im = new Image();
+      im.onload = () => resolve(im);
+      im.onerror = reject;
+      im.src = blobUrl;
+    });
+    return { timestamp: ts, dataUrl: radarCropAndIsolate(img).toDataURL('image/png') };
+  } finally {
+    URL.revokeObjectURL(blobUrl);
+  }
+}
+
+// "Last 1-2 hours" rather than the feed's full (year-plus) archive — a
+// lightweight rolling window that's fast to fetch and process on tab open,
+// not a scrubber through months of history.
+const RADAR_MAX_FRAMES = 16; // ~2h at the feed's ~7.5-min cadence
+const RADAR_REFRESH_POLL_MS = 90000;
+let radarFrames = [];       // [{ timestamp, dataUrl }], oldest -> newest
+let radarCurrentIndex = -1;
+let radarPlayTimer = null;
+let radarLoadPromise = null;
+let radarPollStarted = false;
+
+function radarDrawFrame(i) {
+  if (!map || !radarFrames[i]) return;
+  radarCurrentIndex = i;
+  const f = radarFrames[i];
+  if (map.getSource('radar-src')) {
+    map.getSource('radar-src').updateImage({ url: f.dataUrl });
+  } else if (map.getLayer('satellite')) {
+    // 'satellite' existing is this file's established proxy for "the style
+    // has actually attached" (see applyRampWhenReady above) — addSource/
+    // addLayer can throw if called before that, so this must not be assumed
+    // just because openMapView() already returned.
+    map.addSource('radar-src', { type: 'image', url: f.dataUrl, coordinates: RADAR_CALIBRATION.corners });
+    map.addLayer({
+      id: 'radar-layer', type: 'raster', source: 'radar-src',
+      paint: { 'raster-opacity': RADAR_CALIBRATION.opacity, 'raster-fade-duration': 0 },
+      layout: { visibility: viewMode === 'radar' ? 'visible' : 'none' },
+    });
+  } else {
+    setTimeout(() => radarDrawFrame(i), 80);
+    return;
+  }
+  const slider = document.getElementById('rtl-slider');
+  slider.max = radarFrames.length - 1;
+  slider.value = i;
+  document.getElementById('rtl-prev').disabled = i <= 0;
+  document.getElementById('rtl-next').disabled = i >= radarFrames.length - 1;
+  document.getElementById('rtl-label').textContent = radarFormatTs(f.timestamp);
+}
+
+function radarStepFrame(delta) {
+  radarStopPlay();
+  radarDrawFrame(Math.max(0, Math.min(radarFrames.length - 1, radarCurrentIndex + delta)));
+}
+function radarTogglePlay() {
+  if (radarPlayTimer) radarStopPlay(); else radarStartPlay();
+}
+function radarStartPlay() {
+  if (radarFrames.length < 2) return;
+  if (radarCurrentIndex >= radarFrames.length - 1) radarDrawFrame(0);
+  document.getElementById('rtl-play').textContent = '⏸';
+  radarPlayTimer = setInterval(() => {
+    if (radarCurrentIndex >= radarFrames.length - 1) { radarStopPlay(); return; }
+    radarDrawFrame(radarCurrentIndex + 1);
+  }, 450);
+}
+function radarStopPlay() {
+  if (radarPlayTimer) { clearInterval(radarPlayTimer); radarPlayTimer = null; }
+  document.getElementById('rtl-play').textContent = '▶';
+}
+
+async function radarLoadFrames() {
+  const found = [];
+  for (const ts of radarCandidateTimestamps(24)) {
+    if (found.length >= RADAR_MAX_FRAMES) break;
+    const frame = await radarFetchAndProcessFrame(ts).catch(() => null);
+    if (frame) found.push(frame);
+  }
+  if (found.length === 0) return;
+  radarFrames = found.reverse(); // oldest -> newest
+  radarDrawFrame(radarFrames.length - 1);
+}
+
+// Polls for a newer frame; if you're viewing the latest one ("live") it
+// auto-advances so the drape tracks reality, otherwise your scrub position
+// is left alone. Mirrors public/radar-map.html's refresh logic.
+async function radarPollForNewFrame() {
+  if (radarFrames.length === 0) return;
+  const latestKnown = radarFrames[radarFrames.length - 1].timestamp;
+  const candidates = radarCandidateTimestamps(4).filter((ts) => ts > latestKnown).reverse();
+  for (const ts of candidates) {
+    const frame = await radarFetchAndProcessFrame(ts).catch(() => null);
+    if (!frame) continue;
+    const wasAtLive = radarCurrentIndex === radarFrames.length - 1 && !radarPlayTimer;
+    const currentTs = radarFrames[radarCurrentIndex]?.timestamp;
+    radarFrames.push(frame);
+    if (radarFrames.length > RADAR_MAX_FRAMES) radarFrames.shift();
+    document.getElementById('rtl-slider').max = radarFrames.length - 1;
+    if (wasAtLive) {
+      radarDrawFrame(radarFrames.length - 1);
+    } else {
+      const idx = radarFrames.findIndex((f) => f.timestamp === currentTs);
+      radarCurrentIndex = idx >= 0 ? idx : 0;
+      document.getElementById('rtl-slider').value = radarCurrentIndex;
+      document.getElementById('rtl-prev').disabled = radarCurrentIndex <= 0;
+      document.getElementById('rtl-next').disabled = radarCurrentIndex >= radarFrames.length - 1;
+    }
+  }
+}
+
+function radarEnterMode() {
+  if (map && map.getLayer('radar-layer')) map.setLayoutProperty('radar-layer', 'visibility', 'visible');
+  if (!radarPollStarted) {
+    radarPollStarted = true;
+    setInterval(radarPollForNewFrame, RADAR_REFRESH_POLL_MS);
+  }
+  if (radarFrames.length > 0) {
+    radarDrawFrame(radarCurrentIndex < 0 ? radarFrames.length - 1 : radarCurrentIndex);
+    return;
+  }
+  if (!radarLoadPromise) {
+    document.getElementById('rtl-label').textContent = 'Loading…';
+    radarLoadPromise = radarLoadFrames();
+  }
+}
+
+document.getElementById('rtl-slider').addEventListener('input', (e) => {
+  radarStopPlay();
+  radarDrawFrame(parseInt(e.target.value, 10));
+});
 
 function setPeriod(days) {
   accumDays = days;
@@ -2023,6 +2270,8 @@ function restoreViewMode() {
     setViewMode('accumulated');
   } else if (saved === 'live') {
     setViewMode('live');
+  } else if (saved === 'radar') {
+    setViewMode('radar');
   }
   // 'hourly' or unset: openMapView already established the default hourly view.
 }
