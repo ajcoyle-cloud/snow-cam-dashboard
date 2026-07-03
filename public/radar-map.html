@@ -288,16 +288,24 @@ const FRAME_INTERVAL_MS = 450;
 const MAX_FRAMES = 12;
 const REFRESH_POLL_MS = 90000;
 
+// Fine-tuning: append ?calibrate to the URL (e.g. /radar on the live site,
+// or directly on /radar-map.html) to drag the 4 corner pins on THIS exact
+// live view — same frame, same coastline reference, no separate tool or
+// re-finding a frame. See enableCalibrationMode() below.
+const CALIBRATE = new URLSearchParams(location.search).has('calibrate');
+let liveCorners = RADAR_CALIBRATION.corners.map((c) => [...c]);
+
 function drawFrame(i) {
   if (!map || !frames[i]) return;
   currentIndex = i;
   const f = frames[i];
   if (!map.getSource('radar-src')) {
-    map.addSource('radar-src', { type: 'image', url: f.dataUrl, coordinates: RADAR_CALIBRATION.corners });
+    map.addSource('radar-src', { type: 'image', url: f.dataUrl, coordinates: liveCorners });
     map.addLayer({
       id: 'radar-layer', type: 'raster', source: 'radar-src',
       paint: { 'raster-opacity': RADAR_CALIBRATION.opacity, 'raster-fade-duration': 0 }
     });
+    if (CALIBRATE) enableCalibrationMode();
   } else {
     map.getSource('radar-src').updateImage({ url: f.dataUrl });
   }
@@ -306,6 +314,54 @@ function drawFrame(i) {
   document.getElementById('tl-next').disabled = i >= frames.length - 1;
   document.getElementById('tl-label').textContent = formatTs(f.timestamp);
   document.getElementById('tl-live-badge').classList.toggle('on', i === frames.length - 1);
+}
+
+// Draggable corner pins + a "copy calibration" button, gated behind
+// ?calibrate so normal visitors never see it. Drag a pin to nudge that
+// corner; the drape updates live via setCoordinates. When it looks right,
+// click "Copy calibration JSON" and paste it back to lock it in permanently
+// (this only adjusts the live page's in-memory corners, nothing persists on
+// its own — same as the original public/radar-test/ workflow, just applied
+// directly to production's real view instead of a separate calibration tool).
+function enableCalibrationMode() {
+  const labels = ['NW', 'NE', 'SE', 'SW'];
+  liveCorners.forEach((c, i) => {
+    const el = document.createElement('div');
+    el.textContent = labels[i];
+    el.style.cssText = 'background:#ef4444;color:#fff;font-size:10px;font-weight:700;padding:3px 6px;border-radius:4px;box-shadow:0 0 0 2px #fff;cursor:grab;user-select:none;';
+    const marker = new maplibregl.Marker({ element: el, draggable: true }).setLngLat(c).addTo(map);
+    marker.on('drag', () => {
+      const ll = marker.getLngLat();
+      liveCorners[i] = [ll.lng, ll.lat];
+      map.getSource('radar-src').setCoordinates(liveCorners);
+    });
+  });
+
+  const panel = document.createElement('div');
+  panel.style.cssText = 'position:absolute;top:16px;right:16px;z-index:20;background:rgba(0,0,0,0.7);backdrop-filter:blur(10px);border-radius:10px;padding:12px;max-width:220px;font-size:0.72rem;color:#fff;line-height:1.4;';
+  panel.innerHTML = `
+    <div style="font-weight:700;margin-bottom:6px;">Calibration mode</div>
+    <div style="color:rgba(255,255,255,0.65);margin-bottom:8px;">Drag the red pins to fit the coastline, then copy the result and paste it back to lock it in.</div>
+    <button id="calCopy" style="width:100%;background:#2563eb;color:#fff;border:none;border-radius:6px;padding:7px;font-size:0.75rem;font-weight:600;cursor:pointer;">Copy calibration JSON</button>
+    <div id="calStatus" style="margin-top:6px;color:#7ec8ff;min-height:14px;"></div>
+  `;
+  document.getElementById('map-screen').appendChild(panel);
+  document.getElementById('calCopy').addEventListener('click', async () => {
+    const config = {
+      crop: RADAR_CALIBRATION.crop,
+      isolate: RADAR_CALIBRATION.isolate,
+      corners: liveCorners,
+      opacity: RADAR_CALIBRATION.opacity,
+    };
+    const json = JSON.stringify(config, null, 2);
+    const statusEl = document.getElementById('calStatus');
+    try {
+      await navigator.clipboard.writeText(json);
+      statusEl.textContent = 'Copied — paste it back to lock it in.';
+    } catch (e) {
+      statusEl.textContent = 'Clipboard blocked: ' + json;
+    }
+  });
 }
 
 function stepFrame(delta) {
