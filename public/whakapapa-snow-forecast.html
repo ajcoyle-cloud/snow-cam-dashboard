@@ -906,8 +906,6 @@ async function loadForecast() {
   buildModelMenu();
   forecastHours = modelHours[selectedModel] || modelHours.average || modelHours.gfs || [];
   openFromQueryParams();
-  initialViewReady = true;
-  maybeSignalMapReady();
   // In case the map style already loaded (and created the pill) before this
   // forecast data did.
   updateOwnResortPillTemp();
@@ -998,15 +996,17 @@ function fmtTime(iso) {
 let map = null;
 
 // Tells the parent app (if embedded) once there's actually something worth
-// looking at — the map style has attached AND the first view (hourly/live/
-// accumulated) has rendered — so it can hold a cover overlay over the old
-// content until this new resort's map is ready, instead of flashing a blank/
-// half-loaded map during the iframe swap. Needs both flags: which one
-// finishes first depends on network timing (map tiles vs. weather fetch).
+// looking at, so it can hold a cover overlay over the old content until this
+// new resort's map is ready instead of flashing a blank/half-loaded map
+// during the iframe swap. Deliberately gated on the map STYLE only, not on
+// the weather fetch (openMapView() shows a valid terrain/satellite map
+// immediately regardless of forecast data — the snow overlay/data panel can
+// fill in a moment later without feeling broken). The weather fetch alone
+// has been observed taking 20-30s on a slow connection; waiting on it here
+// would hold the cover on far longer than the map is actually blank for.
 let mapStyleReady = false;
-let initialViewReady = false;
 function maybeSignalMapReady() {
-  if (!mapStyleReady || !initialViewReady || window.parent === window) return;
+  if (!mapStyleReady || window.parent === window) return;
   // A short buffer so at least the first pass of terrain/satellite tiles has
   // a moment to paint before the parent reveals this iframe.
   setTimeout(() => window.parent.postMessage({ type: 'map-ready' }, '*'), 300);
@@ -1384,16 +1384,25 @@ function flashSnowfallMarker(lngLat, label) {
 let currentIndex = -1;
 
 function openMapView(index) {
+  // The terrain/satellite map must always exist regardless of whether
+  // forecast data is ready yet (a slow weather fetch shouldn't leave the
+  // whole map blank) — initMap() never depended on forecastHours before, and
+  // must not start doing so now.
+  initMap();
+
   // forecastHours can legitimately be empty (e.g. every model's hourly rows
-  // got filtered out for this resort/period) — bail out instead of indexing
-  // into it, since the fallback below would be `hour === undefined` and
-  // buildSnowRamp(undefined) throws, which corrupts the map's snow-relief
-  // paint expression and blanks the whole render loop, not just the overlay.
-  if (forecastHours.length === 0) return;
+  // got filtered out for this resort/period, or the weather fetch is still
+  // in flight) — bail out of the hour-dependent bits instead of indexing
+  // into it, since the fallback would be `hour === undefined` and
+  // buildSnowRamp(undefined) used to throw (corrupting the map's snow-relief
+  // paint expression and blanking the whole render loop, not just the
+  // overlay). The base map still shows fine either way.
+  if (forecastHours.length === 0) {
+    applyRampWhenReady(buildSnowRamp(null));
+    return;
+  }
   currentIndex = Math.max(0, Math.min(index, forecastHours.length - 1));
   const hour = forecastHours[currentIndex];
-
-  initMap();
 
   applyRampWhenReady(buildSnowRamp(hour));
 
@@ -1686,7 +1695,10 @@ function setSpeed(speed) {
 // This page always opens straight into the 3D map — to the hour given by
 // ?time=2026-06-25T20:00 if present, otherwise the closest hour to now.
 function openFromQueryParams() {
-  if (forecastHours.length === 0) return;
+  // openMapView() itself now handles forecastHours being empty (it still
+  // creates the base map either way) — this must not bail out before ever
+  // reaching it, or the map never initializes while data is slow to load.
+  if (forecastHours.length === 0) { openMapView(0); restoreViewMode(); return; }
   const targetTime = new URLSearchParams(window.location.search).get('time');
   const targetMs = targetTime ? new Date(targetTime).getTime() : Date.now();
   let bestIdx = 0, bestDiff = Infinity;
@@ -1731,8 +1743,16 @@ function restoreViewMode() {
   // 'hourly' or unset: openMapView already established the default hourly view.
 }
 
+// initMap() used to only be reachable via loadForecast() -> openFromQueryParams()
+// -> openMapView(), all the way at the end of the weather fetch's async chain —
+// so the map/terrain never appeared until every model's fetch had settled,
+// taking 20-30s on a slow connection despite the terrain having nothing to do
+// with that data. Kick it off immediately and independently instead; it's
+// idempotent (openMapView()'s own initMap() call below just no-ops once this
+// has already run).
+initMap();
 loadForecast();
-// 
+//
 // ── Live PredictWind observation stations ──────────────────────────────────
 // PredictWind serves NowCasting stations as packed map-tile JSON (see
 // scripts/predictwind_obs.py for the format). We fetch the tile via the /pw-obs
