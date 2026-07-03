@@ -1,6 +1,6 @@
 // Updated with Loveland ski area and forecast view switcher
 import { useState, useEffect, useRef } from 'react'
-import { Camera, LineChart, Map as MapIcon } from 'lucide-react'
+import { Camera, LineChart, Map as MapIcon, Radar as RadarIcon } from 'lucide-react'
 import HLS from 'hls.js'
 import './App.css'
 
@@ -2677,10 +2677,39 @@ function ForecastMap3D({ resort, setResort }) {
   )
 }
 
+// NZ-wide 3D rain radar, in public/radar-map.html — same iframe-embed pattern
+// as ForecastMap3D above, but simpler: it's a single fixed view (no per-resort
+// switching), so it just fades in once the iframe reports itself ready rather
+// than needing the old/new frame-stacking crossfade.
+function RadarMap3D() {
+  const [ready, setReady] = useState(false)
+  useEffect(() => {
+    const handleMessage = (event) => {
+      if (event.data?.type === 'map-ready') setReady(true)
+    }
+    window.addEventListener('message', handleMessage)
+    return () => window.removeEventListener('message', handleMessage)
+  }, [])
+  return (
+    <div style={{ position: 'relative', width: '100%', height: '100%' }}>
+      <iframe
+        src="/radar-map.html"
+        style={{
+          position: 'absolute', inset: 0, width: '100%', height: '100%',
+          border: 'none', display: 'block',
+          opacity: ready ? 1 : 0, transition: 'opacity 0.4s ease',
+        }}
+        allowFullScreen
+      />
+    </div>
+  )
+}
+
 const NAV_ITEMS = [
   { id: 'webcams', label: 'Webcams', Icon: Camera, path: '/' },
   { id: 'forecast', label: 'Forecast', Icon: LineChart, path: '/forecast' },
   { id: 'map', label: 'Map', Icon: MapIcon, path: '/map' },
+  { id: 'radar', label: 'Radar', Icon: RadarIcon, path: '/radar' },
 ]
 const tabForPath = (pathname) => NAV_ITEMS.find(n => n.path === pathname)?.id
 
@@ -2754,7 +2783,7 @@ export default function App() {
         ))}
       </nav>
 
-      <main className={`main-content ${activeTab === 'map' ? 'is-map' : ''}`}>
+      <main className={`main-content ${activeTab === 'map' || activeTab === 'radar' ? 'is-map' : ''}`}>
         {activeTab === 'webcams' && (
           <section className="region-section">
             <div className="webcam-controls">
@@ -2774,6 +2803,12 @@ export default function App() {
         {activeTab === 'map' && (
           <section className="map-region">
             <ForecastMap3D resort={resort} setResort={setResort} />
+          </section>
+        )}
+
+        {activeTab === 'radar' && (
+          <section className="map-region">
+            <RadarMap3D />
           </section>
         )}
       </main>
