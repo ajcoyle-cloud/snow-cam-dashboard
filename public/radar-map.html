@@ -103,7 +103,7 @@
 const RADAR_CALIBRATION = {
   crop: { topPct: 0, bottomPct: 0, leftPct: 0, rightPct: 0 },
   isolate: {
-    minSaturation: 45, minBrightness: 15, maxBrightness: 99,
+    minSaturation: 45, minBrightness: 15, maxBrightness: 100,
     hueBands: { yellowGold: true, green: true, blue: true, redPurple: true },
   },
   // NE/SE longitudes are intentionally >180° (unwrapped) — see the long
@@ -232,6 +232,14 @@ function hueAllowed(h) {
   if (bands.redPurple && (h >= 280 || h < 35)) return true;
   return false;
 }
+// The source image draws its own thin white coastline stroke (measured:
+// saturation ~3%, brightness 100% — well under the 45% saturation gate rain
+// pixels need, so it's normally dropped along with the rest of the basemap).
+// Keeping it as a placement reference is deliberate: it lets you visually
+// check the radar image's own coastline against the real satellite coastline
+// underneath on the 3D map — if they don't line up, the calibration is off.
+const COASTLINE_MAX_SAT = 15;
+const COASTLINE_MIN_BRIGHT = 90;
 function cropAndIsolate(img) {
   const { crop, isolate } = RADAR_CALIBRATION;
   const iw = img.naturalWidth, ih = img.naturalHeight;
@@ -247,7 +255,8 @@ function cropAndIsolate(img) {
   for (let i = 0; i < d.length; i += 4) {
     const [h, s, v] = rgbToHsv(d[i], d[i + 1], d[i + 2]);
     const isRain = s >= isolate.minSaturation && v >= isolate.minBrightness && v <= isolate.maxBrightness && hueAllowed(h);
-    if (!isRain) d[i + 3] = 0;
+    const isCoastline = s < COASTLINE_MAX_SAT && v >= COASTLINE_MIN_BRIGHT;
+    if (!isRain && !isCoastline) d[i + 3] = 0;
   }
   ctx.putImageData(imgData, 0, 0);
   return canvas;
