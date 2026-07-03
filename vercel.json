@@ -17,7 +17,7 @@
       "destination": "/api/lyford-cam?cam=:cam"
     },
     {
-      "source": "/((?!whakapapa-snow-forecast\\.html|assets|api).*)",
+      "source": "/((?!whakapapa-snow-forecast\\.html|radar-test|assets|api).*)",
       "destination": "/index.html"
     }
   ]
