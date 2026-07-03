@@ -1206,6 +1206,21 @@ function maybeSignalMapReady() {
   // moment ago.
   map.once('idle', () => {
     waitForTerrainReady(() => {
+      // Terrain-aware map libraries commonly cache the camera's own height
+      // above the terrain relative to `center`, and only recompute it when
+      // center genuinely CHANGES — not when a jumpTo re-sets it to the exact
+      // value it was already at (which is what the snap above just did).
+      // That leaves the camera hovering at whatever height was cached before
+      // terrain finished loading (near sea level), even though the terrain
+      // mesh itself now renders correctly at its real elevation — the
+      // visual signature of this is the same peak looking much smaller/
+      // farther away and the whole view sitting noticeably lower, despite
+      // every camera number (center/zoom/pitch/bearing) matching exactly.
+      // Force a real change and restore it immediately so MapLibre has no
+      // choice but to recompute the terrain-relative camera height for real.
+      const nudge = 0.0002;
+      map.jumpTo({ center: [LOC.center[0] + nudge, LOC.center[1] + nudge], zoom: LOC.zoom + 0.01, pitch: LOC.pitch, bearing: LOC.bearing });
+      map.jumpTo({ center: LOC.center, zoom: LOC.zoom, pitch: LOC.pitch, bearing: LOC.bearing });
       window.parent.postMessage({ type: 'map-ready' }, '*');
       setTimeout(() => {
         if (typeof window.__resumeAutoRotateForTransition === 'function') window.__resumeAutoRotateForTransition();
