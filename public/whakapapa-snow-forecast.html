@@ -736,10 +736,25 @@ function navigateToResort(key) {
   }
 }
 
+// The other-resort temp fetches are only worth making once the pills are
+// actually visible, and firing all 6 immediately on load would add to the
+// exact same network contention window as this resort's own (much more
+// critical) weather fetches. Kick them off lazily, once, the first time the
+// user zooms out far enough to see the pills.
+let resortPillTempsFetched = false;
 function updateResortPillVisibility() {
   const show = map.getZoom() <= RESORT_PILL_MAX_ZOOM;
   for (const key in resortPillMarkers) {
     resortPillMarkers[key].getElement().style.display = show ? '' : 'none';
+  }
+  if (show && !resortPillTempsFetched) {
+    resortPillTempsFetched = true;
+    OTHER_RESORT_KEYS.forEach((key) => {
+      fetchOtherResortTemp(key).then((temp) => {
+        const tempEl = resortPillMarkers[key]?.getElement().querySelector('.resort-pill-temp');
+        if (tempEl && temp != null) tempEl.textContent = `${temp.toFixed(1)}°C`;
+      });
+    });
   }
 }
 
@@ -758,10 +773,6 @@ function initResortPills() {
       map.once('moveend', () => navigateToResort(key));
     });
     resortPillMarkers[key] = new maplibregl.Marker({ element: el, anchor: 'center' }).setLngLat([r.lon, r.lat]).addTo(map);
-    fetchOtherResortTemp(key).then((temp) => {
-      const tempEl = el.querySelector('.resort-pill-temp');
-      if (tempEl && temp != null) tempEl.textContent = `${temp.toFixed(1)}°C`;
-    });
   });
   updateResortPillVisibility();
   map.on('zoom', updateResortPillVisibility);
@@ -1205,6 +1216,13 @@ const DEPTH_BANDS = [
 const SNOWFALL_THRESHOLD_MM = 0.1;
 
 function buildSnowRamp(hour) {
+  // A malformed/missing hour would otherwise produce a garbage 'interpolate'
+  // expression below — MapLibre's color-relief renderer can't recover from
+  // that mid-frame and the whole map goes blank, not just this layer. A flat
+  // transparent ramp is always a safe, valid fallback.
+  if (!hour || hour.freezingLevel == null || hour.snowfallMm == null) {
+    return ['interpolate', ['linear'], ['elevation'], 0, 'rgba(255,255,255,0)', TOP_ELEV, 'rgba(255,255,255,0)'];
+  }
   const snowing = hour.snowfallMm >= SNOWFALL_THRESHOLD_MM;
 
   // Where the tint starts (its lower edge), as a true elevation:
@@ -1322,6 +1340,12 @@ function flashSnowfallMarker(lngLat, label) {
 let currentIndex = -1;
 
 function openMapView(index) {
+  // forecastHours can legitimately be empty (e.g. every model's hourly rows
+  // got filtered out for this resort/period) — bail out instead of indexing
+  // into it, since the fallback below would be `hour === undefined` and
+  // buildSnowRamp(undefined) throws, which corrupts the map's snow-relief
+  // paint expression and blanks the whole render loop, not just the overlay.
+  if (forecastHours.length === 0) return;
   currentIndex = Math.max(0, Math.min(index, forecastHours.length - 1));
   const hour = forecastHours[currentIndex];
 
