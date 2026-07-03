@@ -1267,6 +1267,35 @@ function initMap() {
     }
   });
 
+  // Keyboard shortcuts (desktop — these only fire once the map iframe has
+  // focus, i.e. after the user has clicked/interacted with the map).
+  window.addEventListener('keydown', (e) => {
+    // Space plays/pauses whichever timeline the current view shows.
+    if (e.code === 'Space' || e.key === ' ') {
+      const ae = document.activeElement;
+      if (ae && (ae.tagName === 'TEXTAREA' || (ae.tagName === 'INPUT' && ae.type === 'text'))) return;
+      e.preventDefault(); // stop the page from scrolling
+      if (typeof viewMode !== 'undefined') {
+        if (viewMode === 'hourly') togglePlay();
+        else if (viewMode === 'live') pwTogglePlay();
+        // accumulated view has no timeline — nothing to toggle
+      }
+      return;
+    }
+    // TEMP: press "c" over the map to read the current camera params, for
+    // dialing a resort's default view in to a hand-picked framing. Navigate to
+    // the view you want, press c, copy the popup text. Remove when done tuning.
+    if ((e.key === 'c' || e.key === 'C') && map) {
+      const cc = map.getCenter();
+      window.prompt('Camera (copy this):', JSON.stringify({
+        center: [ +cc.lng.toFixed(5), +cc.lat.toFixed(5) ],
+        zoom: +map.getZoom().toFixed(2),
+        pitch: +map.getPitch().toFixed(1),
+        bearing: +map.getBearing().toFixed(1)
+      }));
+    }
+  });
+
   // MapLibre reads the container's actual pixel size to compute the camera
   // projection — for a pitched 3D view, that's what determines the real
   // field of view for a given "zoom" number, not just how large things look.
