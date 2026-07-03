@@ -1139,9 +1139,13 @@ function updateCamDebug() {
     const el = document.getElementById('cam-debug');
     if (!el || !map) return;
     const c = map.getCenter();
+    const containerEl = document.getElementById('map');
+    const canvas = map.getCanvas ? map.getCanvas() : null;
     el.textContent =
       `zoom ${map.getZoom().toFixed(3)}  pitch ${map.getPitch().toFixed(2)}°  bearing ${map.getBearing().toFixed(2)}°\n` +
-      `lng ${c.lng.toFixed(5)}  lat ${c.lat.toFixed(5)}`;
+      `lng ${c.lng.toFixed(5)}  lat ${c.lat.toFixed(5)}\n` +
+      `container ${containerEl?.clientWidth}x${containerEl?.clientHeight}` +
+      `  canvas ${canvas?.width}x${canvas?.height}  dpr ${window.devicePixelRatio}`;
   } catch (e) {}
 }
 
@@ -1190,6 +1194,11 @@ function maybeSignalMapReady() {
   // land at a different, unpredictable bearing every time. Snap back to
   // the exact default right before revealing so the two always match.
   map.jumpTo({ center: LOC.center, zoom: LOC.zoom, pitch: LOC.pitch, bearing: LOC.bearing });
+  // Cheap and harmless even if unnecessary: forces MapLibre to re-derive its
+  // internal projection state from the container's current size right after
+  // the snap, in case jumpTo() alone doesn't fully refresh whatever the
+  // renderer uses to map zoom -> actual field of view.
+  try { map.resize(); } catch (e) {}
   // The snap can itself require a few new edge tiles (rotating back to the
   // default bearing changes what's at the corners of the frustum) — wait
   // for a second 'idle' so the revealed frame is guaranteed fully loaded at
