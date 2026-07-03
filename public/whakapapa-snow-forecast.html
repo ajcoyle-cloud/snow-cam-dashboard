@@ -1246,11 +1246,12 @@ function maybeSignalMapReady() {
       window.parent.postMessage({ type: 'map-ready' }, '*');
       setTimeout(() => {
         map.flyTo({ center: LOC.center, zoom: LOC.zoom, pitch: LOC.pitch, bearing: LOC.bearing, duration: 2600, essential: true });
+        // Let the fly-in settle wherever it naturally lands — do NOT jumpTo the
+        // exact pose afterward. In this MapLibre's terrain camera, jumping to
+        // the same zoom the fly just reached recomputes the camera height and
+        // lurches into a visibly closer view, so the "pin" was itself the big
+        // jump at the end of the animation.
         map.once('moveend', () => {
-          // Pin the exact default as the final resting pose, so any flyTo/
-          // terrain zoom drift can't leave it landing closer (or farther)
-          // than a plain default load would sit.
-          map.jumpTo({ center: LOC.center, zoom: LOC.zoom, pitch: LOC.pitch, bearing: LOC.bearing });
           if (typeof window.__resumeAutoRotateForTransition === 'function') window.__resumeAutoRotateForTransition();
         });
       }, 450);
