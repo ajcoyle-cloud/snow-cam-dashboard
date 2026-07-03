@@ -600,10 +600,8 @@ const RESORT_CONFIG = {
     name: 'Cardrona Alpine Resort',
     lat: -44.76, lon: 169.0, summitElev: 1860, baseElev: 1640, timezone: 'Pacific/Auckland',
     topElev: 1950, // approx summit ridge for the colour ramp's upper bound
-    // Camera framing targets the actual ski basin (not the weather sample point
-    // above). Center panned WNW of the basin so the basin sits further to the
-    // LEFT of the frame (with bearing 200°, screen-left ≈ compass ESE).
-    center: [168.9355, -44.8638], zoom: 13.6, pitch: 62, bearing: 200
+    // Hand-picked framing captured via the 'c' camera helper.
+    center: [168.95754, -44.86984], zoom: 13.18, pitch: 69, bearing: -53.6
   },
   loveland: {
     name: 'Loveland Ski Area',
@@ -1282,9 +1280,9 @@ function initMap() {
       }
       return;
     }
-    // TEMP: press "c" over the map to read the current camera params, for
-    // dialing a resort's default view in to a hand-picked framing. Navigate to
-    // the view you want, press c, copy the popup text. Remove when done tuning.
+    // Press "c" over the map to read the current camera params, for dialing a
+    // resort's default view in to a hand-picked framing: navigate to the view
+    // you want, press c, copy the popup text. Kept permanently as a tuning aid.
     if ((e.key === 'c' || e.key === 'C') && map) {
       const cc = map.getCenter();
       window.prompt('Camera (copy this):', JSON.stringify({
