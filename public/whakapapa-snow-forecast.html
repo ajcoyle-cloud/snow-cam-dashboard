@@ -701,20 +701,44 @@ const MAX_HOURLY_SNOWFALL_MM = 60; // ~6cm/hr, generous even for a true storm pu
 // (not just a bad status) instead of taking down the whole Promise.all, since
 // AIFS/ECMWF/UKMO are optional and GFS must never be blocked by their failure.
 // Crucially, this also never HANGS: a request that doesn't settle within
-// FETCH_TIMEOUT_MS is aborted and treated as a failure. Promise.all waits for
-// every one of its inputs to settle no matter how long that takes, and
-// .catch() alone only handles a request actually failing fast -- an
-// upstream connection that just sits there (observed as net::ERR_TIMED_OUT
-// after tens of seconds) would otherwise stall the whole page's load for
-// however long the browser's own connection timeout happens to be.
+// timeoutMs is aborted and treated as a failure. Promise.all waits for every
+// one of its inputs to settle no matter how long that takes, and .catch()
+// alone only handles a request actually failing fast -- an upstream
+// connection that just sits there (observed as net::ERR_TIMED_OUT after tens
+// of seconds) would otherwise stall the whole page's load for however long
+// the browser's own connection timeout happens to be.
+//
+// Retries transient failures (timeout, network error, 429/5xx) with a short
+// backoff instead of giving up on the first attempt -- important because
+// GFS failing entirely means loadForecast() abandons every model and falls
+// back to buildDemoForecast()'s 2-day placeholder, which reads exactly like
+// "the timeslider only has 2-3 days of data" if a single slow attempt were
+// treated as a hard failure.
 const FETCH_TIMEOUT_MS = 10000;
-function fetchOrNull(url) {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
-  return fetch(url, { signal: controller.signal })
-    .then(r => r.ok ? r : null)
-    .catch(() => null)
-    .finally(() => clearTimeout(timer));
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+async function fetchOrNull(url, { timeoutMs = FETCH_TIMEOUT_MS, retries = 1 } = {}) {
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      const res = await fetch(url, { signal: controller.signal });
+      clearTimeout(timer);
+      if (res.ok) return res;
+      if ((res.status === 429 || res.status >= 500) && attempt < retries) {
+        await sleep(500 * (attempt + 1));
+        continue;
+      }
+      return null;
+    } catch (e) {
+      clearTimeout(timer);
+      if (attempt < retries) {
+        await sleep(500 * (attempt + 1));
+        continue;
+      }
+      return null;
+    }
+  }
+  return null;
 }
 
 // Session-scoped response cache, keyed by the exact request URL (every
@@ -744,10 +768,10 @@ function forecastCacheSet(url, data) {
 // Fetches and parses one Open-Meteo URL to JSON, serving a cached copy when
 // one's fresh instead of hitting the network at all. Resolves to null on any
 // failure, same contract as fetchOrNull.
-async function fetchJsonCached(url) {
+async function fetchJsonCached(url, fetchOpts) {
   const cached = forecastCacheGet(url);
   if (cached) return cached;
-  const res = await fetchOrNull(url);
+  const res = await fetchOrNull(url, fetchOpts);
   if (!res) return null;
   try {
     const json = await res.json();
@@ -963,8 +987,13 @@ async function loadForecast() {
       aifsSummitUrl, aifsBaseUrl, ukmoSummitUrl, ukmoBaseUrl
     } = forecastUrlsFor(LOC);
 
+    // GFS is both the REQUIRED model (its failure abandons everything below
+    // to the 2-day demo placeholder) and the heaviest request (more fields
+    // requested than the other three) — give it more timeout headroom and
+    // an extra retry rather than treating one slow attempt as fatal.
+    const gfsFetchOpts = { timeoutMs: 15000, retries: 2 };
     const [gfs, gfsBaseJson, ecmwfSummitJson, ecmwfBaseJson, aifsSummitJson, aifsBaseJson, ukmoSummitJson, ukmoBaseJson] = await Promise.all([
-      fetchJsonCached(gfsSummitUrl), fetchJsonCached(gfsBaseUrl),
+      fetchJsonCached(gfsSummitUrl, gfsFetchOpts), fetchJsonCached(gfsBaseUrl, gfsFetchOpts),
       fetchJsonCached(ecmwfSummitUrl), fetchJsonCached(ecmwfBaseUrl),
       fetchJsonCached(aifsSummitUrl), fetchJsonCached(aifsBaseUrl),
       fetchJsonCached(ukmoSummitUrl), fetchJsonCached(ukmoBaseUrl),
@@ -1097,6 +1126,13 @@ let map = null;
 let mapStyleReady = false;
 function maybeSignalMapReady() {
   if (!mapStyleReady || window.parent === window) return;
+  // Auto-rotate never stops on its own, so it would keep advancing the
+  // bearing right through the snap below and the ~0.5s it takes the parent
+  // to actually finish the crossfade after 'map-ready' — undoing part of
+  // what the snap fixed by the time the user can see this frame. Pause it
+  // for exactly that window; resumed below once the reveal has had time to
+  // complete.
+  if (typeof window.__pauseAutoRotateForTransition === 'function') window.__pauseAutoRotateForTransition();
   // The decorative auto-rotate has been running continuously since this
   // page loaded (see rotateStep()), so by now the camera has drifted some
   // arbitrary amount past LOC's default bearing — however long the load
@@ -1112,6 +1148,9 @@ function maybeSignalMapReady() {
   // moment ago.
   map.once('idle', () => {
     window.parent.postMessage({ type: 'map-ready' }, '*');
+    setTimeout(() => {
+      if (typeof window.__resumeAutoRotateForTransition === 'function') window.__resumeAutoRotateForTransition();
+    }, 500);
   });
 }
 
@@ -1318,6 +1357,24 @@ function initMap() {
   window.toggleAutoRotate = () => {
     if (autoRotateActive) stopAutoRotate();
     else startAutoRotate();
+  };
+  // Auto-rotate never stops on its own, so it keeps drifting the bearing
+  // during the narrow window between the camera snap in maybeSignalMapReady()
+  // and the parent actually finishing the crossfade a few hundred ms later —
+  // undoing part of what the snap just fixed. Pause it for exactly that
+  // window (only if it was actually running — don't override a user's own
+  // earlier interaction that already stopped it) rather than disabling the
+  // normal decorative behavior altogether.
+  let autoRotatePausedForTransition = false;
+  window.__pauseAutoRotateForTransition = () => {
+    if (autoRotateActive) { autoRotateActive = false; autoRotatePausedForTransition = true; }
+  };
+  window.__resumeAutoRotateForTransition = () => {
+    if (autoRotatePausedForTransition) {
+      autoRotatePausedForTransition = false;
+      autoRotateActive = true;
+      requestAnimationFrame(rotateStep);
+    }
   };
   requestAnimationFrame(rotateStep);
   armInteractionStop();
