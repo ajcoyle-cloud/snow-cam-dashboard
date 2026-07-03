@@ -134,6 +134,15 @@
   #map-screen.is-fullscreen #map-enlarge { display: none; }
   #map-screen.is-fullscreen #map-close { display: block; }
 
+  /* Temporary diagnostic camera readout — see the HTML comment above #cam-debug. */
+  #cam-debug {
+    position: absolute; bottom: 8px; left: 8px; z-index: 25;
+    background: rgba(0,0,0,0.72); color: #7fffb0; font-weight: 700;
+    font-family: 'SF Mono', ui-monospace, Menlo, Consolas, monospace;
+    font-size: 0.72rem; line-height: 1.5; padding: 6px 10px; border-radius: 8px;
+    white-space: pre; pointer-events: none; border: 1px solid rgba(127,255,176,0.35);
+  }
+
   /* ── Click-to-probe popup ──────────────────────────────────────────── */
   .click-popup {
     position: absolute; z-index: 30; transform: translate(-50%, -130%);
@@ -509,6 +518,12 @@
   </button>
   <button id="map-close" onclick="exitFullscreenView()" title="Close fullscreen">✕</button>
   <div id="map-title"></div>
+  <!-- Temporary diagnostic readout for tracking down the fly-in-vs-default-view
+       camera mismatch — shows live zoom/pitch/bearing/center so a screenshot of
+       the fly-in landing frame and one of the default-load frame can be
+       compared number-for-number, not just by eye. Safe to remove once that's
+       resolved. -->
+  <div id="cam-debug"></div>
 
   <div id="top-controls">
     <div class="pill-group" id="mode-switch">
@@ -1114,6 +1129,16 @@ function fmtTime(iso) {
 // ── Map ────────────────────────────────────────────────────────────────────
 let map = null;
 
+// Temporary diagnostic readout — see the HTML comment above #cam-debug.
+function updateCamDebug() {
+  const el = document.getElementById('cam-debug');
+  if (!el || !map) return;
+  const c = map.getCenter();
+  el.textContent =
+    `zoom ${map.getZoom().toFixed(3)}  pitch ${map.getPitch().toFixed(2)}°  bearing ${map.getBearing().toFixed(2)}°\n` +
+    `lng ${c.lng.toFixed(5)}  lat ${c.lat.toFixed(5)}`;
+}
+
 // Tells the parent app (if embedded) once there's actually something worth
 // looking at, so it can hold a cover overlay over the old content until this
 // new resort's map is ready instead of flashing a blank/half-loaded map
@@ -1198,6 +1223,9 @@ function initMap() {
       terrain: { source: 'terrain', exaggeration: 1.2 }
     }
   });
+
+  updateCamDebug();
+  map.on('move', updateCamDebug);
 
   // Clear "bluebird" sky, only visible above the horizon when the camera
   // pitches up further than the default view. Set via Map#setSky once the
