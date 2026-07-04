@@ -348,7 +348,10 @@ async function fetchAndProcessFrame(ts) {
       im.src = blobUrl;
     });
     const canvas = punchRegionalHoles(cropAndIsolate(img), liveCorners);
-    return { timestamp: ts, dataUrl: canvas.toDataURL('image/png') };
+    // Keep the decoded canvas (not just its dataURL) — cross-fading between
+    // frames during playback composites two canvases directly rather than
+    // re-decoding a data: URL string on every animation tick.
+    return { timestamp: ts, canvas, dataUrl: canvas.toDataURL('image/png') };
   } finally {
     URL.revokeObjectURL(blobUrl);
   }
@@ -435,10 +438,34 @@ async function fetchAndProcessRegionalFrame(region, ts) {
       im.src = blobUrl;
     });
     const canvas = applyRadialFade(cropAndIsolate(img, REGIONAL_CALIBRATIONS[region]));
-    return { timestamp: ts, dataUrl: canvas.toDataURL('image/png') };
+    return { timestamp: ts, canvas, dataUrl: canvas.toDataURL('image/png') };
   } finally {
     URL.revokeObjectURL(blobUrl);
   }
+}
+
+// Cross-fades two same-sized canvases at fraction t (0 = all A, 1 = all B)
+// into a new canvas. Used for smooth motion between frames instead of a
+// hard cut at every timeline step.
+function compositeFrames(canvasA, canvasB, t) {
+  const out = document.createElement('canvas');
+  out.width = canvasA.width; out.height = canvasA.height;
+  const ctx = out.getContext('2d');
+  ctx.globalAlpha = 1;
+  ctx.drawImage(canvasA, 0, 0);
+  ctx.globalAlpha = t;
+  ctx.drawImage(canvasB, 0, 0, canvasA.width, canvasA.height);
+  ctx.globalAlpha = 1;
+  return out;
+}
+
+// Pushes an already-composited canvas straight to an existing regional
+// layer's source, skipping drawRegionalFrame's lazy addSource/addLayer path
+// — used during playback, where the layer should already exist from the
+// initial (non-blended) load.
+function setRegionalImage(region, canvas) {
+  const srcId = `radar-regional-src-${region}`;
+  if (map && map.getSource(srcId)) map.getSource(srcId).updateImage({ url: canvas.toDataURL('image/png') });
 }
 
 function drawRegionalFrame(region, frame) {
@@ -541,6 +568,25 @@ const REFRESH_POLL_MS = 90000;
 const CALIBRATE = new URLSearchParams(location.search).has('calibrate');
 let liveCorners = RADAR_CALIBRATION.corners.map((c) => [...c]);
 
+// Slider/label/step-button/live-badge updates only, no map source changes —
+// factored out so the play loop can move the UI through each index without
+// re-triggering drawFrame's plain (non-blended) updateImage, which would
+// fight with the cross-fade renderer for the same source.
+function updateTimelineUi(i) {
+  const f = frames[i];
+  if (!f) return;
+  document.getElementById('tl-slider').value = i;
+  document.getElementById('tl-prev').disabled = i <= 0;
+  document.getElementById('tl-next').disabled = i >= frames.length - 1;
+  document.getElementById('tl-label').textContent = formatTs(f.timestamp);
+  document.getElementById('tl-live-badge').classList.toggle('on', i === frames.length - 1);
+}
+
+// Jumps straight to frame i, no blending — used for the initial frame,
+// manual slider drag, prev/next stepping, and the live-poll auto-advance.
+// Playback (startPlay) does NOT call this per-step; it cross-fades between
+// frames directly instead, only touching currentIndex/UI once a transition
+// completes (see below).
 function drawFrame(i) {
   if (!map || !frames[i]) return;
   currentIndex = i;
@@ -555,11 +601,7 @@ function drawFrame(i) {
   } else {
     map.getSource('radar-src').updateImage({ url: f.dataUrl });
   }
-  document.getElementById('tl-slider').value = i;
-  document.getElementById('tl-prev').disabled = i <= 0;
-  document.getElementById('tl-next').disabled = i >= frames.length - 1;
-  document.getElementById('tl-label').textContent = formatTs(f.timestamp);
-  document.getElementById('tl-live-badge').classList.toggle('on', i === frames.length - 1);
+  updateTimelineUi(i);
   syncRegionalToCurrentFrame();
 }
 
@@ -619,17 +661,66 @@ function stepFrame(delta) {
 function togglePlay() {
   if (playTimer) stopPlay(); else startPlay();
 }
+
+// Composite/toDataURL is too expensive to do on every requestAnimationFrame
+// tick (~60fps) — cap actual blending work to roughly this cadence instead;
+// the rAF loop still runs at full rate for smooth timing, it just skips the
+// canvas work on most ticks.
+const COMPOSITE_INTERVAL_MS = 80;
+
+// Continuous rAF loop that cross-fades between frames[segStart] and
+// frames[segStart+1] over FRAME_INTERVAL_MS, instead of hard-cutting to the
+// next frame every interval. Regional overlays are blended the same way,
+// each using its own nearest-in-time match to the national segment's two
+// endpoints, so everything moves together instead of the national layer
+// animating smoothly while regional layers still jump.
 function startPlay() {
   if (frames.length < 2) return;
   if (currentIndex >= frames.length - 1) drawFrame(0); // restart from the beginning
   document.getElementById('tl-play').textContent = '⏸';
-  playTimer = setInterval(() => {
-    if (currentIndex >= frames.length - 1) { stopPlay(); return; }
-    drawFrame(currentIndex + 1);
-  }, FRAME_INTERVAL_MS);
+
+  let segStart = currentIndex;
+  let segStartTime = performance.now();
+  let lastCompositeTime = 0;
+
+  function renderBlend(t) {
+    const a = frames[segStart], b = frames[segStart + 1];
+    if (map && map.getSource('radar-src')) {
+      const blended = t >= 1 ? b.canvas : compositeFrames(a.canvas, b.canvas, t);
+      map.getSource('radar-src').updateImage({ url: blended.toDataURL('image/png') });
+    }
+    for (const region of REGIONAL_KEYS) {
+      const ra = nearestRegionalFrame(region, a.timestamp);
+      const rb = nearestRegionalFrame(region, b.timestamp);
+      if (!ra && !rb) continue;
+      const target = rb || ra;
+      const blendedRegional = (ra && rb && ra !== rb && t < 1) ? compositeFrames(ra.canvas, rb.canvas, t) : target.canvas;
+      setRegionalImage(region, blendedRegional);
+    }
+  }
+
+  function tick(now) {
+    if (segStart >= frames.length - 1) { stopPlay(); return; }
+    const t = Math.min(1, (now - segStartTime) / FRAME_INTERVAL_MS);
+
+    if (now - lastCompositeTime >= COMPOSITE_INTERVAL_MS || t >= 1) {
+      lastCompositeTime = now;
+      renderBlend(t);
+    }
+
+    if (t >= 1) {
+      segStart += 1;
+      currentIndex = segStart;
+      updateTimelineUi(segStart);
+      if (segStart >= frames.length - 1) { stopPlay(); return; }
+      segStartTime = now;
+    }
+    playTimer = requestAnimationFrame(tick);
+  }
+  playTimer = requestAnimationFrame(tick);
 }
 function stopPlay() {
-  if (playTimer) { clearInterval(playTimer); playTimer = null; }
+  if (playTimer) { cancelAnimationFrame(playTimer); playTimer = null; }
   document.getElementById('tl-play').textContent = '▶';
 }
 
