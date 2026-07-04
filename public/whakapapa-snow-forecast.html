@@ -1004,44 +1004,52 @@ function forecastUrlsFor(r) {
 }
 
 async function loadForecast() {
-  try {
-    const {
-      gfsSummitUrl, gfsBaseUrl, ecmwfSummitUrl, ecmwfBaseUrl,
-      aifsSummitUrl, aifsBaseUrl, ukmoSummitUrl, ukmoBaseUrl
-    } = forecastUrlsFor(LOC);
+  const {
+    gfsSummitUrl, gfsBaseUrl, ecmwfSummitUrl, ecmwfBaseUrl,
+    aifsSummitUrl, aifsBaseUrl, ukmoSummitUrl, ukmoBaseUrl
+  } = forecastUrlsFor(LOC);
 
-    // GFS is both the REQUIRED model (its failure abandons everything below
-    // to the 2-day demo placeholder) and the heaviest request (more fields
-    // requested than the other three) — give it more timeout headroom and
-    // an extra retry rather than treating one slow attempt as fatal.
-    const gfsFetchOpts = { timeoutMs: 15000, retries: 2 };
-    const [gfs, gfsBaseJson, ecmwfSummitJson, ecmwfBaseJson, aifsSummitJson, aifsBaseJson, ukmoSummitJson, ukmoBaseJson] = await Promise.all([
-      fetchJsonCached(gfsSummitUrl, gfsFetchOpts), fetchJsonCached(gfsBaseUrl, gfsFetchOpts),
-      fetchJsonCached(ecmwfSummitUrl), fetchJsonCached(ecmwfBaseUrl),
-      fetchJsonCached(aifsSummitUrl), fetchJsonCached(aifsBaseUrl),
-      fetchJsonCached(ukmoSummitUrl), fetchJsonCached(ukmoBaseUrl),
-    ]);
-    if (!gfs) throw new Error('Open-Meteo GFS request failed');
-    const gfsHourly = gfs.hourly;
-    const gfsBase = gfsBaseJson ? gfsBaseJson.hourly : null;
-    const ecmwfSummit = ecmwfSummitJson ? ecmwfSummitJson.hourly : null;
-    const ecmwfBase = ecmwfBaseJson ? ecmwfBaseJson.hourly : null;
-    const aifsSummit = aifsSummitJson ? aifsSummitJson.hourly : null;
-    const aifsBase = aifsBaseJson ? aifsBaseJson.hourly : null;
-    const ukmoSummit = ukmoSummitJson ? ukmoSummitJson.hourly : null;
-    const ukmoBase = ukmoBaseJson ? ukmoBaseJson.hourly : null;
+  // GFS is the heaviest request (more fields than the other three, and the
+  // one other models' precip/wind rows borrow via buildModelHours' 3rd arg)
+  // so it gets more timeout headroom and an extra retry — but it is NOT a
+  // single point of failure for the other three: each model below is built
+  // independently, so GFS having a bad day doesn't throw away perfectly
+  // good ECMWF/AIFS/UKMO data. (buildModelHours' `gfs` param is read with
+  // `?.` throughout, so passing it null when GFS failed just means those
+  // rows lack precip/wind, not that the whole model comes back null — its
+  // temp/freezing-level/snowfall come from the model's own summit/base data.)
+  // The 2-day demo placeholder is now only the fallback of last resort when
+  // truly nothing came back at all, not whenever GFS specifically was slow.
+  const gfsFetchOpts = { timeoutMs: 15000, retries: 2 };
+  const [gfs, gfsBaseJson, ecmwfSummitJson, ecmwfBaseJson, aifsSummitJson, aifsBaseJson, ukmoSummitJson, ukmoBaseJson] = await Promise.all([
+    fetchJsonCached(gfsSummitUrl, gfsFetchOpts), fetchJsonCached(gfsBaseUrl, gfsFetchOpts),
+    fetchJsonCached(ecmwfSummitUrl), fetchJsonCached(ecmwfBaseUrl),
+    fetchJsonCached(aifsSummitUrl), fetchJsonCached(aifsBaseUrl),
+    fetchJsonCached(ukmoSummitUrl), fetchJsonCached(ukmoBaseUrl),
+  ]);
+  const gfsHourly = gfs ? gfs.hourly : null;
+  const gfsBase = gfsBaseJson ? gfsBaseJson.hourly : null;
+  const ecmwfSummit = ecmwfSummitJson ? ecmwfSummitJson.hourly : null;
+  const ecmwfBase = ecmwfBaseJson ? ecmwfBaseJson.hourly : null;
+  const aifsSummit = aifsSummitJson ? aifsSummitJson.hourly : null;
+  const aifsBase = aifsBaseJson ? aifsBaseJson.hourly : null;
+  const ukmoSummit = ukmoSummitJson ? ukmoSummitJson.hourly : null;
+  const ukmoBase = ukmoBaseJson ? ukmoBaseJson.hourly : null;
 
-    modelHours.gfs = buildModelHours(gfsHourly, gfsBase, gfsHourly);
-    modelHours.ecmwf = buildModelHours(ecmwfSummit, ecmwfBase, gfsHourly);
-    modelHours.aifs = buildModelHours(aifsSummit, aifsBase, gfsHourly);
-    modelHours.ukmo = buildModelHours(ukmoSummit, ukmoBase, gfsHourly);
-    modelHours.average = buildAverageHours([modelHours.gfs, modelHours.ecmwf, modelHours.aifs, modelHours.ukmo]);
-  } catch (err) {
+  modelHours.gfs = gfsHourly ? buildModelHours(gfsHourly, gfsBase, gfsHourly) : null;
+  modelHours.ecmwf = ecmwfSummit ? buildModelHours(ecmwfSummit, ecmwfBase, gfsHourly) : null;
+  modelHours.aifs = aifsSummit ? buildModelHours(aifsSummit, aifsBase, gfsHourly) : null;
+  modelHours.ukmo = ukmoSummit ? buildModelHours(ukmoSummit, ukmoBase, gfsHourly) : null;
+  modelHours.average = buildAverageHours([modelHours.gfs, modelHours.ecmwf, modelHours.aifs, modelHours.ukmo]);
+
+  if (!modelHours.gfs && !modelHours.ecmwf && !modelHours.aifs && !modelHours.ukmo) {
+    // Every model failed — genuinely nothing to show, not just GFS being slow.
     modelHours = { gfs: buildDemoForecast(), ecmwf: null, aifs: null, ukmo: null, average: null };
   }
   restoreSelectedModel();
   buildModelMenu();
-  forecastHours = modelHours[selectedModel] || modelHours.average || modelHours.gfs || [];
+  forecastHours = modelHours[selectedModel] || modelHours.average
+    || modelHours.gfs || modelHours.ecmwf || modelHours.aifs || modelHours.ukmo || [];
   openFromQueryParams();
   // In case the map style already loaded (and created the pill) before this
   // forecast data did.
