@@ -363,6 +363,13 @@ function drawRegionalFrame(frame) {
       id: 'radar-regional-layer', type: 'raster', source: 'radar-regional-src',
       paint: { 'raster-opacity': REGIONAL_CALIBRATION.opacity, 'raster-fade-duration': 0 },
     }); // added after 'radar-layer' exists, so MapLibre stacks it on top by default
+    // A second raster layer added on top of an already-draped one hasn't
+    // reliably picked up terrain compositing on its own (rendered flat
+    // instead of following the terrain mesh, unlike radar-layer, the first
+    // one) — toggling terrain off/on forces MapLibre to rebuild its
+    // terrain-drape render targets including whatever layers exist right now.
+    const terrain = map.getTerrain();
+    if (terrain) { map.setTerrain(null); map.setTerrain(terrain); }
   } else {
     setTimeout(() => drawRegionalFrame(frame), 200);
   }
