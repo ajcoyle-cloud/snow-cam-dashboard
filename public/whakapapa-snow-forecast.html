@@ -2176,28 +2176,21 @@ function radarTogglePlay() {
 
 // Steps through the real fetched frames one at a time — raw imagery only,
 // no cross-fade or motion interpolation (that produced visible warping/
-// tearing artifacts on some frames — see chat, removed). Each frame is held
-// on screen for as many seconds as its real gap to the next frame was in
-// minutes (the feed's actual ~7/8-minute cadence), so a normal playthrough
-// alternates ~7s/~8s per frame instead of a fixed arbitrary rate.
+// tearing artifacts on some frames — see chat, removed). Fixed 1s per frame
+// regardless of the real gap between frames, for a fast, snappy cycle
+// through the set rather than pacing to real elapsed time.
+const RADAR_PLAY_FRAME_MS = 1000;
 function radarStartPlay() {
   if (radarFrames.length < 2) return;
   if (radarCurrentIndex >= radarFrames.length - 1) radarDrawFrame(0);
   document.getElementById('rtl-play').textContent = '⏸';
-
-  function scheduleNext() {
+  radarPlayTimer = setInterval(() => {
     if (radarCurrentIndex >= radarFrames.length - 1) { radarStopPlay(); return; }
-    const cur = radarFrames[radarCurrentIndex], next = radarFrames[radarCurrentIndex + 1];
-    const gapMinutes = Math.round((radarTsToDate(next.timestamp) - radarTsToDate(cur.timestamp)) / 60000);
-    radarPlayTimer = setTimeout(() => {
-      radarDrawFrame(radarCurrentIndex + 1);
-      scheduleNext();
-    }, Math.max(1, gapMinutes) * 1000);
-  }
-  scheduleNext();
+    radarDrawFrame(radarCurrentIndex + 1);
+  }, RADAR_PLAY_FRAME_MS);
 }
 function radarStopPlay() {
-  if (radarPlayTimer) { clearTimeout(radarPlayTimer); radarPlayTimer = null; }
+  if (radarPlayTimer) { clearInterval(radarPlayTimer); radarPlayTimer = null; }
   document.getElementById('rtl-play').textContent = '▶';
 }
 
