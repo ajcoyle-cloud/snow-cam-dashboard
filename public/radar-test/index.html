@@ -68,6 +68,26 @@
     <input type="file" id="fileInput" accept="image/*">
     <button class="btn" id="loadLive" style="margin-top:8px;width:100%">Load latest live frame</button>
     <div class="hint">Real MetService radar composite via <code>/radar-feed/&lt;timestamp&gt;.gif</code> (proxied — the bucket has no CORS headers). Frames publish on an ~7.5-min cadence with some lag, so this probes backward from now for the newest one actually available.</div>
+
+    <div class="row4" style="margin-top:10px">
+      <div style="grid-column:1/3">
+        <label>Regional radar</label>
+        <select id="regionSelect" style="width:100%;background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.15);color:#fff;border-radius:4px;padding:5px 6px;">
+          <option value="northland">Northland</option>
+          <option value="auckland">Auckland</option>
+          <option value="bayofplenty">Bay of Plenty</option>
+          <option value="taranaki">Taranaki</option>
+          <option value="wellington">Wellington</option>
+          <option value="westland" selected>Westland</option>
+          <option value="canterbury">Canterbury</option>
+          <option value="otago">Otago</option>
+          <option value="southland">Southland</option>
+        </select>
+      </div>
+    </div>
+    <button class="btn secondary" id="loadRegionalThumbs" style="margin-top:8px;width:100%">Browse recent frames</button>
+    <div class="hint">Same feed, single-site scans — higher resolution than the national composite, but the same station alternates scan configurations over time (seen: 120km vs 300km range), which changes the pixel-to-km scale. The "Max Range" and timestamp are printed directly on each frame — click the one you want; there's no way to tell scan type without looking.</div>
+    <div id="regionalThumbs" style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;margin-top:8px;"></div>
   </div>
 
   <div class="section">
@@ -412,11 +432,77 @@ async function findLatestFrame(count) {
   return null;
 }
 
+// ---------- regional (single-site) radar browsing ----------
+// Same bucket/cadence as the national feed, but under
+// /radar-feed-regional/<region>/<ts>.gif (see vite.config.js / vercel.json).
+// Scan configuration (range/elevation) isn't encoded in the filename and
+// alternates over time for the same station, so rather than guessing at one
+// "latest" frame, this fetches a handful of recent ones as thumbnails and
+// lets you pick by eye — the Max Range and timestamp are printed on the
+// image itself.
+function regionalFrameUrl(region, ts) { return `/radar-feed-regional/${region}/${ts}.gif`; }
+
+async function loadRegionalThumbnails(region, count = 9) {
+  const container = $('regionalThumbs');
+  container.innerHTML = '<div class="hint">Loading…</div>';
+  // Regional frames publish roughly every 15 min (measured: only every other
+  // ~7.5-min national-style slot actually resolves), plus normal publish lag
+  // near "now" — overfetch generously rather than assume the same hit rate
+  // as the national feed's candidateTimestamps() was tuned for.
+  const candidates = candidateTimestamps(count * 5);
+  const found = [];
+  for (const ts of candidates) {
+    if (found.length >= count) break;
+    try {
+      const res = await fetch(regionalFrameUrl(region, ts));
+      if (res.ok) {
+        const blob = await res.blob();
+        found.push({ ts, url: URL.createObjectURL(blob) });
+      }
+    } catch (e) { /* skip a missing/failed frame */ }
+  }
+  container.innerHTML = '';
+  if (found.length === 0) {
+    container.innerHTML = '<div class="hint">No frames found for this region right now.</div>';
+    return;
+  }
+  found.forEach(({ ts, url }) => {
+    const wrap = document.createElement('div');
+    wrap.style.cssText = 'cursor:pointer;border:2px solid rgba(255,255,255,0.15);border-radius:6px;overflow:hidden;';
+    wrap.innerHTML = `<img src="${url}" style="width:100%;display:block;"><div style="font-size:0.62rem;text-align:center;padding:2px;color:rgba(255,255,255,0.6);">${formatTs(ts)}</div>`;
+    wrap.addEventListener('click', () => {
+      // Starting guess from the Westland sample's layout (info box/legend/logo
+      // sidebar at the right ~21% of the frame) — regional frames share the
+      // same rendering template, so this is a reasonable default, not a fact
+      // about this specific region; nudge it if it's off.
+      cropEls.top.value = 0; cropEls.bottom.value = 0; cropEls.left.value = 0; cropEls.right.value = 21;
+      syncCropLabels();
+      loadImage(url);
+      $('status').textContent = `Loaded ${region} regional frame ${formatTs(ts)} — check the "Max Range" printed on it before calibrating.`;
+      container.querySelectorAll(':scope > div').forEach((el) => { el.style.borderColor = 'rgba(255,255,255,0.15)'; });
+      wrap.style.borderColor = '#7ec8ff';
+    });
+    container.appendChild(wrap);
+  });
+}
+
+// Several things can call loadImage() (initial national auto-load, "Load
+// latest live frame", a regional thumbnail click, a dropped file) and they
+// don't run in a fixed order — a slow earlier fetch can resolve after a
+// faster later one and silently clobber whatever the user just picked. Token
+// guard: only the most recently-*started* call is allowed to commit its
+// result, same pattern as applyRampToken in whakapapa-snow-forecast.html.
+let loadImageToken = 0;
 function loadImage(src) {
+  const token = ++loadImageToken;
   const img = new Image();
   img.crossOrigin = 'anonymous';
-  img.onload = () => { srcImg = img; processImage(); };
-  img.onerror = () => { $('status').textContent = 'Could not load that image.'; };
+  img.onload = () => {
+    if (token !== loadImageToken) return; // superseded by a newer load — ignore this stale result
+    srcImg = img;
+    processImage();
+  };
+  img.onerror = () => { if (token === loadImageToken) $('status').textContent = 'Could not load that image.'; };
   img.src = src;
 }
 
@@ -605,6 +691,10 @@ $('loadLive').addEventListener('click', async () => {
   if (!found) { $('status').textContent = 'No live frame found (feed unreachable, or all recent candidates 403/404).'; return; }
   loadImage(found.url);
   $('status').textContent = `Loaded live frame ${formatTs(found.timestamp)}.`;
+});
+$('loadRegionalThumbs').addEventListener('click', () => {
+  $('status').textContent = 'Fetching recent regional frames…';
+  loadRegionalThumbnails($('regionSelect').value);
 });
 
 // ---------- animate: fetch several recent live frames, run each through the

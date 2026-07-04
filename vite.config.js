@@ -56,6 +56,23 @@ export default defineConfig({
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/cam-archive/, ''),
       },
+      // Per-region single-site radar (higher resolution than the national
+      // composite, e.g. Westland/RADWL), same bucket/naming/cadence but a
+      // different prefix and one path segment per region:
+      // /radar-feed-regional/<region>/<YYYYMMDDHHmm>.gif
+      // Note: the same region's frames alternate between scan configurations
+      // over time (seen: 120km PPIMET vs 300km SURVMET) — same filename
+      // pattern, different pixel-to-km scale, so a frame's actual range must
+      // be confirmed by eye (visible as on-image text), not assumed.
+      // MUST be registered before '/radar-feed' below — Vite matches proxy
+      // keys by string prefix in definition order, and '/radar-feed-regional/…'
+      // starts with '/radar-feed', so the shorter key would otherwise swallow
+      // every regional request and rewrite it into a path that doesn't exist.
+      '/radar-feed-regional': {
+        target: 'https://weatherwatch-maps.s3.ap-southeast-2.amazonaws.com',
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/radar-feed-regional/, '/metservice/localrainradar-realtime'),
+      },
       // MetService's national rain radar composite (as used by weatherwatch.co.nz),
       // published as timestamped frames <YYYYMMDDHHmm>.gif on a public-but-unlisted
       // S3 bucket (no ListBucket permission, so frames must be requested/probed by
