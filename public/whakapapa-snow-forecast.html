@@ -2031,11 +2031,16 @@ function radarDrawFrame(i) {
     // addLayer can throw if called before that, so this must not be assumed
     // just because openMapView() already returned.
     map.addSource('radar-src', { type: 'image', url: f.dataUrl, coordinates: RADAR_CALIBRATION.corners });
+    // Resort lift lines ('resort-lifts-line', added during initial map setup
+    // for the resorts that have lift data) should read as ground markers
+    // above the radar colour drape, not buried under it — insert radar-layer
+    // before it when it exists. Not every resort has lifts (see the liftData
+    // ternary above), so this must not assume the layer is there.
     map.addLayer({
       id: 'radar-layer', type: 'raster', source: 'radar-src',
       paint: { 'raster-opacity': RADAR_CALIBRATION.opacity, 'raster-fade-duration': 0 },
       layout: { visibility: viewMode === 'radar' ? 'visible' : 'none' },
-    });
+    }, map.getLayer('resort-lifts-line') ? 'resort-lifts-line' : undefined);
   } else {
     setTimeout(() => radarDrawFrame(i), 80);
     return;
