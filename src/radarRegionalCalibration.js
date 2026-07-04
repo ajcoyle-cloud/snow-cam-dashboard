@@ -75,4 +75,23 @@ export const REGIONAL_RADAR_CALIBRATIONS = {
     ],
     opacity: 0.9,
   },
+
+  // Otago station, southern South Island. Same crop/hue-band recipe and
+  // isolate thresholds as Bay of Plenty (sat 34%/min brightness 28%).
+  otago: {
+    crop: { topPct: 0, bottomPct: 0, leftPct: 0, rightPct: 21 },
+    isolate: {
+      minSaturation: 34,
+      minBrightness: 28,
+      maxBrightness: 100,
+      hueBands: { yellowGold: true, green: true, blue: true, redPurple: true },
+    },
+    corners: [
+      [166.640625, -42.95642251107333],          // NW
+      [174.19921875, -42.98857645832182],        // NE
+      [175.78125, -47.69497434186281],           // SE
+      [166.409912109375, -48.26856911296433],    // SW
+    ],
+    opacity: 0.9,
+  },
 };
