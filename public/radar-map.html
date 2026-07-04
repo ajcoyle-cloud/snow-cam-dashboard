@@ -632,28 +632,21 @@ function togglePlay() {
 
 // Steps through the real fetched frames one at a time — raw imagery only,
 // no cross-fade or motion interpolation (that produced visible warping/
-// tearing artifacts on some frames — see chat, removed). Each frame is held
-// on screen for as many seconds as its real gap to the next frame was in
-// minutes (the feed's actual ~7/8-minute cadence), so a normal playthrough
-// alternates ~7s/~8s per frame instead of a fixed arbitrary rate.
+// tearing artifacts on some frames — see chat, removed). Fixed 1s per frame
+// regardless of the real gap between frames, for a fast, snappy cycle
+// through the set rather than pacing to real elapsed time.
+const PLAY_FRAME_MS = 1000;
 function startPlay() {
   if (frames.length < 2) return;
   if (currentIndex >= frames.length - 1) drawFrame(0); // restart from the beginning
   document.getElementById('tl-play').textContent = '⏸';
-
-  function scheduleNext() {
+  playTimer = setInterval(() => {
     if (currentIndex >= frames.length - 1) { stopPlay(); return; }
-    const cur = frames[currentIndex], next = frames[currentIndex + 1];
-    const gapMinutes = Math.round((tsToDate(next.timestamp) - tsToDate(cur.timestamp)) / 60000);
-    playTimer = setTimeout(() => {
-      drawFrame(currentIndex + 1);
-      scheduleNext();
-    }, Math.max(1, gapMinutes) * 1000);
-  }
-  scheduleNext();
+    drawFrame(currentIndex + 1);
+  }, PLAY_FRAME_MS);
 }
 function stopPlay() {
-  if (playTimer) { clearTimeout(playTimer); playTimer = null; }
+  if (playTimer) { clearInterval(playTimer); playTimer = null; }
   document.getElementById('tl-play').textContent = '▶';
 }
 
