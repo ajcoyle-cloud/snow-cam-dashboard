@@ -299,31 +299,76 @@ async function fetchAndProcessFrame(ts) {
   }
 }
 
-// ---------- regional overlay (first test — see src/radarRegionalCalibration.js) ----------
-// Higher-resolution single-site scan draped on top of the national composite,
-// feathered at the edge (applyRadialFade) so it hands off rather than cutting
-// off hard. One region hard-coded for now; not yet a general multi-region
-// system, and not yet colour-normalized against the national composite's
-// palette (see the write-up in chat — a real difference, deferred).
-const REGIONAL_CALIBRATION = {
-  region: 'westland',
-  crop: { topPct: 0, bottomPct: 0, leftPct: 0, rightPct: 21 },
-  isolate: {
-    minSaturation: 15, minBrightness: 20, maxBrightness: 100,
-    hueBands: { yellowGold: true, green: true, blue: true, redPurple: true },
+// ---------- regional overlays — see src/radarRegionalCalibration.js ----------
+// Higher-resolution single-site scans draped on top of the national
+// composite, each feathered at the edge (applyRadialFade) so it hands off
+// rather than cutting off hard. Mirrored here (not imported — this is a
+// static page outside the build) from src/radarRegionalCalibration.js; keep
+// both in sync by hand. Not yet colour-normalized against the national
+// composite's palette (see chat — a real difference, deferred).
+const REGIONAL_CALIBRATIONS = {
+  westland: {
+    crop: { topPct: 0, bottomPct: 0, leftPct: 0, rightPct: 21 },
+    isolate: {
+      minSaturation: 15, minBrightness: 20, maxBrightness: 100,
+      hueBands: { yellowGold: true, green: true, blue: true, redPurple: true },
+    },
+    corners: [
+      [167.7392578125, -40.396764305572034],
+      [174.61669921875, -39.926588421909436],
+      [175.0341796875, -45.50634690108341],
+      [167.200927734375, -45.34442410452239],
+    ],
+    opacity: 0.9,
   },
-  corners: [
-    [167.7392578125, -40.396764305572034],
-    [174.61669921875, -39.926588421909436],
-    [175.0341796875, -45.50634690108341],
-    [167.200927734375, -45.34442410452239],
-  ],
-  opacity: 0.9,
+  canterbury: {
+    crop: { topPct: 0, bottomPct: 0, leftPct: 0, rightPct: 21 },
+    isolate: {
+      minSaturation: 36, minBrightness: 30, maxBrightness: 100,
+      hueBands: { yellowGold: true, green: true, blue: true, redPurple: true },
+    },
+    corners: [
+      [168.37646484375, -40.99648401437788],
+      [175.75927734375, -41.04621681452063],
+      [176.02294921875, -46.54374960273856],
+      [168.1787109375, -46.392411189814645],
+    ],
+    opacity: 0.9,
+  },
+  bayofplenty: {
+    crop: { topPct: 0, bottomPct: 0, leftPct: 0, rightPct: 21 },
+    isolate: {
+      minSaturation: 34, minBrightness: 28, maxBrightness: 100,
+      hueBands: { yellowGold: true, green: true, blue: true, redPurple: true },
+    },
+    corners: [
+      [172.68310546875, -35.31736632923786],
+      [179.5166015625, -35.33529320309327],
+      [179.593505859375, -40.71395582628604],
+      [172.540283203125, -40.72228267283148],
+    ],
+    opacity: 0.9,
+  },
+  otago: {
+    crop: { topPct: 0, bottomPct: 0, leftPct: 0, rightPct: 21 },
+    isolate: {
+      minSaturation: 34, minBrightness: 28, maxBrightness: 100,
+      hueBands: { yellowGold: true, green: true, blue: true, redPurple: true },
+    },
+    corners: [
+      [166.640625, -42.95642251107333],
+      [174.19921875, -42.98857645832182],
+      [175.78125, -47.69497434186281],
+      [166.409912109375, -48.26856911296433],
+    ],
+    opacity: 0.9,
+  },
 };
+const REGIONAL_KEYS = Object.keys(REGIONAL_CALIBRATIONS);
 function regionalFrameUrl(region, ts) { return `/radar-feed-regional/${region}/${ts}.gif`; }
 
-async function fetchAndProcessRegionalFrame(ts) {
-  const res = await fetch(regionalFrameUrl(REGIONAL_CALIBRATION.region, ts));
+async function fetchAndProcessRegionalFrame(region, ts) {
+  const res = await fetch(regionalFrameUrl(region, ts));
   if (!res.ok) return null;
   const blob = await res.blob();
   const blobUrl = URL.createObjectURL(blob);
@@ -334,34 +379,23 @@ async function fetchAndProcessRegionalFrame(ts) {
       im.onerror = reject;
       im.src = blobUrl;
     });
-    const canvas = applyRadialFade(cropAndIsolate(img, REGIONAL_CALIBRATION));
+    const canvas = applyRadialFade(cropAndIsolate(img, REGIONAL_CALIBRATIONS[region]));
     return { timestamp: ts, dataUrl: canvas.toDataURL('image/png') };
   } finally {
     URL.revokeObjectURL(blobUrl);
   }
 }
 
-// Regional frames publish at roughly the same ~7.5min cadence as the
-// national feed but only line up with about half of candidateTimestamps()'s
-// guessed minute-marks (see chat — exact offset not nailed down yet), so
-// probe more candidates than the national fetch needs.
-async function findLatestRegionalFrame(count = 24) {
-  for (const ts of candidateTimestamps(count)) {
-    const frame = await fetchAndProcessRegionalFrame(ts).catch(() => null);
-    if (frame) return frame;
-  }
-  return null;
-}
-
-function drawRegionalFrame(frame) {
+function drawRegionalFrame(region, frame) {
   if (!map || !frame) return;
-  if (map.getSource('radar-regional-src')) {
-    map.getSource('radar-regional-src').updateImage({ url: frame.dataUrl });
+  const srcId = `radar-regional-src-${region}`, layerId = `radar-regional-layer-${region}`;
+  if (map.getSource(srcId)) {
+    map.getSource(srcId).updateImage({ url: frame.dataUrl });
   } else if (map.getLayer('radar-layer')) {
-    map.addSource('radar-regional-src', { type: 'image', url: frame.dataUrl, coordinates: REGIONAL_CALIBRATION.corners });
+    map.addSource(srcId, { type: 'image', url: frame.dataUrl, coordinates: REGIONAL_CALIBRATIONS[region].corners });
     map.addLayer({
-      id: 'radar-regional-layer', type: 'raster', source: 'radar-regional-src',
-      paint: { 'raster-opacity': REGIONAL_CALIBRATION.opacity, 'raster-fade-duration': 0 },
+      id: layerId, type: 'raster', source: srcId,
+      paint: { 'raster-opacity': REGIONAL_CALIBRATIONS[region].opacity, 'raster-fade-duration': 0 },
     }); // added after 'radar-layer' exists, so MapLibre stacks it on top by default
     // A second raster layer added on top of an already-draped one hasn't
     // reliably picked up terrain compositing on its own (rendered flat
@@ -371,13 +405,71 @@ function drawRegionalFrame(frame) {
     const terrain = map.getTerrain();
     if (terrain) { map.setTerrain(null); map.setTerrain(terrain); }
   } else {
-    setTimeout(() => drawRegionalFrame(frame), 200);
+    setTimeout(() => drawRegionalFrame(region, frame), 200);
   }
 }
 
-async function refreshRegionalOverlay() {
-  const frame = await findLatestRegionalFrame();
-  if (frame) drawRegionalFrame(frame);
+// ---------- regional frame history, synced to the national timeline ----------
+// Previously this only ever fetched "the latest" single regional frame, so
+// scrubbing/playing the national timeline animated radar-layer but left the
+// regional layer frozen on whatever was last fetched — no history to sync
+// against. Now each region keeps its own rolling window (like national
+// `frames`) and drawFrame() looks up each region's closest-in-time frame on
+// every national frame change, so all layers move together.
+let regionalFrames = {}; // { [region]: [{ timestamp, dataUrl }], oldest -> newest }
+REGIONAL_KEYS.forEach((region) => { regionalFrames[region] = []; });
+
+// Regional frames publish at roughly the same ~7.5min cadence as the
+// national feed but only line up with about half of candidateTimestamps()'s
+// guessed minute-marks (see chat — exact offset not nailed down yet), so
+// overfetch candidates relative to how many we actually need.
+async function loadInitialRegionalFrames(region) {
+  const found = [];
+  for (const ts of candidateTimestamps(MAX_FRAMES * 3)) {
+    if (found.length >= MAX_FRAMES) break;
+    const frame = await fetchAndProcessRegionalFrame(region, ts).catch(() => null);
+    if (frame) found.push(frame);
+  }
+  regionalFrames[region] = found.reverse(); // oldest -> newest
+  syncRegionalToCurrentFrame();
+}
+
+async function pollForNewRegionalFrames(region) {
+  const existing = regionalFrames[region];
+  if (existing.length === 0) return;
+  const latestKnown = existing[existing.length - 1].timestamp;
+  const candidates = candidateTimestamps(8).filter((ts) => ts > latestKnown).reverse();
+  for (const ts of candidates) {
+    const frame = await fetchAndProcessRegionalFrame(region, ts).catch(() => null);
+    if (!frame) continue;
+    existing.push(frame);
+    if (existing.length > MAX_FRAMES) existing.shift();
+  }
+  syncRegionalToCurrentFrame(); // re-draw whichever regional frame matches the currently-shown national one
+}
+
+// Finds the given region's frame closest in time to a national-frame
+// timestamp — the feeds don't share timestamps (different cadence/offset
+// per region), so this is a nearest-match, not an exact one.
+function nearestRegionalFrame(region, ts) {
+  const list = regionalFrames[region];
+  if (!list || list.length === 0) return null;
+  const targetMs = tsToDate(ts).getTime();
+  let best = list[0], bestDiff = Infinity;
+  for (const f of list) {
+    const diff = Math.abs(tsToDate(f.timestamp).getTime() - targetMs);
+    if (diff < bestDiff) { bestDiff = diff; best = f; }
+  }
+  return best;
+}
+
+function syncRegionalToCurrentFrame() {
+  const current = frames[currentIndex];
+  if (!current) return;
+  for (const region of REGIONAL_KEYS) {
+    const match = nearestRegionalFrame(region, current.timestamp);
+    if (match) drawRegionalFrame(region, match);
+  }
 }
 
 // ---------- frames + timeline state ----------
@@ -414,6 +506,7 @@ function drawFrame(i) {
   document.getElementById('tl-next').disabled = i >= frames.length - 1;
   document.getElementById('tl-label').textContent = formatTs(f.timestamp);
   document.getElementById('tl-live-badge').classList.toggle('on', i === frames.length - 1);
+  syncRegionalToCurrentFrame();
 }
 
 // Draggable corner pins + a "copy calibration" button, gated behind
@@ -554,8 +647,15 @@ async function pollForNewFrame() {
 function init() {
   loadInitialFrames();
   setInterval(pollForNewFrame, REFRESH_POLL_MS);
-  refreshRegionalOverlay(); // needs 'radar-layer' to already exist as a stacking anchor — loadInitialFrames() runs first in the same tick, drawRegionalFrame() retries if it's not there yet
-  setInterval(refreshRegionalOverlay, REFRESH_POLL_MS);
+  // Needs 'radar-layer' to already exist as a stacking anchor —
+  // loadInitialFrames() runs first in the same tick, and drawRegionalFrame()
+  // (called from syncRegionalToCurrentFrame() once these resolve) retries if
+  // it's not there yet. Each region loads/polls independently so one being
+  // slow or unavailable doesn't hold up the others.
+  REGIONAL_KEYS.forEach((region) => {
+    loadInitialRegionalFrames(region);
+    setInterval(() => pollForNewRegionalFrames(region), REFRESH_POLL_MS);
+  });
 }
 
 // Only start fetching/animating frames once there's an actual map to drape
