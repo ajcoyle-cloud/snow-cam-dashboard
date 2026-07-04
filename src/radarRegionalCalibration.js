@@ -56,4 +56,23 @@ export const REGIONAL_RADAR_CALIBRATIONS = {
     ],
     opacity: 0.9,
   },
+
+  // Bay of Plenty station, upper North Island. Same crop/hue-band recipe;
+  // isolate thresholds close to Canterbury's (sat 34%/min brightness 28%).
+  bayofplenty: {
+    crop: { topPct: 0, bottomPct: 0, leftPct: 0, rightPct: 21 },
+    isolate: {
+      minSaturation: 34,
+      minBrightness: 28,
+      maxBrightness: 100,
+      hueBands: { yellowGold: true, green: true, blue: true, redPurple: true },
+    },
+    corners: [
+      [172.68310546875, -35.31736632923786],    // NW
+      [179.5166015625, -35.33529320309327],     // NE
+      [179.593505859375, -40.71395582628604],   // SE
+      [172.540283203125, -40.72228267283148],   // SW
+    ],
+    opacity: 0.9,
+  },
 };
