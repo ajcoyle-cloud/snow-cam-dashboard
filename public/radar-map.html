@@ -348,10 +348,7 @@ async function fetchAndProcessFrame(ts) {
       im.src = blobUrl;
     });
     const canvas = punchRegionalHoles(cropAndIsolate(img), liveCorners);
-    // Keep the decoded canvas (not just its dataURL) — cross-fading between
-    // frames during playback composites two canvases directly rather than
-    // re-decoding a data: URL string on every animation tick.
-    return { timestamp: ts, canvas, dataUrl: canvas.toDataURL('image/png') };
+    return { timestamp: ts, dataUrl: canvas.toDataURL('image/png') };
   } finally {
     URL.revokeObjectURL(blobUrl);
   }
@@ -438,136 +435,10 @@ async function fetchAndProcessRegionalFrame(region, ts) {
       im.src = blobUrl;
     });
     const canvas = applyRadialFade(cropAndIsolate(img, REGIONAL_CALIBRATIONS[region]));
-    return { timestamp: ts, canvas, dataUrl: canvas.toDataURL('image/png') };
+    return { timestamp: ts, dataUrl: canvas.toDataURL('image/png') };
   } finally {
     URL.revokeObjectURL(blobUrl);
   }
-}
-
-// ---------- motion-compensated frame interpolation ----------
-// A plain alpha cross-fade between two real frames shows a moving rain cell
-// as two overlapping fading ghosts (one fading out at its old position,
-// one fading in at its new one) rather than one cell in motion. Instead,
-// estimate how each patch of the image actually shifted between the two
-// real frames — coarse block-matching over the alpha (rain-mask) channel,
-// the same basic technique video codecs use for motion compensation — and
-// warp+blend along that motion, so an intermediate frame shows the cell
-// partway between its two real positions.
-const FLOW_GRID_COLS = 12, FLOW_GRID_ROWS = 9;
-const FLOW_SEARCH_RADIUS = 14; // px; generous vs. a rain cell's typical drift over one ~7-8min frame interval
-const FLOW_SAMPLE_STRIDE = 2;  // score candidate shifts on every 2nd pixel of a block, not every pixel — keeps the search cheap
-
-function alphaBuffer(canvas) {
-  return canvas.getContext('2d').getImageData(0, 0, canvas.width, canvas.height).data;
-}
-
-// Per-grid-cell motion search: for each cell, find the (dx, dy) shift of
-// that patch in B whose alpha pattern best matches A's (min sum-of-absolute-
-// differences over a search window). Cells with no rain in A are left at
-// (0, 0) — nothing there to track, and it skips the search over what's
-// usually most of the frame.
-function estimateMotionField(canvasA, canvasB) {
-  const w = canvasA.width, h = canvasA.height;
-  const a = alphaBuffer(canvasA), b = alphaBuffer(canvasB);
-  const cols = FLOW_GRID_COLS, rows = FLOW_GRID_ROWS;
-  const cellW = w / cols, cellH = h / rows;
-  const vectors = new Array(cols * rows);
-
-  for (let gy = 0; gy < rows; gy++) {
-    for (let gx = 0; gx < cols; gx++) {
-      const x0 = Math.round(gx * cellW), x1 = Math.round((gx + 1) * cellW);
-      const y0 = Math.round(gy * cellH), y1 = Math.round((gy + 1) * cellH);
-
-      let hasRain = false;
-      for (let y = y0; y < y1 && !hasRain; y += FLOW_SAMPLE_STRIDE) {
-        for (let x = x0; x < x1; x += FLOW_SAMPLE_STRIDE) {
-          if (a[(y * w + x) * 4 + 3] > 10) { hasRain = true; break; }
-        }
-      }
-      if (!hasRain) { vectors[gy * cols + gx] = { dx: 0, dy: 0 }; continue; }
-
-      let bestDx = 0, bestDy = 0, bestScore = Infinity;
-      for (let dy = -FLOW_SEARCH_RADIUS; dy <= FLOW_SEARCH_RADIUS; dy++) {
-        for (let dx = -FLOW_SEARCH_RADIUS; dx <= FLOW_SEARCH_RADIUS; dx++) {
-          let score = 0;
-          for (let y = y0; y < y1; y += FLOW_SAMPLE_STRIDE) {
-            const sy = y + dy;
-            for (let x = x0; x < x1; x += FLOW_SAMPLE_STRIDE) {
-              const sx = x + dx;
-              const av = a[(y * w + x) * 4 + 3];
-              const bv = (sx < 0 || sx >= w || sy < 0 || sy >= h) ? 0 : b[(sy * w + sx) * 4 + 3];
-              score += Math.abs(av - bv);
-            }
-          }
-          if (score < bestScore) { bestScore = score; bestDx = dx; bestDy = dy; }
-        }
-      }
-      vectors[gy * cols + gx] = { dx: bestDx, dy: bestDy };
-    }
-  }
-  return { cols, rows, cellW, cellH, w, h, vectors };
-}
-
-// Renders A and B blended at fraction t (0 = all A, 1 = all B), motion-
-// compensated per grid cell using the field from estimateMotionField: a
-// patch that moved by (dx, dy) between the two real frames is drawn from
-// both sides at its t-fraction-of-the-way position and cross-faded there,
-// instead of each side's patch fading in place at its own (different, for a
-// moving cell) position. For a cell with no detected motion this reduces to
-// an ordinary in-place cross-fade.
-function renderMotionInterpolated(canvasA, canvasB, field, t) {
-  const { cols, rows, cellW, cellH, w, h, vectors } = field;
-  const out = document.createElement('canvas');
-  out.width = w; out.height = h;
-  const ctx = out.getContext('2d');
-  const pad = 3; // slight overscan per block so shifted draws don't leave hairline seams at cell edges
-
-  for (let gy = 0; gy < rows; gy++) {
-    for (let gx = 0; gx < cols; gx++) {
-      const { dx, dy } = vectors[gy * cols + gx];
-      const x0 = gx * cellW, y0 = gy * cellH;
-      const sx = Math.max(0, x0 - pad), sy = Math.max(0, y0 - pad);
-      const sw = Math.min(w, x0 + cellW + pad) - sx;
-      const sh = Math.min(h, y0 + cellH + pad) - sy;
-      const destX = sx + dx * t, destY = sy + dy * t;
-
-      ctx.globalAlpha = 1 - t;
-      ctx.drawImage(canvasA, sx, sy, sw, sh, destX, destY, sw, sh);
-
-      // B's matching patch lives at (sx+dx, sy+dy) — clamp within bounds
-      // rather than special-casing the edge cells, since sw/sh are always
-      // <= the canvas dimensions this stays a valid source rect.
-      const bsx = Math.min(Math.max(sx + dx, 0), w - sw);
-      const bsy = Math.min(Math.max(sy + dy, 0), h - sh);
-      ctx.globalAlpha = t;
-      ctx.drawImage(canvasB, bsx, bsy, sw, sh, destX, destY, sw, sh);
-    }
-  }
-  ctx.globalAlpha = 1;
-  return out;
-}
-
-// Motion fields are lazily estimated and cached per (frameA, frameB) pair —
-// startPlay()'s tick calls this once per composite (multiple times per
-// segment), so this avoids re-running the block search on every tick. Keyed
-// by the frame objects themselves (via WeakMap) so entries are naturally
-// freed once old frames fall out of the frames/regionalFrames history.
-const motionFieldCache = new WeakMap();
-function motionFieldFor(a, b) {
-  let inner = motionFieldCache.get(a);
-  if (!inner) { inner = new WeakMap(); motionFieldCache.set(a, inner); }
-  let field = inner.get(b);
-  if (!field) { field = estimateMotionField(a.canvas, b.canvas); inner.set(b, field); }
-  return field;
-}
-
-// Pushes an already-composited canvas straight to an existing regional
-// layer's source, skipping drawRegionalFrame's lazy addSource/addLayer path
-// — used during playback, where the layer should already exist from the
-// initial (non-blended) load.
-function setRegionalImage(region, canvas) {
-  const srcId = `radar-regional-src-${region}`;
-  if (map && map.getSource(srcId)) map.getSource(srcId).updateImage({ url: canvas.toDataURL('image/png') });
 }
 
 function drawRegionalFrame(region, frame) {
@@ -659,7 +530,6 @@ function syncRegionalToCurrentFrame() {
 let frames = [];       // [{ timestamp, dataUrl }], oldest -> newest
 let currentIndex = -1;
 let playTimer = null;
-const FRAME_INTERVAL_MS = 450;
 const MAX_FRAMES = 12;
 const REFRESH_POLL_MS = 90000;
 
@@ -670,10 +540,7 @@ const REFRESH_POLL_MS = 90000;
 const CALIBRATE = new URLSearchParams(location.search).has('calibrate');
 let liveCorners = RADAR_CALIBRATION.corners.map((c) => [...c]);
 
-// Slider/label/step-button/live-badge updates only, no map source changes —
-// factored out so the play loop can move the UI through each index without
-// re-triggering drawFrame's plain (non-blended) updateImage, which would
-// fight with the cross-fade renderer for the same source.
+// Slider/label/step-button/live-badge updates only, no map source changes.
 function updateTimelineUi(i) {
   const f = frames[i];
   if (!f) return;
@@ -684,11 +551,10 @@ function updateTimelineUi(i) {
   document.getElementById('tl-live-badge').classList.toggle('on', i === frames.length - 1);
 }
 
-// Jumps straight to frame i, no blending — used for the initial frame,
-// manual slider drag, prev/next stepping, and the live-poll auto-advance.
-// Playback (startPlay) does NOT call this per-step; it cross-fades between
-// frames directly instead, only touching currentIndex/UI once a transition
-// completes (see below).
+// Jumps straight to frame i — the raw fetched image, no blending. Used for
+// the initial frame, manual slider drag, prev/next stepping, the live-poll
+// auto-advance, and playback (startPlay steps through frames with this,
+// one at a time).
 function drawFrame(i) {
   if (!map || !frames[i]) return;
   currentIndex = i;
@@ -764,65 +630,30 @@ function togglePlay() {
   if (playTimer) stopPlay(); else startPlay();
 }
 
-// Composite/toDataURL is too expensive to do on every requestAnimationFrame
-// tick (~60fps) — cap actual blending work to roughly this cadence instead;
-// the rAF loop still runs at full rate for smooth timing, it just skips the
-// canvas work on most ticks.
-const COMPOSITE_INTERVAL_MS = 80;
-
-// Continuous rAF loop that cross-fades between frames[segStart] and
-// frames[segStart+1] over FRAME_INTERVAL_MS, instead of hard-cutting to the
-// next frame every interval. Regional overlays are blended the same way,
-// each using its own nearest-in-time match to the national segment's two
-// endpoints, so everything moves together instead of the national layer
-// animating smoothly while regional layers still jump.
+// Steps through the real fetched frames one at a time — raw imagery only,
+// no cross-fade or motion interpolation (that produced visible warping/
+// tearing artifacts on some frames — see chat, removed). Each frame is held
+// on screen for as many seconds as its real gap to the next frame was in
+// minutes (the feed's actual ~7/8-minute cadence), so a normal playthrough
+// alternates ~7s/~8s per frame instead of a fixed arbitrary rate.
 function startPlay() {
   if (frames.length < 2) return;
   if (currentIndex >= frames.length - 1) drawFrame(0); // restart from the beginning
   document.getElementById('tl-play').textContent = '⏸';
 
-  let segStart = currentIndex;
-  let segStartTime = performance.now();
-  let lastCompositeTime = 0;
-
-  function renderBlend(t) {
-    const a = frames[segStart], b = frames[segStart + 1];
-    if (map && map.getSource('radar-src')) {
-      const blended = t >= 1 ? b.canvas : renderMotionInterpolated(a.canvas, b.canvas, motionFieldFor(a, b), t);
-      map.getSource('radar-src').updateImage({ url: blended.toDataURL('image/png') });
-    }
-    for (const region of REGIONAL_KEYS) {
-      const ra = nearestRegionalFrame(region, a.timestamp);
-      const rb = nearestRegionalFrame(region, b.timestamp);
-      if (!ra && !rb) continue;
-      const target = rb || ra;
-      const blendedRegional = (ra && rb && ra !== rb && t < 1) ? renderMotionInterpolated(ra.canvas, rb.canvas, motionFieldFor(ra, rb), t) : target.canvas;
-      setRegionalImage(region, blendedRegional);
-    }
+  function scheduleNext() {
+    if (currentIndex >= frames.length - 1) { stopPlay(); return; }
+    const cur = frames[currentIndex], next = frames[currentIndex + 1];
+    const gapMinutes = Math.round((tsToDate(next.timestamp) - tsToDate(cur.timestamp)) / 60000);
+    playTimer = setTimeout(() => {
+      drawFrame(currentIndex + 1);
+      scheduleNext();
+    }, Math.max(1, gapMinutes) * 1000);
   }
-
-  function tick(now) {
-    if (segStart >= frames.length - 1) { stopPlay(); return; }
-    const t = Math.min(1, (now - segStartTime) / FRAME_INTERVAL_MS);
-
-    if (now - lastCompositeTime >= COMPOSITE_INTERVAL_MS || t >= 1) {
-      lastCompositeTime = now;
-      renderBlend(t);
-    }
-
-    if (t >= 1) {
-      segStart += 1;
-      currentIndex = segStart;
-      updateTimelineUi(segStart);
-      if (segStart >= frames.length - 1) { stopPlay(); return; }
-      segStartTime = now;
-    }
-    playTimer = requestAnimationFrame(tick);
-  }
-  playTimer = requestAnimationFrame(tick);
+  scheduleNext();
 }
 function stopPlay() {
-  if (playTimer) { cancelAnimationFrame(playTimer); playTimer = null; }
+  if (playTimer) { clearTimeout(playTimer); playTimer = null; }
   document.getElementById('tl-play').textContent = '▶';
 }
 
