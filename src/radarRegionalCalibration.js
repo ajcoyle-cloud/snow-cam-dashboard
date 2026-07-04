@@ -4,8 +4,10 @@
 // vercel.json), and hand-aligned in public/radar-test/'s region browser
 // (pick a frame from the thumbnail picker, position the corners, export).
 //
-// Not yet wired into any live view — this is calibration data only, ahead
-// of building the actual blend-with-the-national-drape feature.
+// Source-of-truth reference for all regions. public/radar-map.html currently
+// only drapes one hard-coded region live (Westland, as a first test of the
+// blend-onto-the-national-composite approach — see the chat writeup); the
+// rest are locked in here ahead of that becoming a real multi-region system.
 export const REGIONAL_RADAR_CALIBRATIONS = {
   // RADWL station, near Westport. Quad spans ~7.8° lon x 5.6° lat (~660km x
   // 620km) — consistent with a 300km-range frame, not the 120km one this was
@@ -29,6 +31,28 @@ export const REGIONAL_RADAR_CALIBRATIONS = {
       [174.61669921875, -39.926588421909436],  // NE
       [175.0341796875, -45.50634690108341],    // SE
       [167.200927734375, -45.34442410452239],  // SW
+    ],
+    opacity: 0.9,
+  },
+
+  // Canterbury station. Same crop (21% right — this image template appears
+  // consistent across regions) and hue bands as Westland, but tuned tighter
+  // (sat 36% vs 15%, min brightness 30% vs 20%) — a different call on how
+  // much of the white coastline/severe-rain band and background noise to
+  // let through here.
+  canterbury: {
+    crop: { topPct: 0, bottomPct: 0, leftPct: 0, rightPct: 21 },
+    isolate: {
+      minSaturation: 36,
+      minBrightness: 30,
+      maxBrightness: 100,
+      hueBands: { yellowGold: true, green: true, blue: true, redPurple: true },
+    },
+    corners: [
+      [168.37646484375, -40.99648401437788],    // NW
+      [175.75927734375, -41.04621681452063],    // NE
+      [176.02294921875, -46.54374960273856],    // SE
+      [168.1787109375, -46.392411189814645],    // SW
     ],
     opacity: 0.9,
   },
