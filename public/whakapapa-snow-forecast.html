@@ -1855,6 +1855,9 @@ let accumDays = 5;
 function pwPersist(key, val) { try { localStorage.setItem(key, val); } catch (e) {} }
 
 function setViewMode(mode) {
+  // No regional station covers this resort (the US ones) — fall back rather
+  // than entering a mode that can never load anything.
+  if (mode === 'radar' && !RADAR_REGION) mode = 'hourly';
   viewMode = mode;
   pwPersist('sp-view-mode', mode);
   document.querySelectorAll('#mode-switch .pill-btn').forEach(b => b.classList.toggle('active', b.dataset.mode === mode));
@@ -1905,31 +1908,97 @@ function setViewMode(mode) {
   if (mode === 'live') pwStartNowcast(); else pwStopNowcast();
 }
 
-// ── Radar view: drapes the live MetService national radar composite over
-// whichever resort this map instance is showing, at its normal close-up
-// camera position — the same globally-calibrated NZ-wide overlay used by
-// public/radar-map.html, just viewed zoomed-in instead of zoomed-out.
-// See src/radarCalibration.js / src/radarFeed.js for the full writeup; the
-// constants and pipeline here are duplicated rather than imported because
-// this file, like radar-map.html, is a standalone static page outside the
-// Vite/React build. Keep all three in sync by hand if the source image's
-// framing or the feed's naming scheme ever changes.
-const RADAR_CALIBRATION = {
-  crop: { topPct: 0, bottomPct: 0, leftPct: 0, rightPct: 0 },
-  isolate: {
-    minSaturation: 45, minBrightness: 15, maxBrightness: 100,
-    hueBands: { yellowGold: true, green: true, blue: true, redPurple: true },
+// ── Radar view: drapes the higher-resolution regional single-site radar
+// station that actually covers this resort, at its normal close-up camera
+// position — not the national composite (too coarse for a close-up resort
+// view, and only one station is relevant per resort anyway). A resort with
+// no covering station (the US ones) gets no Radar tab at all — see
+// RADAR_REGION below and its guard in setViewMode(). Calibrations mirrored
+// from src/radarRegionalCalibration.js (source of truth); like radar-map.html
+// this is a standalone static page outside the Vite/React build, so keep
+// both in sync by hand.
+const REGIONAL_CALIBRATIONS = {
+  westland: {
+    crop: { topPct: 0, bottomPct: 0, leftPct: 0, rightPct: 21 },
+    isolate: {
+      minSaturation: 15, minBrightness: 20, maxBrightness: 100,
+      hueBands: { yellowGold: true, green: true, blue: true, redPurple: true },
+    },
+    corners: [
+      [167.7392578125, -40.396764305572034],
+      [174.61669921875, -39.926588421909436],
+      [175.0341796875, -45.50634690108341],
+      [167.200927734375, -45.34442410452239],
+    ],
+    opacity: 0.9,
   },
-  corners: [
-    [164.443359375, -32.49123028794758],
-    [181.82373046875, -32.37996146435729],
-    [182.13134765625, -48.54570549184744],
-    [164.2236328125, -48.60385760823253],
-  ],
-  opacity: 0.9,
+  canterbury: {
+    crop: { topPct: 0, bottomPct: 0, leftPct: 0, rightPct: 21 },
+    isolate: {
+      minSaturation: 36, minBrightness: 30, maxBrightness: 100,
+      hueBands: { yellowGold: true, green: true, blue: true, redPurple: true },
+    },
+    corners: [
+      [168.37646484375, -40.99648401437788],
+      [175.75927734375, -41.04621681452063],
+      [176.02294921875, -46.54374960273856],
+      [168.1787109375, -46.392411189814645],
+    ],
+    opacity: 0.9,
+  },
+  bayofplenty: {
+    crop: { topPct: 0, bottomPct: 0, leftPct: 0, rightPct: 21 },
+    isolate: {
+      minSaturation: 34, minBrightness: 28, maxBrightness: 100,
+      hueBands: { yellowGold: true, green: true, blue: true, redPurple: true },
+    },
+    corners: [
+      [172.68310546875, -35.31736632923786],
+      [179.5166015625, -35.33529320309327],
+      [179.593505859375, -40.71395582628604],
+      [172.540283203125, -40.72228267283148],
+    ],
+    opacity: 0.9,
+  },
+  otago: {
+    crop: { topPct: 0, bottomPct: 0, leftPct: 0, rightPct: 21 },
+    isolate: {
+      minSaturation: 34, minBrightness: 28, maxBrightness: 100,
+      hueBands: { yellowGold: true, green: true, blue: true, redPurple: true },
+    },
+    corners: [
+      [166.640625, -42.95642251107333],
+      [174.19921875, -42.98857645832182],
+      [175.78125, -47.69497434186281],
+      [166.409912109375, -48.26856911296433],
+    ],
+    opacity: 0.9,
+  },
 };
+// Nearest covering station per resort (by distance to each station's quad
+// centroid, cross-checked against which administrative region the resort is
+// actually in — see chat writeup). No entry = no coverage close enough to
+// be worth showing (loveland/mtvernon, both Colorado).
+const RESORT_REGIONS = {
+  ruapehu: 'bayofplenty',
+  cardrona: 'otago',
+  mtlyford: 'canterbury',
+  roundhill: 'canterbury',
+  treblecone: 'otago',
+};
+const RADAR_REGION = RESORT_REGIONS[resortKey] || null;
+const RADAR_CALIBRATION = RADAR_REGION ? REGIONAL_CALIBRATIONS[RADAR_REGION] : null;
+// Hide the Radar pill entirely for resorts with no covering station, rather
+// than showing a tab that can never load anything.
+if (!RADAR_REGION) {
+  const btn = document.querySelector('#mode-switch [data-mode="radar"]');
+  if (btn) btn.style.display = 'none';
+}
 
-const RADAR_SLOT_MINUTES = [5, 13, 20, 28, 35, 43, 50, 58];
+// True measured cadence of the regional feed (differs from the national
+// composite's) — see src/radarRegionalCalibration.js / the radar-map.html
+// writeup for how this was probed.
+const RADAR_SLOT_MINUTES = [5, 12, 20, 27, 35, 42, 50, 57];
 const radarPad2 = (n) => String(n).padStart(2, '0');
 function radarFilenameFor(date) {
   return '' + date.getUTCFullYear() + radarPad2(date.getUTCMonth() + 1) + radarPad2(date.getUTCDate()) + radarPad2(date.getUTCHours()) + radarPad2(date.getUTCMinutes());
@@ -1952,7 +2021,7 @@ function radarCandidateTimestamps(count, from) {
   }
   return out;
 }
-function radarFrameUrl(ts) { return `/radar-feed/${ts}.gif`; }
+function radarFrameUrl(ts) { return `/radar-feed-regional/${RADAR_REGION}/${ts}.gif`; }
 function radarFormatTs(ts) {
   const d = new Date(Date.UTC(+ts.slice(0, 4), +ts.slice(4, 6) - 1, +ts.slice(6, 8), +ts.slice(8, 10), +ts.slice(10, 12)));
   return d.toLocaleString('en-NZ', { weekday: 'short', hour: '2-digit', minute: '2-digit' });
@@ -1998,6 +2067,32 @@ function radarCropAndIsolate(img) {
   ctx.putImageData(imgData, 0, 0);
   return canvas;
 }
+// Feathers the regional overlay's alpha down to 0 near the edge of its
+// frame — the single-site scan's return quality genuinely degrades near max
+// range, and this also avoids a hard-edged cutoff if the view ever pans out
+// far enough to see the coverage boundary. Mirrors radar-map.html's
+// applyRadialFade (same fadeStartFrac).
+function radarApplyRadialFade(canvas, fadeStartFrac = 0.82) {
+  const ctx = canvas.getContext('2d');
+  const w = canvas.width, h = canvas.height;
+  const cx = w / 2, cy = h / 2;
+  const maxR = Math.min(w, h) / 2;
+  const imgData = ctx.getImageData(0, 0, w, h);
+  const d = imgData.data;
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const i = (y * w + x) * 4;
+      if (d[i + 3] === 0) continue;
+      const distFrac = Math.hypot(x - cx, y - cy) / maxR;
+      if (distFrac > fadeStartFrac) {
+        const fade = Math.max(0, 1 - (distFrac - fadeStartFrac) / (1 - fadeStartFrac));
+        d[i + 3] = Math.round(d[i + 3] * fade);
+      }
+    }
+  }
+  ctx.putImageData(imgData, 0, 0);
+  return canvas;
+}
 async function radarFetchAndProcessFrame(ts) {
   const res = await fetch(radarFrameUrl(ts));
   if (!res.ok) return null;
@@ -2010,7 +2105,7 @@ async function radarFetchAndProcessFrame(ts) {
       im.onerror = reject;
       im.src = blobUrl;
     });
-    const canvas = radarCropAndIsolate(img);
+    const canvas = radarApplyRadialFade(radarCropAndIsolate(img));
     // Keep the decoded canvas (not just its dataURL) — cross-fading between
     // frames during playback composites two canvases directly rather than
     // re-decoding a data: URL string on every animation tick.
