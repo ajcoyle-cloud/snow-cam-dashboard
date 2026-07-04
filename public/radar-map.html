@@ -444,19 +444,121 @@ async function fetchAndProcessRegionalFrame(region, ts) {
   }
 }
 
-// Cross-fades two same-sized canvases at fraction t (0 = all A, 1 = all B)
-// into a new canvas. Used for smooth motion between frames instead of a
-// hard cut at every timeline step.
-function compositeFrames(canvasA, canvasB, t) {
+// ---------- motion-compensated frame interpolation ----------
+// A plain alpha cross-fade between two real frames shows a moving rain cell
+// as two overlapping fading ghosts (one fading out at its old position,
+// one fading in at its new one) rather than one cell in motion. Instead,
+// estimate how each patch of the image actually shifted between the two
+// real frames — coarse block-matching over the alpha (rain-mask) channel,
+// the same basic technique video codecs use for motion compensation — and
+// warp+blend along that motion, so an intermediate frame shows the cell
+// partway between its two real positions.
+const FLOW_GRID_COLS = 12, FLOW_GRID_ROWS = 9;
+const FLOW_SEARCH_RADIUS = 14; // px; generous vs. a rain cell's typical drift over one ~7-8min frame interval
+const FLOW_SAMPLE_STRIDE = 2;  // score candidate shifts on every 2nd pixel of a block, not every pixel — keeps the search cheap
+
+function alphaBuffer(canvas) {
+  return canvas.getContext('2d').getImageData(0, 0, canvas.width, canvas.height).data;
+}
+
+// Per-grid-cell motion search: for each cell, find the (dx, dy) shift of
+// that patch in B whose alpha pattern best matches A's (min sum-of-absolute-
+// differences over a search window). Cells with no rain in A are left at
+// (0, 0) — nothing there to track, and it skips the search over what's
+// usually most of the frame.
+function estimateMotionField(canvasA, canvasB) {
+  const w = canvasA.width, h = canvasA.height;
+  const a = alphaBuffer(canvasA), b = alphaBuffer(canvasB);
+  const cols = FLOW_GRID_COLS, rows = FLOW_GRID_ROWS;
+  const cellW = w / cols, cellH = h / rows;
+  const vectors = new Array(cols * rows);
+
+  for (let gy = 0; gy < rows; gy++) {
+    for (let gx = 0; gx < cols; gx++) {
+      const x0 = Math.round(gx * cellW), x1 = Math.round((gx + 1) * cellW);
+      const y0 = Math.round(gy * cellH), y1 = Math.round((gy + 1) * cellH);
+
+      let hasRain = false;
+      for (let y = y0; y < y1 && !hasRain; y += FLOW_SAMPLE_STRIDE) {
+        for (let x = x0; x < x1; x += FLOW_SAMPLE_STRIDE) {
+          if (a[(y * w + x) * 4 + 3] > 10) { hasRain = true; break; }
+        }
+      }
+      if (!hasRain) { vectors[gy * cols + gx] = { dx: 0, dy: 0 }; continue; }
+
+      let bestDx = 0, bestDy = 0, bestScore = Infinity;
+      for (let dy = -FLOW_SEARCH_RADIUS; dy <= FLOW_SEARCH_RADIUS; dy++) {
+        for (let dx = -FLOW_SEARCH_RADIUS; dx <= FLOW_SEARCH_RADIUS; dx++) {
+          let score = 0;
+          for (let y = y0; y < y1; y += FLOW_SAMPLE_STRIDE) {
+            const sy = y + dy;
+            for (let x = x0; x < x1; x += FLOW_SAMPLE_STRIDE) {
+              const sx = x + dx;
+              const av = a[(y * w + x) * 4 + 3];
+              const bv = (sx < 0 || sx >= w || sy < 0 || sy >= h) ? 0 : b[(sy * w + sx) * 4 + 3];
+              score += Math.abs(av - bv);
+            }
+          }
+          if (score < bestScore) { bestScore = score; bestDx = dx; bestDy = dy; }
+        }
+      }
+      vectors[gy * cols + gx] = { dx: bestDx, dy: bestDy };
+    }
+  }
+  return { cols, rows, cellW, cellH, w, h, vectors };
+}
+
+// Renders A and B blended at fraction t (0 = all A, 1 = all B), motion-
+// compensated per grid cell using the field from estimateMotionField: a
+// patch that moved by (dx, dy) between the two real frames is drawn from
+// both sides at its t-fraction-of-the-way position and cross-faded there,
+// instead of each side's patch fading in place at its own (different, for a
+// moving cell) position. For a cell with no detected motion this reduces to
+// an ordinary in-place cross-fade.
+function renderMotionInterpolated(canvasA, canvasB, field, t) {
+  const { cols, rows, cellW, cellH, w, h, vectors } = field;
   const out = document.createElement('canvas');
-  out.width = canvasA.width; out.height = canvasA.height;
+  out.width = w; out.height = h;
   const ctx = out.getContext('2d');
-  ctx.globalAlpha = 1;
-  ctx.drawImage(canvasA, 0, 0);
-  ctx.globalAlpha = t;
-  ctx.drawImage(canvasB, 0, 0, canvasA.width, canvasA.height);
+  const pad = 3; // slight overscan per block so shifted draws don't leave hairline seams at cell edges
+
+  for (let gy = 0; gy < rows; gy++) {
+    for (let gx = 0; gx < cols; gx++) {
+      const { dx, dy } = vectors[gy * cols + gx];
+      const x0 = gx * cellW, y0 = gy * cellH;
+      const sx = Math.max(0, x0 - pad), sy = Math.max(0, y0 - pad);
+      const sw = Math.min(w, x0 + cellW + pad) - sx;
+      const sh = Math.min(h, y0 + cellH + pad) - sy;
+      const destX = sx + dx * t, destY = sy + dy * t;
+
+      ctx.globalAlpha = 1 - t;
+      ctx.drawImage(canvasA, sx, sy, sw, sh, destX, destY, sw, sh);
+
+      // B's matching patch lives at (sx+dx, sy+dy) — clamp within bounds
+      // rather than special-casing the edge cells, since sw/sh are always
+      // <= the canvas dimensions this stays a valid source rect.
+      const bsx = Math.min(Math.max(sx + dx, 0), w - sw);
+      const bsy = Math.min(Math.max(sy + dy, 0), h - sh);
+      ctx.globalAlpha = t;
+      ctx.drawImage(canvasB, bsx, bsy, sw, sh, destX, destY, sw, sh);
+    }
+  }
   ctx.globalAlpha = 1;
   return out;
+}
+
+// Motion fields are lazily estimated and cached per (frameA, frameB) pair —
+// startPlay()'s tick calls this once per composite (multiple times per
+// segment), so this avoids re-running the block search on every tick. Keyed
+// by the frame objects themselves (via WeakMap) so entries are naturally
+// freed once old frames fall out of the frames/regionalFrames history.
+const motionFieldCache = new WeakMap();
+function motionFieldFor(a, b) {
+  let inner = motionFieldCache.get(a);
+  if (!inner) { inner = new WeakMap(); motionFieldCache.set(a, inner); }
+  let field = inner.get(b);
+  if (!field) { field = estimateMotionField(a.canvas, b.canvas); inner.set(b, field); }
+  return field;
 }
 
 // Pushes an already-composited canvas straight to an existing regional
@@ -686,7 +788,7 @@ function startPlay() {
   function renderBlend(t) {
     const a = frames[segStart], b = frames[segStart + 1];
     if (map && map.getSource('radar-src')) {
-      const blended = t >= 1 ? b.canvas : compositeFrames(a.canvas, b.canvas, t);
+      const blended = t >= 1 ? b.canvas : renderMotionInterpolated(a.canvas, b.canvas, motionFieldFor(a, b), t);
       map.getSource('radar-src').updateImage({ url: blended.toDataURL('image/png') });
     }
     for (const region of REGIONAL_KEYS) {
@@ -694,7 +796,7 @@ function startPlay() {
       const rb = nearestRegionalFrame(region, b.timestamp);
       if (!ra && !rb) continue;
       const target = rb || ra;
-      const blendedRegional = (ra && rb && ra !== rb && t < 1) ? compositeFrames(ra.canvas, rb.canvas, t) : target.canvas;
+      const blendedRegional = (ra && rb && ra !== rb && t < 1) ? renderMotionInterpolated(ra.canvas, rb.canvas, motionFieldFor(ra, rb), t) : target.canvas;
       setRegionalImage(region, blendedRegional);
     }
   }

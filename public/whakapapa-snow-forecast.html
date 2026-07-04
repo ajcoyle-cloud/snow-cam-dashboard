@@ -2020,18 +2020,103 @@ async function radarFetchAndProcessFrame(ts) {
   }
 }
 
-// Cross-fades two same-sized canvases at fraction t (0 = all A, 1 = all B)
-// into a new canvas, for smooth motion between frames instead of a hard cut.
-function radarCompositeFrames(canvasA, canvasB, t) {
+// ---------- motion-compensated frame interpolation ----------
+// A plain alpha cross-fade between two real frames shows a moving rain cell
+// as two overlapping fading ghosts rather than one cell in motion. Instead,
+// estimate how each patch of the image actually shifted between the two
+// real frames — coarse block-matching over the alpha (rain-mask) channel,
+// the same basic technique video codecs use for motion compensation — and
+// warp+blend along that motion. Mirrors radar-map.html's implementation
+// (not imported — this is a static page outside the build).
+const RADAR_FLOW_GRID_COLS = 12, RADAR_FLOW_GRID_ROWS = 9;
+const RADAR_FLOW_SEARCH_RADIUS = 14;
+const RADAR_FLOW_SAMPLE_STRIDE = 2;
+
+function radarAlphaBuffer(canvas) {
+  return canvas.getContext('2d').getImageData(0, 0, canvas.width, canvas.height).data;
+}
+
+function radarEstimateMotionField(canvasA, canvasB) {
+  const w = canvasA.width, h = canvasA.height;
+  const a = radarAlphaBuffer(canvasA), b = radarAlphaBuffer(canvasB);
+  const cols = RADAR_FLOW_GRID_COLS, rows = RADAR_FLOW_GRID_ROWS;
+  const cellW = w / cols, cellH = h / rows;
+  const vectors = new Array(cols * rows);
+
+  for (let gy = 0; gy < rows; gy++) {
+    for (let gx = 0; gx < cols; gx++) {
+      const x0 = Math.round(gx * cellW), x1 = Math.round((gx + 1) * cellW);
+      const y0 = Math.round(gy * cellH), y1 = Math.round((gy + 1) * cellH);
+
+      let hasRain = false;
+      for (let y = y0; y < y1 && !hasRain; y += RADAR_FLOW_SAMPLE_STRIDE) {
+        for (let x = x0; x < x1; x += RADAR_FLOW_SAMPLE_STRIDE) {
+          if (a[(y * w + x) * 4 + 3] > 10) { hasRain = true; break; }
+        }
+      }
+      if (!hasRain) { vectors[gy * cols + gx] = { dx: 0, dy: 0 }; continue; }
+
+      let bestDx = 0, bestDy = 0, bestScore = Infinity;
+      for (let dy = -RADAR_FLOW_SEARCH_RADIUS; dy <= RADAR_FLOW_SEARCH_RADIUS; dy++) {
+        for (let dx = -RADAR_FLOW_SEARCH_RADIUS; dx <= RADAR_FLOW_SEARCH_RADIUS; dx++) {
+          let score = 0;
+          for (let y = y0; y < y1; y += RADAR_FLOW_SAMPLE_STRIDE) {
+            const sy = y + dy;
+            for (let x = x0; x < x1; x += RADAR_FLOW_SAMPLE_STRIDE) {
+              const sx = x + dx;
+              const av = a[(y * w + x) * 4 + 3];
+              const bv = (sx < 0 || sx >= w || sy < 0 || sy >= h) ? 0 : b[(sy * w + sx) * 4 + 3];
+              score += Math.abs(av - bv);
+            }
+          }
+          if (score < bestScore) { bestScore = score; bestDx = dx; bestDy = dy; }
+        }
+      }
+      vectors[gy * cols + gx] = { dx: bestDx, dy: bestDy };
+    }
+  }
+  return { cols, rows, cellW, cellH, w, h, vectors };
+}
+
+function radarRenderMotionInterpolated(canvasA, canvasB, field, t) {
+  const { cols, rows, cellW, cellH, w, h, vectors } = field;
   const out = document.createElement('canvas');
-  out.width = canvasA.width; out.height = canvasA.height;
+  out.width = w; out.height = h;
   const ctx = out.getContext('2d');
-  ctx.globalAlpha = 1;
-  ctx.drawImage(canvasA, 0, 0);
-  ctx.globalAlpha = t;
-  ctx.drawImage(canvasB, 0, 0, canvasA.width, canvasA.height);
+  const pad = 3;
+
+  for (let gy = 0; gy < rows; gy++) {
+    for (let gx = 0; gx < cols; gx++) {
+      const { dx, dy } = vectors[gy * cols + gx];
+      const x0 = gx * cellW, y0 = gy * cellH;
+      const sx = Math.max(0, x0 - pad), sy = Math.max(0, y0 - pad);
+      const sw = Math.min(w, x0 + cellW + pad) - sx;
+      const sh = Math.min(h, y0 + cellH + pad) - sy;
+      const destX = sx + dx * t, destY = sy + dy * t;
+
+      ctx.globalAlpha = 1 - t;
+      ctx.drawImage(canvasA, sx, sy, sw, sh, destX, destY, sw, sh);
+
+      const bsx = Math.min(Math.max(sx + dx, 0), w - sw);
+      const bsy = Math.min(Math.max(sy + dy, 0), h - sh);
+      ctx.globalAlpha = t;
+      ctx.drawImage(canvasB, bsx, bsy, sw, sh, destX, destY, sw, sh);
+    }
+  }
   ctx.globalAlpha = 1;
   return out;
+}
+
+// Lazily estimated and cached per (frameA, frameB) pair, keyed by the frame
+// objects themselves so entries are freed once old frames fall out of
+// radarFrames' rolling history.
+const radarMotionFieldCache = new WeakMap();
+function radarMotionFieldFor(a, b) {
+  let inner = radarMotionFieldCache.get(a);
+  if (!inner) { inner = new WeakMap(); radarMotionFieldCache.set(a, inner); }
+  let field = inner.get(b);
+  if (!field) { field = radarEstimateMotionField(a.canvas, b.canvas); inner.set(b, field); }
+  return field;
 }
 
 // "Last 1-2 hours" rather than the feed's full (year-plus) archive — a
@@ -2124,7 +2209,7 @@ function radarStartPlay() {
       lastCompositeTime = now;
       const a = radarFrames[segStart], b = radarFrames[segStart + 1];
       if (map && map.getSource('radar-src')) {
-        const blended = t >= 1 ? b.canvas : radarCompositeFrames(a.canvas, b.canvas, t);
+        const blended = t >= 1 ? b.canvas : radarRenderMotionInterpolated(a.canvas, b.canvas, radarMotionFieldFor(a, b), t);
         map.getSource('radar-src').updateImage({ url: blended.toDataURL('image/png') });
       }
     }
