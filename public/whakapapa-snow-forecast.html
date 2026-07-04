@@ -2010,10 +2010,28 @@ async function radarFetchAndProcessFrame(ts) {
       im.onerror = reject;
       im.src = blobUrl;
     });
-    return { timestamp: ts, dataUrl: radarCropAndIsolate(img).toDataURL('image/png') };
+    const canvas = radarCropAndIsolate(img);
+    // Keep the decoded canvas (not just its dataURL) — cross-fading between
+    // frames during playback composites two canvases directly rather than
+    // re-decoding a data: URL string on every animation tick.
+    return { timestamp: ts, canvas, dataUrl: canvas.toDataURL('image/png') };
   } finally {
     URL.revokeObjectURL(blobUrl);
   }
+}
+
+// Cross-fades two same-sized canvases at fraction t (0 = all A, 1 = all B)
+// into a new canvas, for smooth motion between frames instead of a hard cut.
+function radarCompositeFrames(canvasA, canvasB, t) {
+  const out = document.createElement('canvas');
+  out.width = canvasA.width; out.height = canvasA.height;
+  const ctx = out.getContext('2d');
+  ctx.globalAlpha = 1;
+  ctx.drawImage(canvasA, 0, 0);
+  ctx.globalAlpha = t;
+  ctx.drawImage(canvasB, 0, 0, canvasA.width, canvasA.height);
+  ctx.globalAlpha = 1;
+  return out;
 }
 
 // "Last 1-2 hours" rather than the feed's full (year-plus) archive — a
@@ -2053,6 +2071,16 @@ function radarDrawFrame(i) {
     setTimeout(() => radarDrawFrame(i), 80);
     return;
   }
+  radarUpdateTimelineUi(i);
+}
+
+// Slider/label/step-button updates only, no map source changes — factored
+// out so the play loop can move the UI through each index without
+// re-triggering radarDrawFrame's plain (non-blended) updateImage, which
+// would fight with the cross-fade renderer for the same source.
+function radarUpdateTimelineUi(i) {
+  const f = radarFrames[i];
+  if (!f) return;
   const slider = document.getElementById('rtl-slider');
   slider.max = radarFrames.length - 1;
   slider.value = i;
@@ -2068,17 +2096,52 @@ function radarStepFrame(delta) {
 function radarTogglePlay() {
   if (radarPlayTimer) radarStopPlay(); else radarStartPlay();
 }
+
+// Composite/toDataURL is too expensive to do on every requestAnimationFrame
+// tick (~60fps) — cap actual blending work to roughly this cadence instead;
+// the rAF loop still runs at full rate for smooth timing, it just skips the
+// canvas work on most ticks.
+const RADAR_COMPOSITE_INTERVAL_MS = 80;
+const RADAR_FRAME_INTERVAL_MS = 450;
+
+// Continuous rAF loop that cross-fades between radarFrames[segStart] and
+// radarFrames[segStart+1] over RADAR_FRAME_INTERVAL_MS, instead of hard-
+// cutting to the next frame every interval.
 function radarStartPlay() {
   if (radarFrames.length < 2) return;
   if (radarCurrentIndex >= radarFrames.length - 1) radarDrawFrame(0);
   document.getElementById('rtl-play').textContent = '⏸';
-  radarPlayTimer = setInterval(() => {
-    if (radarCurrentIndex >= radarFrames.length - 1) { radarStopPlay(); return; }
-    radarDrawFrame(radarCurrentIndex + 1);
-  }, 450);
+
+  let segStart = radarCurrentIndex;
+  let segStartTime = performance.now();
+  let lastCompositeTime = 0;
+
+  function tick(now) {
+    if (segStart >= radarFrames.length - 1) { radarStopPlay(); return; }
+    const t = Math.min(1, (now - segStartTime) / RADAR_FRAME_INTERVAL_MS);
+
+    if (now - lastCompositeTime >= RADAR_COMPOSITE_INTERVAL_MS || t >= 1) {
+      lastCompositeTime = now;
+      const a = radarFrames[segStart], b = radarFrames[segStart + 1];
+      if (map && map.getSource('radar-src')) {
+        const blended = t >= 1 ? b.canvas : radarCompositeFrames(a.canvas, b.canvas, t);
+        map.getSource('radar-src').updateImage({ url: blended.toDataURL('image/png') });
+      }
+    }
+
+    if (t >= 1) {
+      segStart += 1;
+      radarCurrentIndex = segStart;
+      radarUpdateTimelineUi(segStart);
+      if (segStart >= radarFrames.length - 1) { radarStopPlay(); return; }
+      segStartTime = now;
+    }
+    radarPlayTimer = requestAnimationFrame(tick);
+  }
+  radarPlayTimer = requestAnimationFrame(tick);
 }
 function radarStopPlay() {
-  if (radarPlayTimer) { clearInterval(radarPlayTimer); radarPlayTimer = null; }
+  if (radarPlayTimer) { cancelAnimationFrame(radarPlayTimer); radarPlayTimer = null; }
   document.getElementById('rtl-play').textContent = '▶';
 }
 
