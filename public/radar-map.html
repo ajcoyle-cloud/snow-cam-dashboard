@@ -180,22 +180,29 @@ function hideBanner() {
 // <img src>, since isolating rain pixels needs canvas pixel access).
 // See src/radarFeed.js for the full writeup of the slot schedule.
 const SLOT_MINUTES = [5, 13, 20, 28, 35, 43, 50, 58];
+// Regional single-site frames publish on their own schedule -- measured by
+// probing every minute for an hour and a half against the real feed:
+// 5,12,20,27,35,42,50,57 (7/8min alternating, same as national, but shifted
+// by a minute at 4 of the 8 slots). Reusing SLOT_MINUTES for regional
+// fetches only ever caught the 4 slots that happen to coincide (5/20/35/50),
+// silently missing the other real frame every cycle.
+const REGIONAL_SLOT_MINUTES = [5, 12, 20, 27, 35, 42, 50, 57];
 const pad2 = (n) => String(n).padStart(2, '0');
 function filenameFor(date) {
   return '' + date.getUTCFullYear() + pad2(date.getUTCMonth() + 1) + pad2(date.getUTCDate()) + pad2(date.getUTCHours()) + pad2(date.getUTCMinutes());
 }
-function candidateTimestamps(count, from) {
+function candidateTimestamps(count, from, slotMinutes = SLOT_MINUTES) {
   const out = [];
   let cursor = new Date(from || new Date());
   while (out.length < count) {
-    const hourMinutes = SLOT_MINUTES.filter((m) => m <= cursor.getUTCMinutes());
+    const hourMinutes = slotMinutes.filter((m) => m <= cursor.getUTCMinutes());
     let slot;
     if (hourMinutes.length > 0) {
       slot = new Date(cursor);
       slot.setUTCMinutes(hourMinutes[hourMinutes.length - 1], 0, 0);
     } else {
       slot = new Date(cursor);
-      slot.setUTCHours(slot.getUTCHours() - 1, SLOT_MINUTES[SLOT_MINUTES.length - 1], 0, 0);
+      slot.setUTCHours(slot.getUTCHours() - 1, slotMinutes[slotMinutes.length - 1], 0, 0);
     }
     out.push(filenameFor(slot));
     cursor = new Date(slot.getTime() - 60000);
@@ -281,6 +288,53 @@ function applyRadialFade(canvas, fadeStartFrac = 0.82) {
   return canvas;
 }
 
+// Clears the national frame's alpha wherever a regional overlay covers it,
+// mirroring applyRadialFade's own fade curve so the two hand off smoothly
+// instead of stacking (which looked like doubled/ghosted rain wherever the
+// two didn't align exactly) or leaving a mismatched hard seam.
+//
+// Approximates the national quad as an axis-aligned lat/lon box (ignoring
+// its small hand-calibrated skew) and each region as an ellipse centered on
+// its own quad's midpoint — good enough for a soft hole, not a survey.
+function punchRegionalHoles(canvas, nationalQuad) {
+  const ctx = canvas.getContext('2d');
+  const w = canvas.width, h = canvas.height;
+  const nLons = nationalQuad.map((c) => c[0]), nLats = nationalQuad.map((c) => c[1]);
+  const minLon = Math.min(...nLons), maxLon = Math.max(...nLons);
+  const minLat = Math.min(...nLats), maxLat = Math.max(...nLats);
+
+  const holes = REGIONAL_KEYS.map((region) => {
+    const corners = REGIONAL_CALIBRATIONS[region].corners;
+    const lons = corners.map((c) => c[0]), lats = corners.map((c) => c[1]);
+    return {
+      centerLon: (Math.min(...lons) + Math.max(...lons)) / 2,
+      centerLat: (Math.min(...lats) + Math.max(...lats)) / 2,
+      radiusLon: (Math.max(...lons) - Math.min(...lons)) / 2,
+      radiusLat: (Math.max(...lats) - Math.min(...lats)) / 2,
+    };
+  });
+
+  const fadeStartFrac = 0.82; // matches applyRadialFade, so the fade zones line up
+  const imgData = ctx.getImageData(0, 0, w, h);
+  const d = imgData.data;
+  for (let y = 0; y < h; y++) {
+    const lat = maxLat - (y / h) * (maxLat - minLat);
+    for (let x = 0; x < w; x++) {
+      const i = (y * w + x) * 4;
+      if (d[i + 3] === 0) continue;
+      const lon = minLon + (x / w) * (maxLon - minLon);
+      for (const hole of holes) {
+        const distFrac = Math.hypot((lon - hole.centerLon) / hole.radiusLon, (lat - hole.centerLat) / hole.radiusLat);
+        if (distFrac > 1) continue;
+        const keep = distFrac <= fadeStartFrac ? 0 : (distFrac - fadeStartFrac) / (1 - fadeStartFrac);
+        d[i + 3] = Math.round(d[i + 3] * keep);
+      }
+    }
+  }
+  ctx.putImageData(imgData, 0, 0);
+  return canvas;
+}
+
 async function fetchAndProcessFrame(ts) {
   const res = await fetch(frameUrl(ts));
   if (!res.ok) return null;
@@ -293,7 +347,8 @@ async function fetchAndProcessFrame(ts) {
       im.onerror = reject;
       im.src = blobUrl;
     });
-    return { timestamp: ts, dataUrl: cropAndIsolate(img).toDataURL('image/png') };
+    const canvas = punchRegionalHoles(cropAndIsolate(img), liveCorners);
+    return { timestamp: ts, dataUrl: canvas.toDataURL('image/png') };
   } finally {
     URL.revokeObjectURL(blobUrl);
   }
@@ -419,13 +474,12 @@ function drawRegionalFrame(region, frame) {
 let regionalFrames = {}; // { [region]: [{ timestamp, dataUrl }], oldest -> newest }
 REGIONAL_KEYS.forEach((region) => { regionalFrames[region] = []; });
 
-// Regional frames publish at roughly the same ~7.5min cadence as the
-// national feed but only line up with about half of candidateTimestamps()'s
-// guessed minute-marks (see chat — exact offset not nailed down yet), so
-// overfetch candidates relative to how many we actually need.
+// Uses REGIONAL_SLOT_MINUTES (the real measured schedule, not the national
+// one) so this now hits every actual regional frame instead of every second
+// one; a small overfetch margin still covers normal publish lag near "now".
 async function loadInitialRegionalFrames(region) {
   const found = [];
-  for (const ts of candidateTimestamps(MAX_FRAMES * 3)) {
+  for (const ts of candidateTimestamps(MAX_FRAMES * 2, undefined, REGIONAL_SLOT_MINUTES)) {
     if (found.length >= MAX_FRAMES) break;
     const frame = await fetchAndProcessRegionalFrame(region, ts).catch(() => null);
     if (frame) found.push(frame);
@@ -438,7 +492,7 @@ async function pollForNewRegionalFrames(region) {
   const existing = regionalFrames[region];
   if (existing.length === 0) return;
   const latestKnown = existing[existing.length - 1].timestamp;
-  const candidates = candidateTimestamps(8).filter((ts) => ts > latestKnown).reverse();
+  const candidates = candidateTimestamps(8, undefined, REGIONAL_SLOT_MINUTES).filter((ts) => ts > latestKnown).reverse();
   for (const ts of candidates) {
     const frame = await fetchAndProcessRegionalFrame(region, ts).catch(() => null);
     if (!frame) continue;
