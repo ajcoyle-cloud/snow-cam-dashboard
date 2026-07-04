@@ -224,16 +224,16 @@ function rgbToHsv(r, g, b) {
   }
   return [h, max === 0 ? 0 : (d / max) * 100, max * 100];
 }
-function hueAllowed(h) {
-  const bands = RADAR_CALIBRATION.isolate.hueBands;
+function hueAllowed(h, isolate) {
+  const bands = isolate.hueBands;
   if (bands.yellowGold && h >= 35 && h < 70) return true;
   if (bands.green && h >= 70 && h < 160) return true;
   if (bands.blue && h >= 160 && h < 280) return true;
   if (bands.redPurple && (h >= 280 || h < 35)) return true;
   return false;
 }
-function cropAndIsolate(img) {
-  const { crop, isolate } = RADAR_CALIBRATION;
+function cropAndIsolate(img, calibration) {
+  const { crop, isolate } = calibration || RADAR_CALIBRATION;
   const iw = img.naturalWidth, ih = img.naturalHeight;
   const top = Math.round(ih * crop.topPct / 100), bottom = Math.round(ih * crop.bottomPct / 100);
   const left = Math.round(iw * crop.leftPct / 100), right = Math.round(iw * crop.rightPct / 100);
@@ -246,8 +246,36 @@ function cropAndIsolate(img) {
   const d = imgData.data;
   for (let i = 0; i < d.length; i += 4) {
     const [h, s, v] = rgbToHsv(d[i], d[i + 1], d[i + 2]);
-    const isRain = s >= isolate.minSaturation && v >= isolate.minBrightness && v <= isolate.maxBrightness && hueAllowed(h);
+    const isRain = s >= isolate.minSaturation && v >= isolate.minBrightness && v <= isolate.maxBrightness && hueAllowed(h, isolate);
     if (!isRain) d[i + 3] = 0;
+  }
+  ctx.putImageData(imgData, 0, 0);
+  return canvas;
+}
+
+// Feathers a regional overlay's alpha down to 0 near the edge of its frame,
+// so it hands off to the national composite underneath instead of cutting
+// off hard right where its own data (and the real single-site radar's
+// return quality, which genuinely degrades near max range) runs out.
+// Approximates the scan's radius as half the shorter canvas dimension,
+// since the exact circle isn't independently calibrated per region yet.
+function applyRadialFade(canvas, fadeStartFrac = 0.82) {
+  const ctx = canvas.getContext('2d');
+  const w = canvas.width, h = canvas.height;
+  const cx = w / 2, cy = h / 2;
+  const maxR = Math.min(w, h) / 2;
+  const imgData = ctx.getImageData(0, 0, w, h);
+  const d = imgData.data;
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const i = (y * w + x) * 4;
+      if (d[i + 3] === 0) continue;
+      const distFrac = Math.hypot(x - cx, y - cy) / maxR;
+      if (distFrac > fadeStartFrac) {
+        const fade = Math.max(0, 1 - (distFrac - fadeStartFrac) / (1 - fadeStartFrac));
+        d[i + 3] = Math.round(d[i + 3] * fade);
+      }
+    }
   }
   ctx.putImageData(imgData, 0, 0);
   return canvas;
@@ -269,6 +297,80 @@ async function fetchAndProcessFrame(ts) {
   } finally {
     URL.revokeObjectURL(blobUrl);
   }
+}
+
+// ---------- regional overlay (first test — see src/radarRegionalCalibration.js) ----------
+// Higher-resolution single-site scan draped on top of the national composite,
+// feathered at the edge (applyRadialFade) so it hands off rather than cutting
+// off hard. One region hard-coded for now; not yet a general multi-region
+// system, and not yet colour-normalized against the national composite's
+// palette (see the write-up in chat — a real difference, deferred).
+const REGIONAL_CALIBRATION = {
+  region: 'westland',
+  crop: { topPct: 0, bottomPct: 0, leftPct: 0, rightPct: 21 },
+  isolate: {
+    minSaturation: 15, minBrightness: 20, maxBrightness: 100,
+    hueBands: { yellowGold: true, green: true, blue: true, redPurple: true },
+  },
+  corners: [
+    [167.7392578125, -40.396764305572034],
+    [174.61669921875, -39.926588421909436],
+    [175.0341796875, -45.50634690108341],
+    [167.200927734375, -45.34442410452239],
+  ],
+  opacity: 0.9,
+};
+function regionalFrameUrl(region, ts) { return `/radar-feed-regional/${region}/${ts}.gif`; }
+
+async function fetchAndProcessRegionalFrame(ts) {
+  const res = await fetch(regionalFrameUrl(REGIONAL_CALIBRATION.region, ts));
+  if (!res.ok) return null;
+  const blob = await res.blob();
+  const blobUrl = URL.createObjectURL(blob);
+  try {
+    const img = await new Promise((resolve, reject) => {
+      const im = new Image();
+      im.onload = () => resolve(im);
+      im.onerror = reject;
+      im.src = blobUrl;
+    });
+    const canvas = applyRadialFade(cropAndIsolate(img, REGIONAL_CALIBRATION));
+    return { timestamp: ts, dataUrl: canvas.toDataURL('image/png') };
+  } finally {
+    URL.revokeObjectURL(blobUrl);
+  }
+}
+
+// Regional frames publish at roughly the same ~7.5min cadence as the
+// national feed but only line up with about half of candidateTimestamps()'s
+// guessed minute-marks (see chat — exact offset not nailed down yet), so
+// probe more candidates than the national fetch needs.
+async function findLatestRegionalFrame(count = 24) {
+  for (const ts of candidateTimestamps(count)) {
+    const frame = await fetchAndProcessRegionalFrame(ts).catch(() => null);
+    if (frame) return frame;
+  }
+  return null;
+}
+
+function drawRegionalFrame(frame) {
+  if (!map || !frame) return;
+  if (map.getSource('radar-regional-src')) {
+    map.getSource('radar-regional-src').updateImage({ url: frame.dataUrl });
+  } else if (map.getLayer('radar-layer')) {
+    map.addSource('radar-regional-src', { type: 'image', url: frame.dataUrl, coordinates: REGIONAL_CALIBRATION.corners });
+    map.addLayer({
+      id: 'radar-regional-layer', type: 'raster', source: 'radar-regional-src',
+      paint: { 'raster-opacity': REGIONAL_CALIBRATION.opacity, 'raster-fade-duration': 0 },
+    }); // added after 'radar-layer' exists, so MapLibre stacks it on top by default
+  } else {
+    setTimeout(() => drawRegionalFrame(frame), 200);
+  }
+}
+
+async function refreshRegionalOverlay() {
+  const frame = await findLatestRegionalFrame();
+  if (frame) drawRegionalFrame(frame);
 }
 
 // ---------- frames + timeline state ----------
@@ -445,6 +547,8 @@ async function pollForNewFrame() {
 function init() {
   loadInitialFrames();
   setInterval(pollForNewFrame, REFRESH_POLL_MS);
+  refreshRegionalOverlay(); // needs 'radar-layer' to already exist as a stacking anchor — loadInitialFrames() runs first in the same tick, drawRegionalFrame() retries if it's not there yet
+  setInterval(refreshRegionalOverlay, REFRESH_POLL_MS);
 }
 
 // Only start fetching/animating frames once there's an actual map to drape
