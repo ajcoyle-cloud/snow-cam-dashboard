@@ -201,10 +201,12 @@ function WeatherDisplay({ location }) {
 
   if (!weather) return null
 
+  // Only the condition icon is shown — the temperature is a meteoblue model
+  // value, not a genuine weather-station reading, so it's deliberately omitted
+  // (see also the removed per-cam lapse-rate temp overlay).
   return (
     <div className="weather-display">
       <span className="weather-icon">{weather.icon}</span>
-      <span className="weather-temp">{weather.temp}°C</span>
     </div>
   )
 }
@@ -396,13 +398,12 @@ function NzSkiCamera({ manifest, cameraKey, angle = 'Angle1', alt, onError, styl
   return <img src={src} alt={alt} onError={onError} style={style} />
 }
 
-function CameraCard({ camera, allCameras = [] }) {
+function CameraCard({ camera, allCameras = [], whakaSnow24 = null }) {
   const [fullscreenCam, setFullscreenCam] = useState(null)
   const [cameraIndex, setCameraIndex] = useState(0)
   const [refreshKey, setRefreshKey] = useState(0)
   const [broken, setBroken] = useState(false)
   const [brokenSidebar, setBrokenSidebar] = useState(new Set())
-  const [pwProfile, setPwProfile] = useState(null) // lapse rate from live temp iframe
   const modalRef = useRef(null)
 
   useEffect(() => {
@@ -427,43 +428,6 @@ function CameraCard({ camera, allCameras = [] }) {
       modalRef.current.focus()
     }
   }, [fullscreenCam])
-
-  // Listen for temperature profile (lapse rate) from the whakapapa-snow-forecast iframe,
-  // and also load from localStorage (for when the iframe isn't loaded yet).
-  useEffect(() => {
-    // Try to load from localStorage first
-    try {
-      const stored = localStorage.getItem('sp-pw-profile')
-      if (stored) {
-        const profile = JSON.parse(stored)
-        if (profile?.a !== undefined && profile?.b !== undefined) {
-          setPwProfile(profile)
-        }
-      }
-    } catch (e) {}
-
-    // Listen for updates from the iframe
-    const handleMessage = (event) => {
-      if (event.data?.type === 'pw-profile' && event.data?.profile) {
-        setPwProfile(event.data.profile)
-      }
-    }
-    window.addEventListener('message', handleMessage)
-    return () => window.removeEventListener('message', handleMessage)
-  }, [])
-
-  // Calculate temperature at a given elevation using the lapse rate.
-  // Use live lapse rate if available, else fall back to standard NZ mountain rate
-  // (-0.65°C per 100m, ~6.5°C per 1000m). Base temp at ~1000m = ~5°C (typical NZ resort base).
-  const calcTempAtElevation = (elev) => {
-    if (pwProfile && pwProfile.a !== undefined && pwProfile.b !== undefined) {
-      return pwProfile.a + pwProfile.b * elev
-    }
-    // Fallback: standard NZ lapse rate + base estimate
-    const baseElev = 1000, baseTemp = 5
-    const lapsePerM = -0.0065  // -6.5°C per 1000m
-    return baseTemp + (elev - baseElev) * lapsePerM
-  }
 
   const handleKeyDown = (e) => {
     if (e.key === 'Escape') {
@@ -539,19 +503,19 @@ function CameraCard({ camera, allCameras = [] }) {
               onError={() => setBroken(true)}
             />
           )}
-          {camera.elevation && (
+          {camera.location === 'Whakapapa' && whakaSnow24 != null && (
             <div style={{
               position: 'absolute',
               top: '12px',
               right: '12px',
               color: '#ffffff',
               fontSize: '0.75rem',
-              fontWeight: '600',
+              fontWeight: '700',
               pointerEvents: 'none',
-              opacity: 1,
+              textShadow: '0 1px 3px rgba(0,0,0,0.7)',
               zIndex: 10
             }}>
-              {calcTempAtElevation(camera.elevation)?.toFixed(1)}°C
+              24h {whakaSnow24}cm
             </div>
           )}
         </div>
@@ -654,19 +618,19 @@ function CameraCard({ camera, allCameras = [] }) {
                   onError={(e) => { e.target.style.opacity = '0.2' }}
                 />
               )}
-              {activeCam.elevation && (
+              {activeCam.location === 'Whakapapa' && whakaSnow24 != null && (
                 <div style={{
                   position: 'absolute',
                   top: '12px',
                   right: '12px',
                   color: '#ffffff',
                   fontSize: '0.85rem',
-                  fontWeight: '600',
+                  fontWeight: '700',
                   pointerEvents: 'none',
-                  opacity: 1,
+                  textShadow: '0 1px 3px rgba(0,0,0,0.7)',
                   zIndex: 10
                 }}>
-                  {calcTempAtElevation(activeCam.elevation)?.toFixed(1)}°C
+                  24h {whakaSnow24}cm
                 </div>
               )}
               {isMultiCamera && (
@@ -686,12 +650,31 @@ function CameraCard({ camera, allCameras = [] }) {
 }
 
 function CameraGrid({ cameras, cols = 4 }) {
+  // Whakapapa's 24h new-snowfall total, scraped from whakapapa.com/report via
+  // /whaka-report (api/whaka-report.js). Fetched once here and passed to every
+  // card; only the Whakapapa cams render it as a "24h Xcm" overlay.
+  const [whakaSnow24, setWhakaSnow24] = useState(null)
+  useEffect(() => {
+    let cancelled = false
+    const load = async () => {
+      try {
+        const r = await fetch('/whaka-report')
+        if (!r.ok) return
+        const d = await r.json()
+        if (!cancelled && typeof d.snow24cm === 'number') setWhakaSnow24(d.snow24cm)
+      } catch (e) {}
+    }
+    load()
+    const id = setInterval(load, 600000) // refresh every 10 min
+    return () => { cancelled = true; clearInterval(id) }
+  }, [])
+
   // --cam-cols drives grid-template-columns on desktop; mobile media queries
   // override to a single column regardless of this value.
   return (
     <div className="camera-grid" style={{ '--cam-cols': cols }}>
       {cameras.map((camera) => (
-        <CameraCard key={camera.name} camera={camera} allCameras={cameras} />
+        <CameraCard key={camera.name} camera={camera} allCameras={cameras} whakaSnow24={whakaSnow24} />
       ))}
     </div>
   )
