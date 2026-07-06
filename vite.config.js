@@ -1,7 +1,6 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import { resolveLyfordCam } from './api/lyford-cam.js'
-import { resolveRscCam } from './api/rsc-cam.js'
 
 // Dev parity for the Mt Lyford webcam scraper. In prod, /lyford-cam/<cam> is a
 // Vercel function (api/lyford-cam.js); the Vite dev server doesn't run that, so
@@ -35,30 +34,8 @@ function lyfordCamDev() {
   }
 }
 
-// Dev parity for the RSC Lodge webcam proxy (api/rsc-cam.js).
-function rscCamDev() {
-  return {
-    name: 'rsc-cam-dev',
-    configureServer(server) {
-      server.middlewares.use('/rsc-cam', async (req, res) => {
-        try {
-          const { contentType, buffer } = await resolveRscCam()
-          res.setHeader('Content-Type', contentType)
-          res.setHeader('Cache-Control', 'no-store, max-age=0')
-          res.end(buffer)
-        } catch (e) {
-          const status = e && typeof e.status === 'number' ? e.status : 502
-          res.statusCode = status
-          res.setHeader('Content-Type', 'application/json')
-          res.end(JSON.stringify(e && e.body ? e.body : { error: String((e && e.message) || e) }))
-        }
-      })
-    },
-  }
-}
-
 export default defineConfig({
-  plugins: [react(), lyfordCamDev(), rscCamDev()],
+  plugins: [react(), lyfordCamDev()],
   server: {
     port: 5173,
     // MetService's public webdata API only allows its own origin (CORS), so the
