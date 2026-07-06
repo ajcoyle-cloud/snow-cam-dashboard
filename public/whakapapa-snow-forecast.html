@@ -643,12 +643,13 @@ const RESORT_CONFIG = {
   },
   mthutt: {
     name: 'Mt Hutt',
-    lat: -43.4776, lon: 171.5486, summitElev: 2075, baseElev: 1400, timezone: 'Pacific/Auckland',
-    topElev: 2200, // approx colour-ramp upper bound above summit — unverified, adjust once seen live
+    // Base coords are the car park; top/bottom lift elevations confirmed directly.
+    lat: -43.4956, lon: 171.539722, summitElev: 2086, baseElev: 1400, timezone: 'Pacific/Auckland',
+    topElev: 2200, // colour-ramp upper bound, ~114m above the confirmed summit — matches the margin used for mtlyford/roundhill
     // No hand-picked camera framing yet (unlike cardrona's) — plain top-down
     // default centred on the resort's own coordinates. Needs a real capture
     // once this is live, same as the other resorts got eventually.
-    center: [171.5486, -43.4776], zoom: 13.2, pitch: 62, bearing: 180
+    center: [171.539722, -43.4956], zoom: 13.2, pitch: 62, bearing: 180
   }
 };
 

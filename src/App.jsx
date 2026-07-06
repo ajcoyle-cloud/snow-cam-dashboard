@@ -669,11 +669,12 @@ const RESORTS = {
   roundhill: { name: 'Roundhill', lat: -43.825421, lon: 170.656220, summitElev: 2170, baseElev: 1800, timezone: 'Pacific/Auckland', metservicePath: 'mountains-and-parks/ski-fields/roundhill', pwObsStations: ['tekapo-balmoral', 'clayton', 'burkes-pass'] },
   mtvernon: { name: 'Mt Vernon', lat: 39.72011925175132, lon: -105.26872905339022, summitElev: 2190, baseElev: 1800, timezone: 'America/Denver', pwObsStations: ['bjc', 'c99', '0co'] },
   treblecone: { name: 'Treble Cone', lat: -44.633063, lon: 168.896105, summitElev: 2088, baseElev: 1260, timezone: 'Pacific/Auckland', metservicePath: 'mountains-and-parks/ski-fields/treble-cone', pwObsStations: ['pub-corner', 'treble-cone'] },
-  // Lat/lon/elevations are best-effort estimates (no live obs wired up yet,
-  // per request) — confirm against the real base/summit stats and correct
-  // the metservicePath slug (guessed from the mount-lyford naming pattern)
-  // once this is live.
-  mthutt: { name: 'Mt Hutt', lat: -43.4776, lon: 171.5486, summitElev: 2075, baseElev: 1400, timezone: 'Pacific/Auckland', metservicePath: 'mountains-and-parks/ski-fields/mount-hutt' },
+  // Base coords are the car park; top/bottom lift elevations and the
+  // MetService path (which covers the whole Canterbury High Country region,
+  // not a Mt Hutt-specific ski-field page — unlike Cardrona/Treble Cone/etc.)
+  // all confirmed directly. baseElev picks the low end of the stated
+  // 1400-1438m car park range.
+  mthutt: { name: 'Mt Hutt', lat: -43.4956, lon: 171.539722, summitElev: 2086, baseElev: 1400, timezone: 'Pacific/Auckland', metservicePath: 'mountains-and-parks/national-parks/canterbury-high-country' },
 }
 
 // --- MetService freezing-level helpers ---------------------------------------
