@@ -640,6 +640,15 @@ const RESORT_CONFIG = {
     lat: -44.633063, lon: 168.896105, summitElev: 2088, baseElev: 1260, timezone: 'Pacific/Auckland',
     topElev: 2500, // colour ramp upper bound — above the highest terrain in view (DEM reaches ~2400m here)
     center: [168.884, -44.634], zoom: 13.5, pitch: 62, bearing: 290
+  },
+  mthutt: {
+    name: 'Mt Hutt',
+    lat: -43.4776, lon: 171.5486, summitElev: 2075, baseElev: 1400, timezone: 'Pacific/Auckland',
+    topElev: 2200, // approx colour-ramp upper bound above summit — unverified, adjust once seen live
+    // No hand-picked camera framing yet (unlike cardrona's) — plain top-down
+    // default centred on the resort's own coordinates. Needs a real capture
+    // once this is live, same as the other resorts got eventually.
+    center: [171.5486, -43.4776], zoom: 13.2, pitch: 62, bearing: 180
   }
 };
 
@@ -658,7 +667,8 @@ const LOC = RESORT_CONFIG[resortKey];
 const RESORT_PILL_MAX_ZOOM = 11;
 const RESORT_PILL_LABELS = {
   ruapehu: 'Whakapapa', cardrona: 'Cardrona', loveland: 'Loveland',
-  mtlyford: 'Mt Lyford', roundhill: 'Roundhill', mtvernon: 'Mt Vernon', treblecone: 'Treble Cone'
+  mtlyford: 'Mt Lyford', roundhill: 'Roundhill', mtvernon: 'Mt Vernon', treblecone: 'Treble Cone',
+  mthutt: 'Mt Hutt'
 };
 const OTHER_RESORT_KEYS = Object.keys(RESORT_CONFIG).filter(k => k !== resortKey);
 let resortPillMarkers = {};
@@ -1985,6 +1995,7 @@ const RESORT_REGIONS = {
   mtlyford: 'canterbury',
   roundhill: 'canterbury',
   treblecone: 'otago',
+  mthutt: 'canterbury',
 };
 const RADAR_REGION = RESORT_REGIONS[resortKey] || null;
 const RADAR_CALIBRATION = RADAR_REGION ? REGIONAL_CALIBRATIONS[RADAR_REGION] : null;
@@ -2507,8 +2518,12 @@ const PW_CONFIG = {
     ],
   },
 };
-const PW_TILES = (PW_CONFIG[resortKey] || PW_CONFIG.ruapehu).tiles;
-const PW_STATIONS = (PW_CONFIG[resortKey] || PW_CONFIG.ruapehu).stations;
+// Every resort has had its own entry above so far; a resort with none (e.g.
+// mthutt, no live obs wired up yet) gets an empty station list rather than
+// silently falling back to another resort's — that would show real-looking
+// temperature pins observing the wrong mountain.
+const PW_TILES = (PW_CONFIG[resortKey] || { tiles: [], stations: [] }).tiles;
+const PW_STATIONS = (PW_CONFIG[resortKey] || { tiles: [], stations: [] }).stations;
 const KT_TO_KMH = 1.852;
 let pwRefreshTimer = null;
 let pwVisible = true; // observation pills shown by default
