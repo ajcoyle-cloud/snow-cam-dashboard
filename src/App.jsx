@@ -141,16 +141,18 @@ function cameraRegion(cam) {
   if (cam.location === 'Cardrona') return 'cardrona'
   if (cam.location === 'Roundhill') return 'roundhill'
   if (cam.location === 'Mt Lyford') return 'mtlyford'
-  return 'southisland' // Treble Cone, The Remarkables, Coronet Peak, Mt Hutt
+  if (cam.location === 'Mt Hutt') return 'mthutt'
+  return 'southisland' // Treble Cone, The Remarkables, Coronet Peak
 }
 
 // Per-resort priority of region buckets. Buckets not listed fall to the end.
 const CAMERA_REGION_ORDER = {
-  ruapehu: ['whakapapa', 'northisland', 'cardrona', 'southisland', 'roundhill', 'loveland', 'mtlyford'],
-  cardrona: ['cardrona', 'southisland', 'roundhill', 'whakapapa', 'northisland', 'loveland', 'mtlyford'],
-  roundhill: ['roundhill', 'cardrona', 'southisland', 'whakapapa', 'northisland', 'loveland', 'mtlyford'],
-  loveland: ['loveland', 'whakapapa', 'northisland', 'cardrona', 'roundhill', 'southisland', 'mtlyford'],
-  mtlyford: ['mtlyford', 'southisland', 'roundhill', 'cardrona', 'whakapapa', 'northisland', 'loveland'],
+  ruapehu: ['whakapapa', 'northisland', 'cardrona', 'southisland', 'roundhill', 'loveland', 'mtlyford', 'mthutt'],
+  cardrona: ['cardrona', 'southisland', 'roundhill', 'whakapapa', 'northisland', 'loveland', 'mtlyford', 'mthutt'],
+  roundhill: ['roundhill', 'cardrona', 'southisland', 'whakapapa', 'northisland', 'loveland', 'mtlyford', 'mthutt'],
+  loveland: ['loveland', 'whakapapa', 'northisland', 'cardrona', 'roundhill', 'southisland', 'mtlyford', 'mthutt'],
+  mtlyford: ['mtlyford', 'southisland', 'roundhill', 'cardrona', 'whakapapa', 'northisland', 'loveland', 'mthutt'],
+  mthutt: ['mthutt', 'southisland', 'roundhill', 'mtlyford', 'cardrona', 'whakapapa', 'northisland', 'loveland'],
 }
 
 // Stable sort keeps original within-bucket order; unknown buckets sort last.
