@@ -1,7 +1,7 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import { resolveLyfordCam } from './api/lyford-cam.js'
-import { resolveWhakaReport } from './api/whaka-report.js'
+import { resolveRscCam } from './api/rsc-cam.js'
 
 // Dev parity for the Mt Lyford webcam scraper. In prod, /lyford-cam/<cam> is a
 // Vercel function (api/lyford-cam.js); the Vite dev server doesn't run that, so
@@ -35,19 +35,17 @@ function lyfordCamDev() {
   }
 }
 
-// Dev parity for the Whakapapa report scraper (api/whaka-report.js), same
-// pattern as lyfordCamDev above: /whaka-report returns the distilled report
-// JSON (24h snowfall etc.) in dev just as the Vercel function does in prod.
-function whakaReportDev() {
+// Dev parity for the RSC Lodge webcam proxy (api/rsc-cam.js).
+function rscCamDev() {
   return {
-    name: 'whaka-report-dev',
+    name: 'rsc-cam-dev',
     configureServer(server) {
-      server.middlewares.use('/whaka-report', async (req, res) => {
+      server.middlewares.use('/rsc-cam', async (req, res) => {
         try {
-          const data = await resolveWhakaReport()
-          res.setHeader('Content-Type', 'application/json')
-          res.setHeader('Cache-Control', 'public, max-age=300')
-          res.end(JSON.stringify(data))
+          const { contentType, buffer } = await resolveRscCam()
+          res.setHeader('Content-Type', contentType)
+          res.setHeader('Cache-Control', 'no-store, max-age=0')
+          res.end(buffer)
         } catch (e) {
           const status = e && typeof e.status === 'number' ? e.status : 502
           res.statusCode = status
@@ -60,7 +58,7 @@ function whakaReportDev() {
 }
 
 export default defineConfig({
-  plugins: [react(), lyfordCamDev(), whakaReportDev()],
+  plugins: [react(), lyfordCamDev(), rscCamDev()],
   server: {
     port: 5173,
     // MetService's public webdata API only allows its own origin (CORS), so the

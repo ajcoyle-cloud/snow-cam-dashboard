@@ -66,7 +66,7 @@ const getWindArrow = (degrees) => {
 }
 
 const NORTH_ISLAND = [
-  { name: 'RSC Lodge', url: 'https://www.rsc.org.nz/latest.jpg', location: 'Whakapapa', elevation: 1750 },
+  { name: 'RSC Lodge', url: '/rsc-cam', location: 'Whakapapa', elevation: 1750 },
   { name: 'Happy Valley', url: 'https://webcams.whakapapa.com/hvfromskywaka/latest.jpg', archiveBase: 'hvfromskywaka', location: 'Whakapapa', elevation: 1620 },
   { name: 'The Pinnacles', url: 'https://www.mountainwatch.com/Resort/Whakapapa-the-pinnacles/LiveStill.jpg', location: 'Whakapapa', elevation: 2000 },
   { name: 'Staircase Slopes', url: 'https://www.mountainwatch.com/Resort/Whakapapa-staircase-slpes/LiveStill.jpg', location: 'Whakapapa', elevation: 1750 },
@@ -398,7 +398,7 @@ function NzSkiCamera({ manifest, cameraKey, angle = 'Angle1', alt, onError, styl
   return <img src={src} alt={alt} onError={onError} style={style} />
 }
 
-function CameraCard({ camera, allCameras = [], whakaSnow24 = null }) {
+function CameraCard({ camera, allCameras = [] }) {
   const [fullscreenCam, setFullscreenCam] = useState(null)
   const [cameraIndex, setCameraIndex] = useState(0)
   const [refreshKey, setRefreshKey] = useState(0)
@@ -503,21 +503,6 @@ function CameraCard({ camera, allCameras = [], whakaSnow24 = null }) {
               onError={() => setBroken(true)}
             />
           )}
-          {camera.location === 'Whakapapa' && whakaSnow24 != null && (
-            <div style={{
-              position: 'absolute',
-              top: '12px',
-              right: '12px',
-              color: '#ffffff',
-              fontSize: '0.75rem',
-              fontWeight: '700',
-              pointerEvents: 'none',
-              textShadow: '0 1px 3px rgba(0,0,0,0.7)',
-              zIndex: 10
-            }}>
-              24h {whakaSnow24}cm
-            </div>
-          )}
         </div>
         {isMultiCamera && (
           <div className="camera-badge">{safeIndex + 1}/{activeCameras.length}</div>
@@ -618,21 +603,6 @@ function CameraCard({ camera, allCameras = [], whakaSnow24 = null }) {
                   onError={(e) => { e.target.style.opacity = '0.2' }}
                 />
               )}
-              {activeCam.location === 'Whakapapa' && whakaSnow24 != null && (
-                <div style={{
-                  position: 'absolute',
-                  top: '12px',
-                  right: '12px',
-                  color: '#ffffff',
-                  fontSize: '0.85rem',
-                  fontWeight: '700',
-                  pointerEvents: 'none',
-                  textShadow: '0 1px 3px rgba(0,0,0,0.7)',
-                  zIndex: 10
-                }}>
-                  24h {whakaSnow24}cm
-                </div>
-              )}
               {isMultiCamera && (
                 <>
                   <button className="nav-btn nav-btn-left" onClick={handlePrevCamera}>‹</button>
@@ -650,31 +620,12 @@ function CameraCard({ camera, allCameras = [], whakaSnow24 = null }) {
 }
 
 function CameraGrid({ cameras, cols = 4 }) {
-  // Whakapapa's 24h new-snowfall total, scraped from whakapapa.com/report via
-  // /whaka-report (api/whaka-report.js). Fetched once here and passed to every
-  // card; only the Whakapapa cams render it as a "24h Xcm" overlay.
-  const [whakaSnow24, setWhakaSnow24] = useState(null)
-  useEffect(() => {
-    let cancelled = false
-    const load = async () => {
-      try {
-        const r = await fetch('/whaka-report')
-        if (!r.ok) return
-        const d = await r.json()
-        if (!cancelled && typeof d.snow24cm === 'number') setWhakaSnow24(d.snow24cm)
-      } catch (e) {}
-    }
-    load()
-    const id = setInterval(load, 600000) // refresh every 10 min
-    return () => { cancelled = true; clearInterval(id) }
-  }, [])
-
   // --cam-cols drives grid-template-columns on desktop; mobile media queries
   // override to a single column regardless of this value.
   return (
     <div className="camera-grid" style={{ '--cam-cols': cols }}>
       {cameras.map((camera) => (
-        <CameraCard key={camera.name} camera={camera} allCameras={cameras} whakaSnow24={whakaSnow24} />
+        <CameraCard key={camera.name} camera={camera} allCameras={cameras} />
       ))}
     </div>
   )
