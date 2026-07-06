@@ -256,6 +256,10 @@
     box-shadow: 0 0 0 2px rgba(255,255,255,0.35); flex-shrink: 0;
   }
   .station-pill.stale { opacity: 0.55; }
+  /* Radar view is its own clean read of live precipitation — every other
+     weather-data overlay (station temp pills, snow/temp colour drape) is
+     turned off rather than drawing on top of/under the radar image. */
+  #map-screen.radar-mode .station-pill { display: none !important; }
 
   /* ── Snowfall pin + black pill (hourly + accumulated maps) ──────────────── */
   .snowfall-marker { display: flex; flex-direction: column; align-items: center; pointer-events: none; transition: opacity 0.5s ease; }
@@ -1888,6 +1892,13 @@ function setViewMode(mode) {
   document.getElementById('radar-timeline').style.display = mode === 'radar' ? 'flex' : 'none';
   document.getElementById('map-screen').classList.toggle('live-mode', mode === 'live');
   document.getElementById('map-screen').classList.toggle('accum-mode', mode === 'accumulated');
+  document.getElementById('map-screen').classList.toggle('radar-mode', mode === 'radar');
+  // Radar is a clean read of live precipitation — clear whatever snow/temp
+  // colour drape the previous mode left painted on 'snow-relief' so it isn't
+  // still showing through/under the radar image. Leaving radar re-paints the
+  // correct ramp anyway (openMapView/renderAccumulatedView/renderLiveTempView
+  // all call applyRampWhenReady themselves).
+  if (mode === 'radar') applyRampWhenReady(buildSnowRamp(null));
   // Snowfall pin shows on hourly + accumulated; clear it only in live/radar view.
   if ((mode === 'live' || mode === 'radar') && snowfallMarker) { snowfallMarker.remove(); snowfallMarker = null; }
   // The minimised-drawer summary is accumulated-only; clear it elsewhere so the
