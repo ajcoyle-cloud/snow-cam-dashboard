@@ -75,6 +75,12 @@ const NORTH_ISLAND = [
   { name: 'Far West T-Bar', url: 'https://webcams.whakapapa.com/farwesttbar/latest.jpg', location: 'Whakapapa', elevation: 2200 },
   { name: 'Turoa - Camera 1', url: 'https://s128.ipcamlive.com/streams_timeshift/80bze0dwhrnofue8a/snapshot.jpg', location: 'Turoa' },
   { name: 'Turoa - Camera 2', url: 'https://s128.ipcamlive.com/streams_timeshift/80eabuzmxklvr7gvj/snapshot.jpg', location: 'Turoa' },
+  // pureturoa.nz/webcams' live feeds (ipcamlive HLS, not periodic snapshots
+  // like the two above) — one .m3u8 per named camera, played via VideoPlayer.
+  { name: 'Alpine Meadow', url: 'https://s128.ipcamlive.com/streams_timeshift/80zpa8tpqwfru9bxy/stream.m3u8', isVideo: true, location: 'Turoa' },
+  { name: 'The Giant', url: 'https://s112.ipcamlive.com/streams_timeshift/70qhetpo2wxiianyw/stream.m3u8', isVideo: true, location: 'Turoa' },
+  { name: 'High Noon Return', url: 'https://s90.ipcamlive.com/streams_timeshift/5atchtxmmzd0vqrb9/stream.m3u8', isVideo: true, location: 'Turoa' },
+  { name: 'Movenpick', url: 'https://s116.ipcamlive.com/streams_timeshift/7424mbdewizxgjsvl/stream.m3u8', isVideo: true, location: 'Turoa' },
   { name: 'Ohakune', isYouTube: true, youtubeId: 'GxxT-Cv3r3g', location: 'Turoa' },
   {
     name: 'Ruapehu',
