@@ -1,18 +1,27 @@
 // Proxy/scraper for Whakapapa's official daily snow report text summary.
 //
-// mtruapehu.com/whakapapa/report is bot-protected (403s to fetches without a
-// real browser UA — same story as Mt Lyford's webcam page, see lyford-cam.js)
-// and this repo's dev/CI network can't reach it to inspect the live markup.
-// Rather than hard-code a selector we can't verify, extraction below tries a
-// few strategies in order (structured JSON payload, an explicit "Snow
-// Report" heading + following paragraph, then a generic first-substantial-
-// paragraph fallback) and returns whichever hits first. ?debug=1 returns
-// every candidate each strategy found so the real selector can be pinned
-// down once this is deployed and someone can see actual output.
+// This repo's dev/CI network can't reach either candidate host to inspect
+// the live markup, so extraction below tries a few strategies in order
+// (structured JSON payload, an explicit "Snow Report" heading + following
+// paragraph, meta description, then a generic first-substantial-paragraph
+// fallback) and returns whichever hits first. ?debug=1 returns every
+// candidate each strategy found, plus the per-URL fetch results, so the
+// real source/selector can be pinned down once this is deployed and
+// someone can see actual output.
+//
+// www.mtruapehu.com/whakapapa/report was the first guess (found via search)
+// but returns a live 404 in prod — the webcams already live under
+// webcams.whakapapa.com, suggesting Whakapapa now has its own dedicated
+// whakapapa.com site rather than living under the old mtruapehu.com
+// umbrella, so that's tried first; mtruapehu.com is kept as a fallback in
+// case that guess is also wrong or the site structure changes again.
 //
 // vercel.json rewrites /whakapapa-report -> /api/whakapapa-report.
 
-const PAGE_URL = 'https://www.mtruapehu.com/whakapapa/report';
+const PAGE_URLS = [
+  'https://www.whakapapa.com/report',
+  'https://www.mtruapehu.com/whakapapa/report',
+];
 
 const BROWSER_HEADERS = {
   'User-Agent':
@@ -110,23 +119,34 @@ function extractCandidates(html) {
 }
 
 export async function resolveWhakapapaReport({ debug = false } = {}) {
-  const pageResp = await fetch(PAGE_URL, { headers: BROWSER_HEADERS });
-  if (!pageResp.ok) {
-    throw { status: 502, body: { error: 'page fetch failed', status: pageResp.status } };
+  const attempts = [];
+  for (const pageUrl of PAGE_URLS) {
+    let pageResp;
+    try {
+      pageResp = await fetch(pageUrl, { headers: BROWSER_HEADERS });
+    } catch (e) {
+      attempts.push({ url: pageUrl, error: String((e && e.message) || e) });
+      continue;
+    }
+    if (!pageResp.ok) {
+      attempts.push({ url: pageUrl, status: pageResp.status });
+      continue;
+    }
+    const html = await pageResp.text();
+    const candidates = extractCandidates(html);
+    attempts.push({ url: pageUrl, status: pageResp.status, candidates });
+
+    if (!debug && candidates.length > 0) {
+      const best = candidates[0];
+      return { summary: best.text, strategy: best.strategy, source: pageUrl, fetchedAt: new Date().toISOString() };
+    }
   }
-  const html = await pageResp.text();
-  const candidates = extractCandidates(html);
 
   if (debug) {
-    return { debug: { source: PAGE_URL, candidates } };
+    return { debug: { attempts } };
   }
 
-  if (candidates.length === 0) {
-    throw { status: 502, body: { error: 'no summary found', source: PAGE_URL } };
-  }
-
-  const best = candidates[0];
-  return { summary: best.text, strategy: best.strategy, source: PAGE_URL, fetchedAt: new Date().toISOString() };
+  throw { status: 502, body: { error: 'no summary found from any source', attempts } };
 }
 
 export default async function handler(req, res) {
