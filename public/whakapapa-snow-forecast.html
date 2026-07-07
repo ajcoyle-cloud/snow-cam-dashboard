@@ -307,7 +307,6 @@
     transition: transform 0.12s ease, box-shadow 0.12s ease, opacity 0.25s ease;
   }
   .resort-pill:hover { transform: scale(1.07); box-shadow: 0 3px 12px rgba(0,0,0,0.6); }
-  .resort-pill .resort-pill-temp { color: rgba(255,255,255,0.7); font-weight: 600; }
   .resort-pill-stem {
     width: 2px; margin-top: 2px;
     background: linear-gradient(180deg, rgba(255,255,255,0.9), rgba(255,255,255,0.3));
@@ -735,7 +734,6 @@ const RESORT_PILL_LABELS = {
   mtlyford: 'Mt Lyford', roundhill: 'Roundhill', mtvernon: 'Mt Vernon', treblecone: 'Treble Cone',
   mthutt: 'Mt Hutt'
 };
-const OTHER_RESORT_KEYS = Object.keys(RESORT_CONFIG).filter(k => k !== resortKey);
 let resortPillMarkers = {};
 
 // Whakapapa ski field lift lines (chairlifts, gondola, T-bars, carpets, rope
@@ -884,23 +882,6 @@ async function prefetchOtherResorts() {
   }
 }
 
-// Lightweight "now" temperature at another resort's base elevation, for the
-// navigation pill label — deliberately not the full multi-model hourly fetch
-// (buildModelHours etc.) that this page does for its OWN resort, since all we
-// need here is a single current value per other resort.
-async function fetchOtherResortTemp(key) {
-  const r = RESORT_CONFIG[key];
-  const url = `https://api.open-meteo.com/v1/forecast?latitude=${r.lat}&longitude=${r.lon}&elevation=${r.baseElev}&current=temperature_2m&temperature_unit=celsius&timezone=${r.timezone}&models=gfs_global`;
-  const res = await fetchOrNull(url);
-  if (!res) return null;
-  try {
-    const json = await res.json();
-    return json.current?.temperature_2m ?? null;
-  } catch (e) {
-    return null;
-  }
-}
-
 // Switches the active resort: persists the choice so the main React app's
 // location switcher picks it up too, then either tells the parent (if this
 // page is embedded in the app's map tab, which just re-keys its iframe to the
@@ -916,43 +897,12 @@ function navigateToResort(key) {
   }
 }
 
-// The other-resort temp fetches are only worth making once the pills are
-// actually visible, and firing all 6 immediately on load would add to the
-// exact same network contention window as this resort's own (much more
-// critical) weather fetches. Kick them off lazily, once, the first time the
-// user zooms out far enough to see the pills.
-let resortPillTempsFetched = false;
+// Pills are only shown once zoomed out past RESORT_PILL_MAX_ZOOM.
 function updateResortPillVisibility() {
   const show = map.getZoom() <= RESORT_PILL_MAX_ZOOM;
   for (const key in resortPillMarkers) {
     resortPillMarkers[key].getElement().style.display = show ? '' : 'none';
   }
-  if (show && !resortPillTempsFetched) {
-    resortPillTempsFetched = true;
-    OTHER_RESORT_KEYS.forEach((key) => {
-      fetchOtherResortTemp(key).then((temp) => {
-        const tempEl = resortPillMarkers[key]?.getElement().querySelector('.resort-pill-temp');
-        if (tempEl && temp != null) tempEl.textContent = `${temp.toFixed(1)}°C`;
-      });
-    });
-  }
-}
-
-// The current resort's own pill shows the "now" base temp from data this
-// page has already loaded — no need for a redundant fetch like the other
-// resorts get. "Now" means closest-to-current-time, not whatever hour the
-// timeline is scrubbed to, so it stays consistent with the other pills.
-function updateOwnResortPillTemp() {
-  const marker = resortPillMarkers[resortKey];
-  const tempEl = marker?.getElement().querySelector('.resort-pill-temp');
-  if (!tempEl || forecastHours.length === 0) return;
-  const now = Date.now();
-  let nearest = forecastHours[0], bestDiff = Infinity;
-  forecastHours.forEach((r) => {
-    const diff = Math.abs(new Date(r.time).getTime() - now);
-    if (diff < bestDiff) { bestDiff = diff; nearest = r; }
-  });
-  if (nearest?.baseTemp != null) tempEl.textContent = `${nearest.baseTemp.toFixed(1)}°C`;
 }
 
 function initResortPills() {
@@ -962,7 +912,7 @@ function initResortPills() {
     const wrap = document.createElement('div');
     wrap.className = 'resort-pill-wrap';
     wrap.innerHTML = `
-      <div class="resort-pill">${RESORT_PILL_LABELS[key] || key} <span class="resort-pill-temp"></span></div>
+      <div class="resort-pill">${RESORT_PILL_LABELS[key] || key}</div>
       <div class="resort-pill-stem"></div>
       <div class="resort-pill-dot"></div>
     `;
@@ -999,8 +949,6 @@ function initResortPills() {
   });
   updateResortPillVisibility();
   map.on('zoom', updateResortPillVisibility);
-  // In case forecastHours already loaded before the map style did.
-  updateOwnResortPillTemp();
 }
 
 // Build one model's hourly series. GFS exposes a direct freezing-level field
@@ -1136,9 +1084,6 @@ async function loadForecast() {
   forecastHours = modelHours[selectedModel] || modelHours.average
     || modelHours.gfs || modelHours.ecmwf || modelHours.aifs || modelHours.ukmo || [];
   openFromQueryParams();
-  // In case the map style already loaded (and created the pill) before this
-  // forecast data did.
-  updateOwnResortPillTemp();
   // Quietly warm the cache for every other resort now that this one's own
   // (much more urgent) load is done, so tapping a resort pill later finds
   // that resort's weather data already sitting in sessionStorage instead of
@@ -1161,7 +1106,6 @@ function selectModel(key) {
   forecastHours = modelHours[key];
   buildModelMenu();
   closeModelMenu();
-  updateOwnResortPillTemp();
   if (viewMode === 'accumulated') renderAccumulatedView();
   else if (viewMode === 'hourly') openMapView(Math.min(currentIndex, forecastHours.length - 1));
 }
