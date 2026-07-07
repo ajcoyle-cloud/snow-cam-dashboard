@@ -67,6 +67,20 @@ function hueAllowed(h, bands) {
   return false
 }
 
+// Same four hue ranges as hueAllowed above, but returning which one instead
+// of a pass/fail — this is the radar's own colour-coded intensity scale, not
+// a separate classifier. Labelled light -> severe the way these ramps are
+// conventionally drawn (blue/green light rain up through yellow to red/purple
+// heavy) — an assumption carried over from the existing calibration data,
+// not independently ground-truthed against this specific feed's legend.
+export const STORM_BAND_LABELS = { blue: 'Light', green: 'Moderate', yellowGold: 'Heavy', redPurple: 'Severe' }
+function hueBand(h) {
+  if (h >= 35 && h < 70) return 'yellowGold'
+  if (h >= 70 && h < 160) return 'green'
+  if (h >= 160 && h < 280) return 'blue'
+  return 'redPurple' // h >= 280 || h < 35
+}
+
 // Fetches one regional frame and returns its cropped raw pixels (same crop
 // window the map drape uses) plus the isolate thresholds needed to test each
 // pixel for "is this precip" on demand.
@@ -118,13 +132,15 @@ function kmBetween([lon1, lat1], [lon2, lat2]) {
   return Math.hypot(dx, dy) * 111.32
 }
 
-// Nearest precip-pixel distance (km) from `target` [lon, lat]. Subsamples the
-// frame on a coarse grid — this is a demo nowcast, not a certified radar
-// tracker, so pixel-perfect precision buys nothing here.
+// Nearest precip pixel to `target` [lon, lat] — its distance (km) and radar
+// colour band. Subsamples the frame on a coarse grid — this is a demo
+// nowcast, not a certified radar tracker, so pixel-perfect precision buys
+// nothing here.
 const SAMPLE_STRIDE = 4
-function nearestPrecipDistanceKm(frame, corners, isolate, target) {
+function nearestPrecip(frame, corners, isolate, target) {
   const { data, width, height } = frame
   let best = Infinity
+  let bestBand = null
   for (let y = 0; y < height; y += SAMPLE_STRIDE) {
     for (let x = 0; x < width; x += SAMPLE_STRIDE) {
       const i = (y * width + x) * 4
@@ -132,10 +148,10 @@ function nearestPrecipDistanceKm(frame, corners, isolate, target) {
       if (s < isolate.minSaturation || v < isolate.minBrightness || v > isolate.maxBrightness) continue
       if (!hueAllowed(h, isolate.hueBands)) continue
       const d = kmBetween(target, pixelToLngLat(x / width, y / height, corners))
-      if (d < best) best = d
+      if (d < best) { best = d; bestBand = hueBand(h) }
     }
   }
-  return best === Infinity ? null : best
+  return best === Infinity ? null : { distanceKm: best, band: bestBand }
 }
 
 // "A few hours or less" per the feature request.
@@ -149,9 +165,12 @@ const MIN_CLOSING_SPEED_KM_PER_MIN = 0.05
 // estimate too coarse to trust.
 const MAX_FRAME_GAP_MIN = 25
 
-// Returns { etaMinutes, distanceKm } for a precip cell closing in on `target`
-// within STORM_ARRIVAL_MAX_ETA_MIN, or null when nothing qualifies — callers
-// should render nothing (no empty state) on null.
+// Returns { etaMinutes, distanceKm, band } for a precip cell closing in on
+// `target` within STORM_ARRIVAL_MAX_ETA_MIN, or null when nothing qualifies —
+// callers should render nothing (no empty state) on null. `band` is the radar
+// colour band (see STORM_BAND_LABELS) of the closest qualifying pixel in the
+// latest frame — i.e. the leading edge of what's approaching, not necessarily
+// the most intense part of the whole cell.
 export async function computeStormArrival(region, target) {
   const calibration = REGIONAL_RADAR_CALIBRATIONS[region]
   if (!calibration) return null
@@ -168,15 +187,15 @@ export async function computeStormArrival(region, target) {
   const dtMin = (tsToDate(newer.ts) - tsToDate(older.ts)) / 60000
   if (dtMin <= 0 || dtMin > MAX_FRAME_GAP_MIN) return null
 
-  const dNew = nearestPrecipDistanceKm(newer.frame, calibration.corners, calibration.isolate, target)
-  const dOld = nearestPrecipDistanceKm(older.frame, calibration.corners, calibration.isolate, target)
-  if (dNew == null || dOld == null || dNew > MAX_TRACK_RADIUS_KM) return null
+  const newHit = nearestPrecip(newer.frame, calibration.corners, calibration.isolate, target)
+  const oldHit = nearestPrecip(older.frame, calibration.corners, calibration.isolate, target)
+  if (!newHit || !oldHit || newHit.distanceKm > MAX_TRACK_RADIUS_KM) return null
 
-  const speedKmPerMin = (dOld - dNew) / dtMin
+  const speedKmPerMin = (oldHit.distanceKm - newHit.distanceKm) / dtMin
   if (speedKmPerMin < MIN_CLOSING_SPEED_KM_PER_MIN) return null
 
-  const etaMinutes = Math.max(0, Math.round(dNew / speedKmPerMin))
+  const etaMinutes = Math.max(0, Math.round(newHit.distanceKm / speedKmPerMin))
   if (etaMinutes > STORM_ARRIVAL_MAX_ETA_MIN) return null
 
-  return { etaMinutes, distanceKm: Math.round(dNew) }
+  return { etaMinutes, distanceKm: Math.round(newHit.distanceKm), band: newHit.band }
 }
