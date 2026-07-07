@@ -286,6 +286,15 @@
   }
 
   /* ── Other-resort navigation pills (shown when zoomed out) ─────────────── */
+  /* The pill itself used to sit centred right on the resort's coordinate,
+     which meant its own body covered the ski field it was labelling. Now it
+     floats above on a thin stem (height = the pill's own rendered width, set
+     in JS — see initResortPills) with a dot at the bottom marking the real
+     point, so the pill is out of the way but still clearly points at it. */
+  .resort-pill-wrap {
+    display: flex; flex-direction: column; align-items: center;
+    pointer-events: none;
+  }
   .resort-pill {
     display: inline-flex; align-items: center; gap: 6px;
     padding: 6px 13px; border-radius: 999px;
@@ -294,10 +303,20 @@
     border: 1.5px solid rgba(255,255,255,0.75);
     box-shadow: 0 2px 8px rgba(0,0,0,0.5);
     cursor: pointer; white-space: nowrap; user-select: none;
+    pointer-events: auto;
     transition: transform 0.12s ease, box-shadow 0.12s ease, opacity 0.25s ease;
   }
   .resort-pill:hover { transform: scale(1.07); box-shadow: 0 3px 12px rgba(0,0,0,0.6); }
   .resort-pill .resort-pill-temp { color: rgba(255,255,255,0.7); font-weight: 600; }
+  .resort-pill-stem {
+    width: 2px; margin-top: 2px;
+    background: linear-gradient(180deg, rgba(255,255,255,0.9), rgba(255,255,255,0.3));
+  }
+  .resort-pill-dot {
+    width: 7px; height: 7px; margin-top: -1px; border-radius: 50%;
+    background: #fff; border: 1.5px solid rgba(0,0,0,0.6);
+    box-shadow: 0 0 0 2px rgba(255,255,255,0.25);
+  }
 
   .obs-modal-backdrop {
     position: absolute; inset: 0; z-index: 1200;
@@ -926,9 +945,14 @@ function initResortPills() {
   Object.keys(RESORT_CONFIG).forEach((key) => {
     const r = RESORT_CONFIG[key];
     const isSelf = key === resortKey;
-    const el = document.createElement('div');
-    el.className = 'resort-pill';
-    el.innerHTML = `${RESORT_PILL_LABELS[key] || key} <span class="resort-pill-temp"></span>`;
+    const wrap = document.createElement('div');
+    wrap.className = 'resort-pill-wrap';
+    wrap.innerHTML = `
+      <div class="resort-pill">${RESORT_PILL_LABELS[key] || key} <span class="resort-pill-temp"></span></div>
+      <div class="resort-pill-stem"></div>
+      <div class="resort-pill-dot"></div>
+    `;
+    const el = wrap.querySelector('.resort-pill');
     el.addEventListener('click', (e) => {
       e.stopPropagation();
       if (isSelf) {
@@ -953,7 +977,11 @@ function initResortPills() {
       // default view.
       navigateToResort(key);
     });
-    resortPillMarkers[key] = new maplibregl.Marker({ element: el, anchor: 'center' }).setLngLat([r.lon, r.lat]).addTo(map);
+    // anchor 'bottom' puts the dot (not the pill) exactly on the resort's
+    // coordinate — the pill floats above it, clear of the terrain.
+    resortPillMarkers[key] = new maplibregl.Marker({ element: wrap, anchor: 'bottom' }).setLngLat([r.lon, r.lat]).addTo(map);
+    const stemEl = wrap.querySelector('.resort-pill-stem');
+    stemEl.style.height = `${el.offsetWidth}px`;
   });
   updateResortPillVisibility();
   map.on('zoom', updateResortPillVisibility);
