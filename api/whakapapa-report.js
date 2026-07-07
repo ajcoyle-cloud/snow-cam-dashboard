@@ -9,17 +9,16 @@
 // real source/selector can be pinned down once this is deployed and
 // someone can see actual output.
 //
-// www.mtruapehu.com/whakapapa/report was the first guess (found via search)
-// but returns a live 404 in prod. www.whakapapa.com/report was the second
-// guess (same reasoning — webcams already live under webcams.whakapapa.com —
-// but still a guess, not confirmed) and is kept as a fallback below.
-// www.whakapapa.com/resort is confirmed correct (per user).
+// www.whakapapa.com/report is where the report DOM was captured via DevTools
+// (the <h2 id="daily-report"> + reportSummary component), so it's tried first.
+// /resort (mentioned by the user) and the old mtruapehu.com path are kept as
+// fallbacks in case the report is embedded on multiple pages or moves again.
 //
 // vercel.json rewrites /whakapapa-report -> /api/whakapapa-report.
 
 const PAGE_URLS = [
-  'https://www.whakapapa.com/resort',
   'https://www.whakapapa.com/report',
+  'https://www.whakapapa.com/resort',
   'https://www.mtruapehu.com/whakapapa/report',
 ];
 
@@ -73,6 +72,30 @@ function findSummaryInJson(value, out, depth = 0) {
 function extractCandidates(html) {
   const candidates = [];
   const cleaned = stripNoise(html);
+
+  // Strategy 0 (highest priority): Whakapapa's own report web component, as
+  // confirmed by inspecting the live DOM. The report prose sits in
+  //   <div class="reportSummary_HASH"> … <p>…</p> … </div>
+  // anchored just after <h2 id="daily-report"> and a <div class="lastUpdated_…">.
+  // The _HASH suffix is a per-build CSS-module hash, so we match on the stable
+  // class *prefix* (reportSummary_, distinct from the outer
+  // reportSummaryWrapper_) and stop at the next section (liveOps…) so we don't
+  // bleed into the lift-status block below it. NOTE: the page is a Lit app, so
+  // if this text is injected client-side rather than server-rendered, a plain
+  // fetch() won't contain it and this (and every strategy) yields nothing —
+  // ?debug=1 distinguishes "fetched but empty" from "matched".
+  const rsMatch = html.match(/class=["']reportSummary_[A-Za-z0-9]+["']/);
+  if (rsMatch) {
+    const rest = html.slice(rsMatch.index);
+    const stopIdx = rest.slice(1).search(/liveOps|class=["'][^"']*Wrapper_/);
+    const slice = stopIdx > 0 ? rest.slice(0, stopIdx + 1) : rest.slice(0, 4000);
+    const paras = [...slice.matchAll(/<p[^>]*>([\s\S]*?)<\/p>/gi)]
+      .map((m) => stripTags(m[1]))
+      .filter((t) => t.length >= 20);
+    if (paras.length) {
+      candidates.push({ strategy: 'reportSummary-component', text: paras.join('\n\n') });
+    }
+  }
 
   // Strategy 1: structured JSON embedded in the page (Next.js/Nuxt-style
   // hydration payloads commonly used by modern CMS-driven sites).

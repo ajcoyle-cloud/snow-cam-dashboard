@@ -508,6 +508,10 @@
   line-height: 1.5;
 }
 
+.whakapapa-report p + p {
+  margin-top: 8px;
+}
+
 .forecast-section {
   background: #111;
 }

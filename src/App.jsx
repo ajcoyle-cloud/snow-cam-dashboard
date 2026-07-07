@@ -406,10 +406,10 @@ function NzSkiCamera({ manifest, cameraKey, angle = 'Angle1', alt, onError, styl
 }
 
 // Text summary from Whakapapa's official daily snow report (scraped server-side
-// by api/whakapapa-report.js — mtruapehu.com blocks non-browser fetches, so the
-// dashboard can't read it directly). Renders nothing while loading or if the
-// scrape comes up empty, rather than showing a placeholder/error — same pattern
-// as StormArrivalBanner above.
+// by api/whakapapa-report.js from whakapapa.com/report — the site blocks
+// non-browser fetches and enforces same-origin, so the dashboard can't read it
+// directly). Renders nothing while loading or if the scrape comes up empty,
+// rather than showing a placeholder/error — same pattern as StormArrivalBanner.
 function WhakapapaSnowReport() {
   const [report, setReport] = useState(null)
 
@@ -424,10 +424,14 @@ function WhakapapaSnowReport() {
 
   if (!report?.summary) return null
 
+  // The scraper joins the report's multiple paragraphs with blank lines —
+  // split them back out so each renders as its own <p>.
+  const paragraphs = report.summary.split(/\n{2,}/).map((s) => s.trim()).filter(Boolean)
+
   return (
     <div className="whakapapa-report">
       <h4>Whakapapa Snow Report</h4>
-      <p>{report.summary}</p>
+      {paragraphs.map((para, i) => <p key={i}>{para}</p>)}
     </div>
   )
 }
