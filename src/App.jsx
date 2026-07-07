@@ -1,6 +1,6 @@
 // Updated with Loveland ski area and forecast view switcher
 import { useState, useEffect, useRef } from 'react'
-import { Camera, LineChart, Map as MapIcon } from 'lucide-react'
+import { Camera, LineChart, Map as MapIcon, Snowflake } from 'lucide-react'
 import HLS from 'hls.js'
 import { computeStormArrival, STORM_BAND_LABELS } from './stormArrival'
 import './App.css'
@@ -2696,10 +2696,46 @@ function ForecastMap3D({ resort, setResort }) {
   )
 }
 
+// Dedicated tab for trying the 3D snow-particle layer (see whakapapa-snow-
+// forecast.html's createSnowLayer/toggleSnowParticles) without digging for
+// the toggle button inside the regular Map tab. ?snow=1 tells that page to
+// turn the particles on automatically once the map loads — no need for
+// ForecastMap3D's crossfade/frame-stacking here, this is a single plain
+// iframe, not the everyday Map tab.
+function SnowTestPage({ resort, setResort }) {
+  useEffect(() => {
+    const handleMessage = (event) => {
+      if (event.data?.type === 'resort-select' && event.data?.resort && RESORTS[event.data.resort]) {
+        setResort(event.data.resort)
+      }
+    }
+    window.addEventListener('message', handleMessage)
+    return () => window.removeEventListener('message', handleMessage)
+  }, [setResort])
+
+  return (
+    <div className="map-3d-wrap" style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+      <div className="map-resort-switch" style={{ display: 'flex', justifyContent: 'center', padding: '10px 0' }}>
+        <ResortSelector resort={resort} setResort={setResort} />
+      </div>
+      <div style={{ position: 'relative', width: '100%', flex: 1, minHeight: 0 }}>
+        <iframe
+          key={resort}
+          className="map-3d-frame"
+          src={`/whakapapa-snow-forecast.html?resort=${resort}&snow=1`}
+          style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', border: 'none', display: 'block' }}
+          allowFullScreen
+        />
+      </div>
+    </div>
+  )
+}
+
 const NAV_ITEMS = [
   { id: 'webcams', label: 'Webcams', Icon: Camera, path: '/' },
   { id: 'forecast', label: 'Forecast', Icon: LineChart, path: '/forecast' },
   { id: 'map', label: 'Map', Icon: MapIcon, path: '/map' },
+  { id: 'snow-test', label: 'Snow Test', Icon: Snowflake, path: '/snow-test' },
 ]
 const tabForPath = (pathname) => NAV_ITEMS.find(n => n.path === pathname)?.id
 
@@ -2784,7 +2820,7 @@ export default function App() {
         ))}
       </nav>
 
-      <main className={`main-content ${activeTab === 'map' ? 'is-map' : ''}`}>
+      <main className={`main-content ${(activeTab === 'map' || activeTab === 'snow-test') ? 'is-map' : ''}`}>
         {activeTab === 'webcams' && (
           <section className="region-section">
             <div className="webcam-controls">
@@ -2805,6 +2841,12 @@ export default function App() {
         {activeTab === 'map' && (
           <section className="map-region">
             <ForecastMap3D resort={resort} setResort={setResort} />
+          </section>
+        )}
+
+        {activeTab === 'snow-test' && (
+          <section className="map-region">
+            <SnowTestPage resort={resort} setResort={setResort} />
           </section>
         )}
 

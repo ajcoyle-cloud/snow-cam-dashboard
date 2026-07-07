@@ -124,7 +124,7 @@
   .speed-btn:hover { color: #fff; }
   .speed-btn.active { background: #333; color: #fff; }
 
-  #map-enlarge, #map-close, #obs-toggle, #rotate-toggle {
+  #map-enlarge, #map-close, #obs-toggle, #rotate-toggle, #snow-toggle {
     position: absolute; top: 20px; z-index: 20;
     background: rgba(255,255,255,0.12); color: #fff; border: none;
     width: 40px; height: 40px; border-radius: 50%; font-size: 1.1rem; cursor: pointer;
@@ -140,6 +140,10 @@
   #rotate-toggle.active { background: #333; }
   #rotate-toggle:hover { background: rgba(255,255,255,0.25); }
   #rotate-toggle.active:hover { background: #404040; }
+  #snow-toggle { left: 152px; }
+  #snow-toggle.active { background: #333; }
+  #snow-toggle:hover { background: rgba(255,255,255,0.25); }
+  #snow-toggle.active:hover { background: #404040; }
   #map-close { right: 64px; display: none; }
   #map-enlarge:hover, #map-close:hover { background: rgba(255,255,255,0.25); }
   #map-screen.is-fullscreen #map-enlarge { display: none; }
@@ -418,6 +422,7 @@
        row (top row sits at 14px and is ~38px tall, ending ~52px). */
     #obs-toggle { top: 60px; left: 14px; }
     #rotate-toggle { top: 60px; left: 60px; }
+    #snow-toggle { top: 60px; left: 106px; }
     #map-close { top: 14px; right: 14px; }
 
     /* Playback speed: compact, top-right, on the same second row. */
@@ -554,6 +559,9 @@
   <button id="rotate-toggle" onclick="toggleAutoRotate()" title="Toggle auto-rotate">
     <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M3 21v-5h5"/></svg>
   </button>
+  <!-- Trial: real 3D snow particles (custom WebGL layer, occludes correctly
+       behind terrain) — off by default, see toggleSnowParticles(). -->
+  <button id="snow-toggle" onclick="toggleSnowParticles()" title="Toggle 3D snow particles (trial)">❄</button>
   <button id="map-close" onclick="exitFullscreenView()" title="Close fullscreen">✕</button>
   <div id="map-title"></div>
 
@@ -1405,6 +1413,9 @@ function initMap() {
     // Other-resort navigation pills — present in every view mode (live,
     // hourly, accumulated), gated only by zoom level.
     initResortPills();
+    // Snow Test tab (?snow=1) turns the particle trial on automatically —
+    // everyday resort/map views leave it off (see toggleSnowParticles).
+    if (new URLSearchParams(window.location.search).get('snow') === '1') toggleSnowParticles();
     mapStyleReady = true;
     // 'load' only means the style/sources attached, not that terrain/
     // satellite tiles have actually finished loading and rendering —
@@ -1526,6 +1537,133 @@ function initMap() {
   // Called once the camera lands on the default view (fly-in complete) to ramp
   // the decorative rotation in from a standstill.
   window.__startAutoRotateRampIn = () => startAutoRotate(true);
+}
+
+// ── Trial: real 3D snow particles ────────────────────────────────────────
+// A MapLibre "custom layer" drawing raw WebGL point sprites positioned with
+// MercatorCoordinate.fromLngLat(lngLat, altitudeMeters) — the same 3D space
+// (and the same projection matrix) the terrain itself renders into, so with
+// depth testing on, mountains between a flake and the camera occlude it
+// correctly. This is a first trial: off by default, toggled via the
+// snowflake button next to the rotate control, not tied to any real
+// forecast/weather data.
+function createSnowLayer(loc) {
+  const PARTICLE_COUNT = 500;
+  // Spawn area is a rough circle around the resort's own centre — not tied to
+  // the actual camera framing, so it reads fine at the default view but may
+  // look sparse/dense if you zoom far in or out.
+  const SPAWN_RADIUS_DEG = 0.03; // ~3km at these latitudes
+  const TOP_ALT = (loc.topElev || loc.summitElev + 200) + 400;
+  const BOTTOM_ALT = Math.max(0, loc.baseElev - 300);
+  const FALL_SPEED = 40; // metres/sec — tuned by eye, not physically modelled
+
+  const lngs = new Float64Array(PARTICLE_COUNT);
+  const lats = new Float64Array(PARTICLE_COUNT);
+  const alts = new Float64Array(PARTICLE_COUNT);
+  const phases = new Float32Array(PARTICLE_COUNT);
+  const sways = new Float32Array(PARTICLE_COUNT);
+  const verts = new Float32Array(PARTICLE_COUNT * 3);
+
+  function respawn(i, randomAltitude) {
+    const ang = Math.random() * Math.PI * 2;
+    const r = Math.random() * SPAWN_RADIUS_DEG;
+    lngs[i] = loc.center[0] + (Math.cos(ang) * r) / Math.cos((loc.center[1] * Math.PI) / 180);
+    lats[i] = loc.center[1] + Math.sin(ang) * r;
+    alts[i] = randomAltitude ? BOTTOM_ALT + Math.random() * (TOP_ALT - BOTTOM_ALT) : TOP_ALT;
+    phases[i] = Math.random() * Math.PI * 2;
+    sways[i] = 0.00015 + Math.random() * 0.00025; // small side-to-side drift, in degrees of longitude
+  }
+  for (let i = 0; i < PARTICLE_COUNT; i++) respawn(i, true);
+
+  let program, buffer, aPos, uMatrix, lastT = null;
+
+  return {
+    id: 'snow-particles',
+    type: 'custom',
+    renderingMode: '3d',
+    onAdd(map, gl) {
+      const compile = (type, src) => {
+        const s = gl.createShader(type);
+        gl.shaderSource(s, src);
+        gl.compileShader(s);
+        return s;
+      };
+      program = gl.createProgram();
+      gl.attachShader(program, compile(gl.VERTEX_SHADER, `
+        uniform mat4 u_matrix;
+        attribute vec3 a_pos;
+        void main() {
+          gl_Position = u_matrix * vec4(a_pos, 1.0);
+          gl_PointSize = 3.5;
+        }
+      `));
+      gl.attachShader(program, compile(gl.FRAGMENT_SHADER, `
+        precision mediump float;
+        void main() {
+          float dist = length(gl_PointCoord - vec2(0.5));
+          if (dist > 0.5) discard;
+          gl_FragColor = vec4(1.0, 1.0, 1.0, smoothstep(0.5, 0.15, dist) * 0.85);
+        }
+      `));
+      gl.linkProgram(program);
+      aPos = gl.getAttribLocation(program, 'a_pos');
+      uMatrix = gl.getUniformLocation(program, 'u_matrix');
+      buffer = gl.createBuffer();
+    },
+    render(gl, matrix) {
+      const now = performance.now();
+      const dt = lastT == null ? 0 : Math.min(0.1, (now - lastT) / 1000);
+      lastT = now;
+
+      for (let i = 0; i < PARTICLE_COUNT; i++) {
+        alts[i] -= FALL_SPEED * dt;
+        phases[i] += dt;
+        if (alts[i] < BOTTOM_ALT) respawn(i, false);
+        const swayLng = Math.sin(phases[i]) * sways[i];
+        const mc = maplibregl.MercatorCoordinate.fromLngLat([lngs[i] + swayLng, lats[i]], alts[i]);
+        verts[i * 3] = mc.x; verts[i * 3 + 1] = mc.y; verts[i * 3 + 2] = mc.z;
+      }
+
+      gl.useProgram(program);
+      gl.uniformMatrix4fv(uMatrix, false, matrix);
+      gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
+      gl.bufferData(gl.ARRAY_BUFFER, verts, gl.DYNAMIC_DRAW);
+      gl.enableVertexAttribArray(aPos);
+      gl.vertexAttribPointer(aPos, 3, gl.FLOAT, false, 0, 0);
+
+      gl.enable(gl.BLEND);
+      gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+      gl.enable(gl.DEPTH_TEST);
+      // Flakes shouldn't occlude each other/write into the depth buffer —
+      // only terrain should ever block them — just test against what's
+      // already there.
+      gl.depthMask(false);
+      gl.drawArrays(gl.POINTS, 0, PARTICLE_COUNT);
+      gl.depthMask(true);
+    }
+  };
+}
+
+let snowParticlesActive = false;
+let snowParticlesAnimHandle = null;
+function toggleSnowParticles() {
+  if (!map) return;
+  snowParticlesActive = !snowParticlesActive;
+  const btn = document.getElementById('snow-toggle');
+  if (btn) btn.classList.toggle('active', snowParticlesActive);
+  if (snowParticlesActive) {
+    if (!map.getLayer('snow-particles')) map.addLayer(createSnowLayer(LOC));
+    const loop = () => {
+      if (!snowParticlesActive) return;
+      map.triggerRepaint();
+      snowParticlesAnimHandle = requestAnimationFrame(loop);
+    };
+    loop();
+  } else {
+    if (snowParticlesAnimHandle) cancelAnimationFrame(snowParticlesAnimHandle);
+    snowParticlesAnimHandle = null;
+    if (map.getLayer('snow-particles')) map.removeLayer('snow-particles');
+  }
 }
 
 // Decorative only: applies the single selected hour's wind speed/direction
