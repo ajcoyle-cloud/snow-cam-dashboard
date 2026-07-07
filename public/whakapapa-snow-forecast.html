@@ -3782,6 +3782,14 @@ document.getElementById('ltl-slider').addEventListener('input', (e) => {
   if (mq.matches) setMin(true);
   mq.addEventListener('change', (ev) => { setMin(ev.matches); });
 })();
+
+// Lets the parent dashboard command a view-mode switch on this already-loaded
+// map (e.g. the storm-arrival banner jumping straight to Radar) without a
+// full reload — the reload-driven path (restoreViewMode(), via ?resort=
+// and localStorage's sp-view-mode) only fires once, on initial load.
+window.addEventListener('message', (event) => {
+  if (event.data?.type === 'set-view-mode' && event.data?.mode) setViewMode(event.data.mode);
+});
 </script>
 </body>
 </html>
