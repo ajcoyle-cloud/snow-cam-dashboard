@@ -419,14 +419,17 @@ const SNOW_REPORT_SOURCES = {
 // while loading, if the resort has no report source, or if the scrape comes
 // up empty — rather than showing a placeholder/error — same pattern as
 // StormArrivalBanner above.
-function SnowReportSummary({ location }) {
+//
+// `expanded`/`onExpand`/`onCollapse` are controlled by CameraCard rather than
+// owned here, because expanding needs to snapshot the webcam image's current
+// height *before* the report grows (see handleExpandReport below) — that
+// coordination has to happen a level up, where the image wrapper lives.
+function SnowReportSummary({ location, expanded, onExpand, onCollapse }) {
   const source = SNOW_REPORT_SOURCES[location]
   const [report, setReport] = useState(null)
-  const [expanded, setExpanded] = useState(false)
 
   useEffect(() => {
     setReport(null)
-    setExpanded(false)
     if (!source) return
     let cancelled = false
     fetch(source.endpoint)
@@ -448,7 +451,7 @@ function SnowReportSummary({ location }) {
       {expanded ? (
         <>
           {paragraphs.map((para, i) => <p key={i}>{para}</p>)}
-          <button className="report-toggle-btn" onClick={() => setExpanded(false)}>See less</button>
+          <button className="report-toggle-btn" onClick={onCollapse}>See less</button>
         </>
       ) : (
         // Collapsed to 2 lines via -webkit-line-clamp — reliable across
@@ -458,7 +461,7 @@ function SnowReportSummary({ location }) {
         // without ever overlapping/covering real words.
         <div className="report-summary-clamp-wrap">
           <p className="report-summary-clamped">{paragraphs.join(' ')}</p>
-          <button className="report-toggle-btn report-toggle-inline" onClick={() => setExpanded(true)}>See more</button>
+          <button className="report-toggle-btn report-toggle-inline" onClick={onExpand}>See more</button>
         </div>
       )}
     </div>
@@ -472,6 +475,26 @@ function CameraCard({ camera, allCameras = [] }) {
   const [broken, setBroken] = useState(false)
   const [brokenSidebar, setBrokenSidebar] = useState(new Set())
   const modalRef = useRef(null)
+  const imageWrapperRef = useRef(null)
+  const [reportExpanded, setReportExpanded] = useState(false)
+  // Pixel height (not a guessed vh%) of the webcam image wrapper, captured
+  // right before the snow report expands, so the image can be pinned to
+  // *exactly* the size it already was — not some fixed fraction of the
+  // viewport that may be smaller than what the collapsed 2-line report left
+  // it at. Cleared on collapse so the wrapper goes back to its normal
+  // flexible sizing.
+  const [lockedImageHeight, setLockedImageHeight] = useState(null)
+
+  const handleExpandReport = () => {
+    if (imageWrapperRef.current) {
+      setLockedImageHeight(imageWrapperRef.current.getBoundingClientRect().height)
+    }
+    setReportExpanded(true)
+  }
+  const handleCollapseReport = () => {
+    setReportExpanded(false)
+    setLockedImageHeight(null)
+  }
 
   useEffect(() => {
     const interval = setInterval(() => {
@@ -481,6 +504,15 @@ function CameraCard({ camera, allCameras = [] }) {
   }, [])
 
   const activeCam = fullscreenCam || camera
+
+  // Switching cameras (sidebar click / arrow keys) while the modal stays
+  // open must drop any expanded report + locked image height from the
+  // previous camera — otherwise the new camera's image would inherit a
+  // pixel height measured for a different photo/aspect ratio.
+  useEffect(() => {
+    setReportExpanded(false)
+    setLockedImageHeight(null)
+  }, [activeCam.name])
   const activeCameras = activeCam.cameras || []
   const isMultiCamera = activeCameras.length > 1
   const safeIndex = Math.min(cameraIndex, Math.max(activeCameras.length - 1, 0))
@@ -644,7 +676,15 @@ function CameraCard({ camera, allCameras = [] }) {
             <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
               <button className="close-btn" onClick={() => setFullscreenCam(null)}>✕</button>
               <h2>{displayName}</h2>
-              <div className="fullscreen-image-wrapper" style={{ position: 'relative' }}>
+              <div
+                className="fullscreen-image-wrapper"
+                ref={imageWrapperRef}
+                style={
+                  lockedImageHeight
+                    ? { position: 'relative', flex: '0 0 auto', height: lockedImageHeight }
+                    : { position: 'relative' }
+                }
+              >
               {isYouTube ? (
                 <iframe
                   src={`https://www.youtube.com/embed/${activeCam.youtubeId}?autoplay=1&mute=1&controls=0&modestbranding=1&rel=0&iv_load_policy=3&disablekb=1&fs=0`}
@@ -678,7 +718,12 @@ function CameraCard({ camera, allCameras = [] }) {
                 </>
               )}
             </div>
-            <SnowReportSummary location={activeCam.location} />
+            <SnowReportSummary
+              location={activeCam.location}
+              expanded={reportExpanded}
+              onExpand={handleExpandReport}
+              onCollapse={handleCollapseReport}
+            />
             </div>
           </div>
         </div>

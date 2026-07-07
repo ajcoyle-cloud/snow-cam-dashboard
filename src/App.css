@@ -375,19 +375,17 @@
 
 /* Expanded snow report ("See more" tapped): the webcam must not shrink to
    make room for the now-unclamped, potentially long report text below it.
-   Pin the image to a fixed height instead of letting it flex-share space
-   with its sibling, and let this column scroll as a whole so the extra
-   report text is reached by scrolling down past the (unchanged-size) image
-   rather than by squeezing the image or nesting a second scrollbar inside
-   the report panel. Collapsed state is untouched — :has() only matches
-   once .snow-report-summary carries .expanded. */
+   The image wrapper's exact pre-expand pixel height is captured in JS
+   (CameraCard's handleExpandReport) and applied as an inline style — a
+   fixed vh guess here would (and did) end up smaller than the collapsed
+   state's actual flex:1 size on tall viewports, so the "fix" still looked
+   like a shrink. This rule only makes the column scrollable so the extra
+   report text is reached by scrolling down past the (JS-pinned, truly
+   unchanged) image rather than by squeezing it or nesting a second
+   scrollbar inside the report panel. Collapsed state is untouched — :has()
+   only matches once .snow-report-summary carries .expanded. */
 .fullscreen-content > div:not(.fullscreen-sidebar):has(.snow-report-summary.expanded) {
   overflow-y: auto;
-}
-
-.fullscreen-content > div:not(.fullscreen-sidebar):has(.snow-report-summary.expanded) .fullscreen-image-wrapper {
-  flex: 0 0 auto;
-  height: 62vh;
 }
 
 .fullscreen-content h2 {
