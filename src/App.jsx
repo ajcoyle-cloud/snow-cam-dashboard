@@ -674,7 +674,7 @@ const STORM_BAND_STYLES = {
   yellowGold: { background: 'rgba(230,180,50,0.20)', borderColor: 'rgba(255,205,80,0.5)' },
   redPurple: { background: 'rgba(230,60,90,0.20)', borderColor: 'rgba(255,90,120,0.5)' },
 }
-function StormArrivalBanner({ resort }) {
+function StormArrivalBanner({ resort, onOpenRadar }) {
   const [arrival, setArrival] = useState(null)
 
   useEffect(() => {
@@ -696,7 +696,14 @@ function StormArrivalBanner({ resort }) {
   const label = STORM_BAND_LABELS[arrival.band] || 'Snow'
 
   return (
-    <div className="storm-arrival-banner" style={style}>
+    <div
+      className="storm-arrival-banner"
+      style={{ ...style, cursor: 'pointer' }}
+      role="button"
+      tabIndex={0}
+      onClick={onOpenRadar}
+      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onOpenRadar?.() } }}
+    >
       ❄️ {label} snow approaching Mt Lyford — ~{arrival.etaMinutes} min out ({arrival.distanceKm} km)
     </div>
   )
@@ -2585,6 +2592,18 @@ function ForecastMap3D({ resort, setResort }) {
   // If the new one is ever slow, the user just keeps looking at the old
   // (still-correct) map instead of a blank one.
   const [frames, setFrames] = useState(() => [{ id: resort, src: srcFor(resort), ready: true }])
+  const topIframeRef = useRef(null)
+
+  // Lightweight global bridge (matches the iframe's own window.__startAutoRotateRampIn
+  // pattern) so things outside this component tree — e.g. the storm-arrival banner —
+  // can command the currently-mounted map iframe directly, without needing this deep
+  // in props/context. Only meaningful once a map iframe actually exists.
+  useEffect(() => {
+    window.__mapSetViewMode = (mode) => {
+      topIframeRef.current?.contentWindow?.postMessage({ type: 'set-view-mode', mode }, '*')
+    }
+    return () => { delete window.__mapSetViewMode }
+  }, [])
 
   useEffect(() => {
     const handleMessage = (event) => {
@@ -2643,6 +2662,7 @@ function ForecastMap3D({ resort, setResort }) {
           return (
             <iframe
               key={f.id}
+              ref={isNewest ? topIframeRef : undefined}
               className="map-3d-frame"
               src={f.src}
               style={{
@@ -2689,6 +2709,17 @@ export default function App() {
     setActiveTab(id)
     const path = NAV_ITEMS.find(n => n.id === id)?.path
     if (path && path !== window.location.pathname) window.history.pushState({}, '', path)
+  }
+  // Storm-arrival banner click: jump to the Map tab's Radar view. The
+  // localStorage write covers the map iframe's own first-load path
+  // (restoreViewMode(), see whakapapa-snow-forecast.html); the postMessage
+  // bridge (window.__mapSetViewMode, registered by ForecastMap3D) covers the
+  // case where that iframe is already mounted and won't reload just from
+  // switching tabs back to it.
+  const openMtLyfordRadar = () => {
+    try { localStorage.setItem('sp-view-mode', 'radar') } catch (e) {}
+    if (typeof window.__mapSetViewMode === 'function') window.__mapSetViewMode('radar')
+    goToTab('map')
   }
   useEffect(() => {
     const onPopState = () => {
@@ -2746,7 +2777,7 @@ export default function App() {
               <ResortSelector resort={resort} setResort={setResort} />
               <GridSizeSwitcher cols={gridCols} setCols={setGridCols} />
             </div>
-            <StormArrivalBanner resort={resort} />
+            <StormArrivalBanner resort={resort} onOpenRadar={openMtLyfordRadar} />
             <CameraGrid cameras={orderCamerasByResort(ALL_CAMERAS, resort)} cols={gridCols} />
           </section>
         )}
