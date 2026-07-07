@@ -1431,8 +1431,11 @@ function SnowfallForecast({ resort, setResort }) {
     const measure = () => {
       rafId = null
       if (viewMode !== 'hourly') { setVisibleHourlyDate(null); return }
-      const firstTh = table.querySelector('thead th:first-child')
-      const boundary = (firstTh ? firstTh.getBoundingClientRect().right : table.getBoundingClientRect().left) + 1
+      // The header's own corner cell isn't sticky, so it scrolls away with
+      // the rest of the row — use the still-sticky body row-label column
+      // (same width) as the fixed left-edge reference instead.
+      const firstCol = table.querySelector('tbody td:first-child')
+      const boundary = (firstCol ? firstCol.getBoundingClientRect().right : table.getBoundingClientRect().left) + 1
       let found = null
       for (const th of table.querySelectorAll('thead th[data-date]')) {
         if (th.getBoundingClientRect().right > boundary) { found = th.dataset.date; break }
