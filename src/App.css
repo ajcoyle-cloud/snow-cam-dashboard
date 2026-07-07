@@ -42,6 +42,12 @@
   height: 100vh;
   overflow-x: hidden;
   overflow-y: auto;
+  /* Stops a swipe-down-to-refresh drag from handing off to the browser's own
+     pull-to-refresh once this container hits its own scroll top — that
+     native gesture briefly shrinks window.innerHeight (the browser's chrome
+     intruding on the viewport), which fed into the forecast chart's height
+     and made it visibly squish mid-drag. */
+  overscroll-behavior-y: contain;
 }
 
 .main-content.is-map {

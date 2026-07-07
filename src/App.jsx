@@ -1469,10 +1469,22 @@ function SnowfallForecast({ resort, setResort }) {
     // available width instead of overflowing into a horizontal scrollbar.
     const el = containerRef.current
     const updateWidth = () => setContainerWidth((el ? el.clientWidth : window.innerWidth) - 40)
-    const updateHeight = () => { setWindowHeight(window.innerHeight); setIsMobile(window.innerWidth <= 700) }
+    const applyHeight = () => { setWindowHeight(window.innerHeight); setIsMobile(window.innerWidth <= 700) }
+    // A mobile pull-to-refresh drag briefly shrinks window.innerHeight (the
+    // browser's own chrome intruding on the viewport), which fed straight
+    // into snowChartHeight and made the chart visibly squish mid-gesture.
+    // Debouncing means a resize event only takes effect once it's stopped
+    // firing for 200ms — well past a quick pull-and-release, but still
+    // immediate for a real rotation/window resize once the user's finger
+    // (or the resize) actually settles.
+    let heightTimer = null
+    const onResize = () => {
+      clearTimeout(heightTimer)
+      heightTimer = setTimeout(applyHeight, 200)
+    }
     updateWidth()
-    updateHeight()
-    window.addEventListener('resize', updateHeight)
+    applyHeight()
+    window.addEventListener('resize', onResize)
     let observer
     if (el) {
       observer = new ResizeObserver(updateWidth)
@@ -1481,8 +1493,9 @@ function SnowfallForecast({ resort, setResort }) {
       window.addEventListener('resize', updateWidth)
     }
     return () => {
-      window.removeEventListener('resize', updateHeight)
+      window.removeEventListener('resize', onResize)
       window.removeEventListener('resize', updateWidth)
+      clearTimeout(heightTimer)
       observer?.disconnect()
     }
   }, [forecastData])
