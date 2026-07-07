@@ -405,33 +405,46 @@ function NzSkiCamera({ manifest, cameraKey, angle = 'Angle1', alt, onError, styl
   return <img src={src} alt={alt} onError={onError} style={style} />
 }
 
-// Text summary from Whakapapa's official daily snow report (scraped server-side
-// by api/whakapapa-report.js from whakapapa.com/report — the site blocks
-// non-browser fetches and enforces same-origin, so the dashboard can't read it
-// directly). Renders nothing while loading or if the scrape comes up empty,
-// rather than showing a placeholder/error — same pattern as StormArrivalBanner.
-function WhakapapaSnowReport() {
+// Resorts with a scraped daily snow report available (see api/*-report.js),
+// keyed by the same `location` string used on camera entries below. Each
+// scraper fetches its resort's official report page server-side (the sites
+// block non-browser fetches and/or enforce same-origin, so the dashboard
+// can't read them directly).
+const SNOW_REPORT_SOURCES = {
+  Whakapapa: { endpoint: '/whakapapa-report', title: 'Whakapapa Snow Report' },
+  Cardrona: { endpoint: '/cardrona-report', title: 'Cardrona Snow Report' },
+}
+
+// Text summary from a resort's official daily snow report. Renders nothing
+// while loading, if the resort has no report source, or if the scrape comes
+// up empty — rather than showing a placeholder/error — same pattern as
+// StormArrivalBanner above.
+function SnowReportSummary({ location }) {
+  const source = SNOW_REPORT_SOURCES[location]
   const [report, setReport] = useState(null)
   const [expanded, setExpanded] = useState(false)
 
   useEffect(() => {
+    setReport(null)
+    setExpanded(false)
+    if (!source) return
     let cancelled = false
-    fetch('/whakapapa-report')
+    fetch(source.endpoint)
       .then((r) => (r.ok ? r.json() : Promise.reject()))
       .then((data) => { if (!cancelled) setReport(data) })
       .catch(() => { if (!cancelled) setReport(null) })
     return () => { cancelled = true }
-  }, [])
+  }, [location])
 
-  if (!report?.summary) return null
+  if (!source || !report?.summary) return null
 
   // The scraper joins the report's multiple paragraphs with blank lines —
   // split them back out so the expanded view renders each as its own <p>.
   const paragraphs = report.summary.split(/\n{2,}/).map((s) => s.trim()).filter(Boolean)
 
   return (
-    <div className={`whakapapa-report ${expanded ? 'expanded' : ''}`}>
-      <h4>Whakapapa Snow Report</h4>
+    <div className={`snow-report-summary ${expanded ? 'expanded' : ''}`}>
+      <h4>{source.title}</h4>
       {expanded ? (
         <>
           {paragraphs.map((para, i) => <p key={i}>{para}</p>)}
@@ -665,7 +678,7 @@ function CameraCard({ camera, allCameras = [] }) {
                 </>
               )}
             </div>
-            {activeCam.location === 'Whakapapa' && <WhakapapaSnowReport />}
+            <SnowReportSummary location={activeCam.location} />
             </div>
           </div>
         </div>

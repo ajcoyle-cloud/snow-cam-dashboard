@@ -2,6 +2,7 @@ import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import { resolveLyfordCam } from './api/lyford-cam.js'
 import { resolveWhakapapaReport } from './api/whakapapa-report.js'
+import { resolveCardronaReport } from './api/cardrona-report.js'
 
 // Dev parity for the Mt Lyford webcam scraper. In prod, /lyford-cam/<cam> is a
 // Vercel function (api/lyford-cam.js); the Vite dev server doesn't run that, so
@@ -35,15 +36,17 @@ function lyfordCamDev() {
   }
 }
 
-// Dev parity for the Whakapapa daily snow report scraper (api/whakapapa-report.js).
-function whakapapaReportDev() {
+// Dev parity for the snow-report scrapers (api/*-report.js) — each is a
+// single JSON-returning function, so one middleware factory covers all of
+// them rather than repeating the same wiring per resort.
+function snowReportDev(path, resolver) {
   return {
-    name: 'whakapapa-report-dev',
+    name: `${path.slice(1)}-dev`,
     configureServer(server) {
-      server.middlewares.use('/whakapapa-report', async (req, res) => {
+      server.middlewares.use(path, async (req, res) => {
         const url = new URL(req.url, 'http://localhost')
         try {
-          const result = await resolveWhakapapaReport({ debug: url.searchParams.has('debug') })
+          const result = await resolver({ debug: url.searchParams.has('debug') })
           res.setHeader('Content-Type', 'application/json')
           res.end(JSON.stringify(result.debug ? result.debug : result))
         } catch (e) {
@@ -58,7 +61,12 @@ function whakapapaReportDev() {
 }
 
 export default defineConfig({
-  plugins: [react(), lyfordCamDev(), whakapapaReportDev()],
+  plugins: [
+    react(),
+    lyfordCamDev(),
+    snowReportDev('/whakapapa-report', resolveWhakapapaReport),
+    snowReportDev('/cardrona-report', resolveCardronaReport),
+  ],
   server: {
     port: 5173,
     // MetService's public webdata API only allows its own origin (CORS), so the
