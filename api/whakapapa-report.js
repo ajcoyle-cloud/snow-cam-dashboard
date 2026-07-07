@@ -157,12 +157,32 @@ export async function resolveWhakapapaReport({ debug = false } = {}) {
     }
     const html = await pageResp.text();
     const candidates = extractCandidates(html);
-    attempts.push({ url: pageUrl, status: pageResp.status, candidates });
 
     if (!debug && candidates.length > 0) {
       const best = candidates[0];
       return { summary: best.text, strategy: best.strategy, source: pageUrl, fetchedAt: new Date().toISOString() };
     }
+
+    // Diagnostic markers: whether the report text/DOM actually exists in the
+    // *raw server HTML* (vs. being injected client-side by the page's Lit
+    // app, which a plain fetch can never see). If these are all false but the
+    // page clearly shows the report in a browser, the text is client-rendered
+    // and we must hit the underlying data API instead of scraping HTML.
+    const markers = {
+      htmlLength: html.length,
+      hasMorena: /M[oō]rena/i.test(html),
+      hasDailyReport: /daily-report/i.test(html),
+      hasReportSummaryClass: /reportSummary/i.test(html),
+      hasLastUpdated: /lastUpdated/i.test(html),
+    };
+    // If the daily-report anchor IS present, include the surrounding HTML so
+    // the real markup/class names can be read off directly.
+    let excerpt = null;
+    const anchorIdx = html.search(/id=["']daily-report["']|reportSummary/i);
+    if (anchorIdx !== -1) {
+      excerpt = html.slice(anchorIdx, anchorIdx + 1200);
+    }
+    attempts.push({ url: pageUrl, status: pageResp.status, candidates, markers, excerpt });
   }
 
   if (debug) {
