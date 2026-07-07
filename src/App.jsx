@@ -1629,14 +1629,17 @@ function SnowfallForecast({ resort, setResort }) {
         color: rows.length > 1 && idx === 0 ? '#fff' : undefined,
         cursor: idx === 0 ? 'pointer' : 'default',
         userSelect: 'none',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
       }}
     >
+      <span>{groupRowLabel(rows, idx, base, unit)}</span>
       {idx === 0 && (
-        <span aria-hidden="true" style={{ display: 'inline-block', color: '#888', marginRight: 5, fontSize: '10px' }}>
+        <span aria-hidden="true" style={{ display: 'inline-block', color: '#888', marginLeft: 5, fontSize: '10px' }}>
           {expandedRows[groupKey] ? '▾' : '▸'}
         </span>
       )}
-      {groupRowLabel(rows, idx, base, unit)}
     </td>
   )
 
