@@ -10,15 +10,15 @@
 // someone can see actual output.
 //
 // www.mtruapehu.com/whakapapa/report was the first guess (found via search)
-// but returns a live 404 in prod — the webcams already live under
-// webcams.whakapapa.com, suggesting Whakapapa now has its own dedicated
-// whakapapa.com site rather than living under the old mtruapehu.com
-// umbrella, so that's tried first; mtruapehu.com is kept as a fallback in
-// case that guess is also wrong or the site structure changes again.
+// but returns a live 404 in prod. www.whakapapa.com/report was the second
+// guess (same reasoning — webcams already live under webcams.whakapapa.com —
+// but still a guess, not confirmed) and is kept as a fallback below.
+// www.whakapapa.com/resort is confirmed correct (per user).
 //
 // vercel.json rewrites /whakapapa-report -> /api/whakapapa-report.
 
 const PAGE_URLS = [
+  'https://www.whakapapa.com/resort',
   'https://www.whakapapa.com/report',
   'https://www.mtruapehu.com/whakapapa/report',
 ];
