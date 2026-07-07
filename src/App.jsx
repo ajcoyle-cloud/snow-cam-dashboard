@@ -2,7 +2,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { Camera, LineChart, Map as MapIcon } from 'lucide-react'
 import HLS from 'hls.js'
-import { computeStormArrival } from './stormArrival'
+import { computeStormArrival, STORM_BAND_LABELS } from './stormArrival'
 import './App.css'
 
 const METEOBLUE_API_KEY = import.meta.env.VITE_METEOBLUE_API_KEY || 'DEMO'
@@ -665,6 +665,15 @@ function GridSizeSwitcher({ cols, setCols }) {
 // or "nothing incoming" empty state, by design.
 const STORM_ARRIVAL_REGION = 'canterbury'
 const STORM_ARRIVAL_POLL_MS = 5 * 60 * 1000
+// Colours mirror the radar's own band (see STORM_BAND_LABELS in
+// stormArrival.js) so the banner's colour and its word both track the same
+// intensity reading — light -> heavy runs blue -> green -> gold -> red.
+const STORM_BAND_STYLES = {
+  blue: { background: 'rgba(70,140,255,0.18)', borderColor: 'rgba(120,170,255,0.45)' },
+  green: { background: 'rgba(70,190,120,0.18)', borderColor: 'rgba(110,220,150,0.45)' },
+  yellowGold: { background: 'rgba(230,180,50,0.20)', borderColor: 'rgba(255,205,80,0.5)' },
+  redPurple: { background: 'rgba(230,60,90,0.20)', borderColor: 'rgba(255,90,120,0.5)' },
+}
 function StormArrivalBanner({ resort }) {
   const [arrival, setArrival] = useState(null)
 
@@ -683,10 +692,12 @@ function StormArrivalBanner({ resort }) {
   }, [resort])
 
   if (!arrival) return null
+  const style = STORM_BAND_STYLES[arrival.band] || STORM_BAND_STYLES.blue
+  const label = STORM_BAND_LABELS[arrival.band] || 'Snow'
 
   return (
-    <div className="storm-arrival-banner">
-      ❄️ Snow incoming to Mt Lyford — arriving in ~{arrival.etaMinutes} min ({arrival.distanceKm} km out)
+    <div className="storm-arrival-banner" style={style}>
+      ❄️ {label} snow approaching Mt Lyford — ~{arrival.etaMinutes} min out ({arrival.distanceKm} km)
     </div>
   )
 }
