@@ -2199,9 +2199,6 @@ function SnowfallForecast({ resort, setResort }) {
             ))
           })()}
 
-          {/* X-axis */}
-          <line x1={snowPadding.left} y1={snowPadding.top + snowPlotHeight} x2={snowChartWidth - snowPadding.right} y2={snowPadding.top + snowPlotHeight} stroke="#555" strokeWidth="1" />
-
 {/* Date labels below the chart — hourly mode only, at each midnight day
     boundary. Fit mode skips these: its table header directly below already
     shows the identical per-column date, so drawing it here too was a
@@ -2217,9 +2214,6 @@ function SnowfallForecast({ resort, setResort }) {
               })
           }
 
-          {/* Y-axis */}
-          <line x1={snowPadding.left} y1={snowPadding.top} x2={snowPadding.left} y2={snowPadding.top + snowPlotHeight} stroke="#555" strokeWidth="1" />
-
           {/* Y-axis label */}
           <text x="15" y={snowPadding.top + snowPlotHeight / 2} style={{ fill: '#888', fontSize: 10, textAnchor: 'middle' }} transform={`rotate(-90 15 ${snowPadding.top + snowPlotHeight / 2})`}>
             Snow (cm)
@@ -2233,7 +2227,6 @@ function SnowfallForecast({ resort, setResort }) {
             const decimals = maxPrecip < 50 ? 1 : 0
             return (
               <g key={`tick-${i}`}>
-                <line x1={snowPadding.left - 5} y1={y} x2={snowPadding.left} y2={y} stroke="#555" strokeWidth="1" />
                 <text x={snowPadding.left - 10} y={y + 4} style={{ fill: '#666', fontSize: 10, textAnchor: 'end' }}>
                   {valCm.toFixed(decimals)}
                 </text>
