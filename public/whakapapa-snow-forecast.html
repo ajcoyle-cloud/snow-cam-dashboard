@@ -770,6 +770,19 @@ const requestedResort = new URLSearchParams(window.location.search).get('resort'
 const resortKey = VALID_RESORT_KEYS.has(requestedResort) ? requestedResort : 'ruapehu';
 const LOC = RESORT_CONFIG[resortKey];
 
+// Snow-particle/slope-overlay trial toggles are Snow Test tab only (?snow=1,
+// see SnowTestPage in App.jsx) — hidden here so they don't clutter the
+// regular Map tab everyone else uses. The button markup above has already
+// parsed by this point (this script tag comes after it in the document), so
+// no need to wait for DOMContentLoaded.
+const isSnowTestMode = new URLSearchParams(window.location.search).get('snow') === '1';
+if (!isSnowTestMode) {
+  const snowBtn = document.getElementById('snow-toggle');
+  const overlayBtn = document.getElementById('snow-overlay-toggle');
+  if (snowBtn) snowBtn.style.display = 'none';
+  if (overlayBtn) overlayBtn.style.display = 'none';
+}
+
 // ── Other-resort navigation pills (shown when zoomed out) ──────────────────
 // Lets the user jump straight to another resort's map from within the map
 // itself, without going back to the React app's location switcher. Pills sit
