@@ -1413,6 +1413,9 @@ function initMap() {
     // Other-resort navigation pills — present in every view mode (live,
     // hourly, accumulated), gated only by zoom level.
     initResortPills();
+    // Snow Test tab (?snow=1) turns the particle trial on automatically —
+    // everyday resort/map views leave it off (see toggleSnowParticles).
+    if (new URLSearchParams(window.location.search).get('snow') === '1') toggleSnowParticles();
     mapStyleReady = true;
     // 'load' only means the style/sources attached, not that terrain/
     // satellite tiles have actually finished loading and rendering —
