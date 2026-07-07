@@ -598,6 +598,9 @@
     <label>Min elevation <span id="soc-elev-val"></span>m
       <input type="range" id="soc-elev" oninput="onSnowOverlayElevInput(this.value)">
     </label>
+    <label>Patchy snowline <span id="soc-patch-val"></span>m
+      <input type="range" id="soc-patch" min="0" max="400" step="10" oninput="onSnowOverlayPatchInput(this.value)">
+    </label>
     <label>Max slope <span id="soc-slope-val"></span>°
       <input type="range" id="soc-slope" min="5" max="89" step="1" oninput="onSnowOverlaySlopeInput(this.value)">
     </label>
@@ -1788,7 +1791,7 @@ function toggleSnowParticles() {
 //   hand-tuning what "realistic" should even look like first.
 // Live-adjustable via the slider panel — read fresh by the tile protocol on
 // every tile it generates, not baked in as constants.
-const snowOverlayParams = { minElev: 0, maxSlopeDeg: 40, fadeDeg: 8, opacity: 0.9 };
+const snowOverlayParams = { minElev: 0, patchBandM: 150, maxSlopeDeg: 40, fadeDeg: 8, opacity: 0.9 };
 
 // No real DEM anywhere on earth is outside roughly this band (Dead Sea
 // shore to above Everest, with margin) — used only to sanity-check which
@@ -1808,6 +1811,33 @@ function tileCenterLatRad(y, z) {
   const n = Math.pow(2, z);
   return Math.atan(Math.sinh(Math.PI * (1 - (2 * (y + 0.5)) / n)));
 }
+
+// Deterministic 2D value noise (smoothed integer-lattice hash), used to make
+// the snow/no-snow transition near "Min elevation" break up into shrinking
+// patches instead of fading as a uniform sheet — a real snowline doesn't dim
+// evenly, it gets patchier and the patches get smaller until there's none.
+// Seeded from *world* pixel coordinates (tile index * tile size + in-tile
+// pixel offset, at a fixed zoom), so neighbouring tiles connect with no seam.
+function noiseHash(ix, iy) {
+  let n = ix * 374761393 + iy * 668265263;
+  n = (n ^ (n >> 13)) * 1274126177;
+  n ^= n >> 16;
+  return ((n >>> 0) % 65536) / 65536;
+}
+function smoothstep01(t) { return t * t * (3 - 2 * t); }
+function valueNoise2D(x, y) {
+  const x0 = Math.floor(x), y0 = Math.floor(y);
+  const sx = smoothstep01(x - x0), sy = smoothstep01(y - y0);
+  const n00 = noiseHash(x0, y0),     n10 = noiseHash(x0 + 1, y0);
+  const n01 = noiseHash(x0, y0 + 1), n11 = noiseHash(x0 + 1, y0 + 1);
+  const a = n00 + (n10 - n00) * sx;
+  const b = n01 + (n11 - n01) * sx;
+  return a + (b - a) * sy;
+}
+// Size, in raw DEM-tile pixels, of one noise cell — tuned by eye so patches
+// read as plausible snow-patch clusters rather than fine grain or giant
+// blobs at typical Snow Test zoom levels.
+const SNOW_PATCH_CELL_PX = 22;
 
 let demTileUrlTemplate = null;
 async function getDemTileUrlTemplate() {
@@ -1845,7 +1875,7 @@ function registerSnowOverlayProtocol() {
     // Read live so a slider drag is reflected the moment refreshSnowOverlay()
     // forces these tiles to be regenerated (see below) — not captured once
     // when the protocol was registered.
-    const { minElev, maxSlopeDeg, fadeDeg } = snowOverlayParams;
+    const { minElev, patchBandM, maxSlopeDeg, fadeDeg } = snowOverlayParams;
     const metersPerPixel = (156543.03392 * Math.cos(tileCenterLatRad(y, z))) / Math.pow(2, z) * (256 / size);
     const out = ctx.createImageData(size, size);
     for (let py = 0; py < size; py++) {
@@ -1856,13 +1886,33 @@ function registerSnowOverlayProtocol() {
         const dzdx = (elev[py * size + xp1] - elev[py * size + xm1]) / (2 * metersPerPixel);
         const dzdy = (elev[yp1 * size + px] - elev[ym1 * size + px]) / (2 * metersPerPixel);
         const slopeDeg = (Math.atan(Math.sqrt(dzdx * dzdx + dzdy * dzdy)) * 180) / Math.PI;
-        const highEnough = elev[i] >= minElev;
+        const elevHere = elev[i];
+        const highEnough = elevHere >= minElev;
         const slopeFade = highEnough
           ? Math.min(1, Math.max(0, (maxSlopeDeg - slopeDeg) / fadeDeg))
           : 0;
+
+        // Patchiness: within patchBandM metres above minElev, coverage ramps
+        // 0→1 with height. Value noise is thresholded against that coverage,
+        // so surviving patches shrink and fragment as coverage falls, rather
+        // than the whole area dimming uniformly — vanishing entirely at/below
+        // minElev (patchBandM=0 reproduces the old hard cutoff exactly).
+        let patchAlpha = 1;
+        if (highEnough && patchBandM > 0) {
+          const coverage = Math.min(1, (elevHere - minElev) / patchBandM);
+          if (coverage < 1) {
+            const worldPx = x * size + px;
+            const worldPy = y * size + py;
+            const n = valueNoise2D(worldPx / SNOW_PATCH_CELL_PX, worldPy / SNOW_PATCH_CELL_PX);
+            // Soft-edged threshold (0.12-wide ramp) so patch edges aren't a
+            // hard per-pixel on/off flicker.
+            patchAlpha = Math.min(1, Math.max(0, (coverage - n) / 0.12 + 0.5));
+          }
+        }
+
         const o = i * 4;
         out.data[o] = 255; out.data[o + 1] = 255; out.data[o + 2] = 255;
-        out.data[o + 3] = Math.round(slopeFade * 235);
+        out.data[o + 3] = Math.round(slopeFade * patchAlpha * 235);
       }
     }
     ctx.putImageData(out, 0, 0);
@@ -1908,6 +1958,9 @@ function initSnowOverlayControls() {
   elevInput.value = snowOverlayParams.minElev;
   document.getElementById('soc-elev-val').textContent = Math.round(snowOverlayParams.minElev);
 
+  document.getElementById('soc-patch').value = snowOverlayParams.patchBandM;
+  document.getElementById('soc-patch-val').textContent = snowOverlayParams.patchBandM;
+
   document.getElementById('soc-slope').value = snowOverlayParams.maxSlopeDeg;
   document.getElementById('soc-slope-val').textContent = snowOverlayParams.maxSlopeDeg;
   document.getElementById('soc-fade').value = snowOverlayParams.fadeDeg;
@@ -1919,6 +1972,11 @@ function initSnowOverlayControls() {
 function onSnowOverlayElevInput(v) {
   snowOverlayParams.minElev = +v;
   document.getElementById('soc-elev-val').textContent = Math.round(+v);
+  scheduleSnowOverlayRefresh();
+}
+function onSnowOverlayPatchInput(v) {
+  snowOverlayParams.patchBandM = +v;
+  document.getElementById('soc-patch-val').textContent = v;
   scheduleSnowOverlayRefresh();
 }
 function onSnowOverlaySlopeInput(v) {
