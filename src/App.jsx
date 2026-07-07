@@ -1869,7 +1869,7 @@ function SnowfallForecast({ resort, setResort }) {
         onClick={() => setModelMenuOpen(o => !o)}
         style={{ padding: '8px 16px', fontSize: '0.85em' }}
       >
-        Models ({freezingModelOptions.filter(m => m.available && showFreezing[m.key]).length}/{freezingModelOptions.filter(m => m.available).length})
+        Models
         <span className="dropdown-arrow">▼</span>
       </button>
       {modelMenuOpen && (
