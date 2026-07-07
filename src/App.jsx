@@ -2,6 +2,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { Camera, LineChart, Map as MapIcon } from 'lucide-react'
 import HLS from 'hls.js'
+import { computeStormArrival } from './stormArrival'
 import './App.css'
 
 const METEOBLUE_API_KEY = import.meta.env.VITE_METEOBLUE_API_KEY || 'DEMO'
@@ -653,6 +654,39 @@ function GridSizeSwitcher({ cols, setCols }) {
           {n}
         </button>
       ))}
+    </div>
+  )
+}
+
+// Demo: storm-arrival nowcast, Mt Lyford only (its region — 'canterbury' —
+// is the only one this has been tuned/tested against so far). Polls the
+// regional radar every few minutes and renders nothing at all unless a precip
+// cell is actually closing in within STORM_ARRIVAL_MAX_ETA_MIN — no "checking…"
+// or "nothing incoming" empty state, by design.
+const STORM_ARRIVAL_REGION = 'canterbury'
+const STORM_ARRIVAL_POLL_MS = 5 * 60 * 1000
+function StormArrivalBanner({ resort }) {
+  const [arrival, setArrival] = useState(null)
+
+  useEffect(() => {
+    if (resort !== 'mtlyford') { setArrival(null); return }
+    let cancelled = false
+    const target = [RESORTS.mtlyford.lon, RESORTS.mtlyford.lat]
+    const check = () => {
+      computeStormArrival(STORM_ARRIVAL_REGION, target)
+        .then((result) => { if (!cancelled) setArrival(result) })
+        .catch(() => { if (!cancelled) setArrival(null) })
+    }
+    check()
+    const interval = setInterval(check, STORM_ARRIVAL_POLL_MS)
+    return () => { cancelled = true; clearInterval(interval) }
+  }, [resort])
+
+  if (!arrival) return null
+
+  return (
+    <div className="storm-arrival-banner">
+      ❄️ Snow incoming to Mt Lyford — arriving in ~{arrival.etaMinutes} min ({arrival.distanceKm} km out)
     </div>
   )
 }
@@ -2707,6 +2741,7 @@ export default function App() {
               <ResortSelector resort={resort} setResort={setResort} />
               <GridSizeSwitcher cols={gridCols} setCols={setGridCols} />
             </div>
+            <StormArrivalBanner resort={resort} />
             <CameraGrid cameras={orderCamerasByResort(ALL_CAMERAS, resort)} cols={gridCols} />
           </section>
         )}
