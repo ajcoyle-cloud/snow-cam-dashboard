@@ -2186,18 +2186,11 @@ function SnowfallForecast({ resort, setResort }) {
           {/* X-axis */}
           <line x1={snowPadding.left} y1={snowPadding.top + snowPlotHeight} x2={snowChartWidth - snowPadding.right} y2={snowPadding.top + snowPlotHeight} stroke="#555" strokeWidth="1" />
 
-{/* Date labels only — fit mode: per column; hourly: at midnight */}
-          {viewMode === 'fit'
-            ? tableData.map((d, gi) => {
-                const dateStr = d.datetime.toLocaleDateString('en-NZ', { weekday: 'short', day: 'numeric' })
-                const x = snowPadding.left + (gi * FIT_GROUP + FIT_GROUP / 2) * cellWidth
-                return (
-                  <text key={`date-${gi}`} x={x} y={snowPadding.top + snowPlotHeight + 24} style={{ fill: '#aaa', fontSize: 10, fontWeight: 'bold', textAnchor: 'middle' }}>
-                    {dateStr}
-                  </text>
-                )
-              })
-            : displayData.map((d, i) => {
+{/* Date labels below the chart — hourly mode only, at each midnight day
+    boundary. Fit mode skips these: its table header directly below already
+    shows the identical per-column date, so drawing it here too was a
+    literal duplicate stacked right on top of the table's own labels. */}
+          {viewMode !== 'fit' && displayData.map((d, i) => {
                 if (i === 0 || d.datetime.getHours() !== 0) return null
                 const dateStr = d.datetime.toLocaleDateString('en-NZ', { weekday: 'short', day: 'numeric' })
                 return (
