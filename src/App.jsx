@@ -1726,7 +1726,9 @@ function SnowfallForecast({ resort, setResort }) {
   // table row grows the page (letting .main-content's natural overflow-y:
   // auto scroll) instead of shrinking the chart to compensate.
   const RESERVED_CHROME_HEIGHT = 310
-  const snowChartHeight = Math.max(280, windowHeight - RESERVED_CHROME_HEIGHT)
+  // Graph section sized to 75% of the space that would otherwise be
+  // available, rather than filling all of it.
+  const snowChartHeight = Math.max(280, windowHeight - RESERVED_CHROME_HEIGHT) * 0.75
   const snowPadding = { top: 60, right: isMobile ? 18 : 40, bottom: 38, left: isMobile ? 70 : 95 }
   // On mobile, "Fit to Screen" must NOT squash 16 day-columns into ~360px — that
   // makes values wrap to stacked digits and the date labels collide. Instead
