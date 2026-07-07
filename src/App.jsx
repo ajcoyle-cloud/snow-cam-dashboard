@@ -1978,13 +1978,13 @@ function SnowfallForecast({ resort, setResort }) {
               className={`toggle-btn ${viewMode === 'hourly' ? 'active' : ''}`}
               onClick={() => setViewMode('hourly')}
             >
-              Hourly
+              Hour
             </button>
             <button
               className={`toggle-btn ${viewMode === 'fit' ? 'active' : ''}`}
               onClick={() => setViewMode('fit')}
             >
-              Fit to Screen
+              Day
             </button>
           </div>
           {renderModelsMenu(modelMenuMobileRef, 'forecast-models-mobile')}
@@ -2008,13 +2008,13 @@ function SnowfallForecast({ resort, setResort }) {
             className={`toggle-btn ${viewMode === 'hourly' ? 'active' : ''}`}
             onClick={() => setViewMode('hourly')}
           >
-            Hourly
+            Hour
           </button>
           <button
             className={`toggle-btn ${viewMode === 'fit' ? 'active' : ''}`}
             onClick={() => setViewMode('fit')}
           >
-            Fit to Screen
+            Day
           </button>
         </div>
 
