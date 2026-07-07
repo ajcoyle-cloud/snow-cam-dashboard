@@ -1113,6 +1113,11 @@ function SnowfallForecast({ resort, setResort }) {
   const isScrollingRef = useRef(false)
   const [modelMenuOpen, setModelMenuOpen] = useState(false)
   const modelMenuRef = useRef(null)
+  // The models dropdown renders twice — once in the desktop controls row,
+  // once at the far right of the mobile top bar (see forecast-models-desktop/
+  // -mobile below) — so "click outside closes it" needs to check both
+  // possible mounted instances, not just one.
+  const modelMenuMobileRef = useRef(null)
 
   useEffect(() => {
     const fetchForecast = async () => {
@@ -1370,7 +1375,9 @@ function SnowfallForecast({ resort, setResort }) {
   useEffect(() => {
     if (!modelMenuOpen) return
     const onClickOutside = (e) => {
-      if (modelMenuRef.current && !modelMenuRef.current.contains(e.target)) setModelMenuOpen(false)
+      const insideDesktop = modelMenuRef.current && modelMenuRef.current.contains(e.target)
+      const insideMobile = modelMenuMobileRef.current && modelMenuMobileRef.current.contains(e.target)
+      if (!insideDesktop && !insideMobile) setModelMenuOpen(false)
     }
     document.addEventListener('mousedown', onClickOutside)
     return () => document.removeEventListener('mousedown', onClickOutside)
@@ -1852,6 +1859,77 @@ function SnowfallForecast({ resort, setResort }) {
     { key: 'average', label: 'Average', color: '#e2e8f0', available: true },
   ]
 
+  // Renders the models (freezing-level visibility) dropdown — used twice: once
+  // in the desktop controls row, once at the far right of the mobile top bar.
+  // Kept as one function so the two spots can't drift out of sync.
+  const renderModelsMenu = (menuRef, className) => (
+    <div className={`resort-selector ${className}`} ref={menuRef} style={{ paddingTop: 0 }}>
+      <button
+        className="resort-button"
+        onClick={() => setModelMenuOpen(o => !o)}
+        style={{ padding: '8px 16px', fontSize: '0.85em' }}
+      >
+        Models ({freezingModelOptions.filter(m => m.available && showFreezing[m.key]).length}/{freezingModelOptions.filter(m => m.available).length})
+        <span className="dropdown-arrow">▼</span>
+      </button>
+      {modelMenuOpen && (
+        <div className="resort-dropdown" style={{ minWidth: 170, padding: '4px 0' }}>
+          {freezingModelOptions.map(m => (
+            <label
+              key={m.key}
+              className="resort-option"
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8,
+                opacity: m.available ? 1 : 0.4,
+                cursor: m.available ? 'pointer' : 'not-allowed',
+              }}
+            >
+              <input
+                type="checkbox"
+                checked={showFreezing[m.key]}
+                disabled={!m.available}
+                onChange={() => setShowFreezing(s => ({ ...s, [m.key]: !s[m.key] }))}
+                style={{ position: 'absolute', opacity: 0, width: 0, height: 0 }}
+              />
+              {/* iOS-style toggle track/knob — the checkbox above stays for state + a11y. */}
+              <span
+                aria-hidden="true"
+                style={{
+                  display: 'inline-block',
+                  flexShrink: 0,
+                  width: 30,
+                  height: 17,
+                  borderRadius: 9,
+                  background: showFreezing[m.key] ? m.color : '#3a3a3c',
+                  position: 'relative',
+                  transition: 'background 0.15s ease',
+                }}
+              >
+                <span
+                  style={{
+                    position: 'absolute',
+                    top: 1.5,
+                    left: showFreezing[m.key] ? 15 : 1.5,
+                    width: 14,
+                    height: 14,
+                    borderRadius: '50%',
+                    background: '#fff',
+                    boxShadow: '0 1px 3px rgba(0,0,0,0.4)',
+                    transition: 'left 0.15s ease',
+                  }}
+                />
+              </span>
+              <span style={{ display: 'inline-block', width: 10, height: 3, background: m.color, borderRadius: 2 }} />
+              {m.label}
+            </label>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+
   // MetService gives one freezing-level value per day (with an optional intraday
   // step). Map it onto the hourly chart so the purple line aligns with the model
   // lines. Returns metres for a given datetime, or null if outside MetService's
@@ -1909,6 +1987,7 @@ function SnowfallForecast({ resort, setResort }) {
               Fit to Screen
             </button>
           </div>
+          {renderModelsMenu(modelMenuMobileRef, 'forecast-models-mobile')}
         </div>
       </div>
 
@@ -1969,72 +2048,10 @@ function SnowfallForecast({ resort, setResort }) {
         </div>
 
         {/* Freezing level line (model visibility) dropdown — tick/untick any
-            number of models to show them on the graph at once. */}
-        <div className="resort-selector" ref={modelMenuRef} style={{ paddingTop: 0 }}>
-          <button
-            className="resort-button"
-            onClick={() => setModelMenuOpen(o => !o)}
-            style={{ padding: '8px 16px', fontSize: '0.85em' }}
-          >
-            Models ({freezingModelOptions.filter(m => m.available && showFreezing[m.key]).length}/{freezingModelOptions.filter(m => m.available).length})
-            <span className="dropdown-arrow">▼</span>
-          </button>
-          {modelMenuOpen && (
-            <div className="resort-dropdown" style={{ minWidth: 170, padding: '4px 0' }}>
-              {freezingModelOptions.map(m => (
-                <label
-                  key={m.key}
-                  className="resort-option"
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 8,
-                    opacity: m.available ? 1 : 0.4,
-                    cursor: m.available ? 'pointer' : 'not-allowed',
-                  }}
-                >
-                  <input
-                    type="checkbox"
-                    checked={showFreezing[m.key]}
-                    disabled={!m.available}
-                    onChange={() => setShowFreezing(s => ({ ...s, [m.key]: !s[m.key] }))}
-                    style={{ position: 'absolute', opacity: 0, width: 0, height: 0 }}
-                  />
-                  {/* iOS-style toggle track/knob — the checkbox above stays for state + a11y. */}
-                  <span
-                    aria-hidden="true"
-                    style={{
-                      display: 'inline-block',
-                      flexShrink: 0,
-                      width: 30,
-                      height: 17,
-                      borderRadius: 9,
-                      background: showFreezing[m.key] ? m.color : '#3a3a3c',
-                      position: 'relative',
-                      transition: 'background 0.15s ease',
-                    }}
-                  >
-                    <span
-                      style={{
-                        position: 'absolute',
-                        top: 1.5,
-                        left: showFreezing[m.key] ? 15 : 1.5,
-                        width: 14,
-                        height: 14,
-                        borderRadius: '50%',
-                        background: '#fff',
-                        boxShadow: '0 1px 3px rgba(0,0,0,0.4)',
-                        transition: 'left 0.15s ease',
-                      }}
-                    />
-                  </span>
-                  <span style={{ display: 'inline-block', width: 10, height: 3, background: m.color, borderRadius: 2 }} />
-                  {m.label}
-                </label>
-              ))}
-            </div>
-          )}
-        </div>
+            number of models to show them on the graph at once. Hidden on
+            mobile (forecast-models-desktop); the mobile top bar gets its own
+            copy at the far right instead — see forecast-top-bar above. */}
+        {renderModelsMenu(modelMenuRef, 'forecast-models-desktop')}
         </div>
       </div>
 

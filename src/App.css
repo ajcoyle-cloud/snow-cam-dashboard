@@ -884,6 +884,7 @@
   .forecast-top-bar-right {
     display: flex;
     align-items: center;
+    gap: 8px;
   }
 
   .forecast-top-bar-left .resort-selector {
@@ -897,10 +898,20 @@
     display: none !important;
   }
 
+  /* The models dropdown moves up into the top bar on mobile (far right, next
+     to the Hourly/Fit toggle) instead of sitting in the wrapped controls row
+     below — hide the controls-row copy here; forecast-models-mobile (the top
+     bar's own copy) needs no explicit show rule since nothing hides it by
+     default, only .forecast-top-bar itself is hidden on desktop. */
+  .forecast-models-desktop {
+    display: none !important;
+  }
+
   /* Item 1: the switcher (left) and the view-mode toggle (right) sit on the same
      horizontal line with equal heights. */
   .forecast-top-bar-left .resort-button,
-  .forecast-top-bar-right .elevation-toggle {
+  .forecast-top-bar-right .elevation-toggle,
+  .forecast-top-bar-right .forecast-models-mobile .resort-button {
     height: 38px;
     display: inline-flex;
     align-items: center;
