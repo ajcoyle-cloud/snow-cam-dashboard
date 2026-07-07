@@ -1183,9 +1183,21 @@ function buildDemoForecast() {
   return rows;
 }
 
+// en-NZ's combined date+time toLocaleString (e.g. "Thu, 9 Jul at 8:00 pm")
+// doesn't fit the timeslider's label pill — built by hand instead, dropping
+// "at" and the ":00" for on-the-hour times ("8pm" not "8:00pm"), used by both
+// the hourly and radar timeslider labels.
+function fmtClock(d) {
+  let h = d.getHours();
+  const m = d.getMinutes();
+  const ampm = h >= 12 ? 'pm' : 'am';
+  h = h % 12 || 12;
+  return m === 0 ? `${h}${ampm}` : `${h}:${String(m).padStart(2, '0')}${ampm}`;
+}
 function fmtTime(iso) {
   const d = new Date(iso);
-  return d.toLocaleString('en-NZ', { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+  const datePart = d.toLocaleDateString('en-NZ', { weekday: 'short', day: 'numeric', month: 'short' });
+  return `${datePart} ${fmtClock(d)}`;
 }
 
 // ── Map ────────────────────────────────────────────────────────────────────
@@ -2346,7 +2358,9 @@ function radarTsToDate(ts) {
   return new Date(Date.UTC(+ts.slice(0, 4), +ts.slice(4, 6) - 1, +ts.slice(6, 8), +ts.slice(8, 10), +ts.slice(10, 12)));
 }
 function radarFormatTs(ts) {
-  return radarTsToDate(ts).toLocaleString('en-NZ', { weekday: 'short', hour: '2-digit', minute: '2-digit' });
+  const d = radarTsToDate(ts);
+  const datePart = d.toLocaleDateString('en-NZ', { weekday: 'short' });
+  return `${datePart} ${fmtClock(d)}`;
 }
 function radarRgbToHsv(r, g, b) {
   r /= 255; g /= 255; b /= 255;
