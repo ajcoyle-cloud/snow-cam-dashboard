@@ -409,8 +409,11 @@
     }
     /* Height matched to the React-layer location switcher (.map-resort-switch
        .resort-button, 38px) so the two sit on the same horizontal line. */
-    .pill-group { overflow-x: auto; min-height: 38px; align-items: center; }
-    .pill-btn { padding: 7px 12px; font-size: 0.72rem; }
+    /* gap/padding trimmed (from 4px/7px 12px) so Live/Hour/Accum/Radar all fit
+       on one line without needing the overflow-x scroll below — kept as a
+       safety net for any narrower device rather than the primary fix. */
+    .pill-group { overflow-x: auto; min-height: 38px; align-items: center; gap: 2px; padding: 4px; }
+    .pill-btn { padding: 6px 9px; font-size: 0.72rem; }
 
     /* Map toggle buttons (live-obs, auto-rotate) tuck just under the top control
        row (top row sits at 14px and is ~38px tall, ending ~52px). */
@@ -457,21 +460,28 @@
     #tl-label, #ltl-label, #rtl-label { min-width: 0; font-size: 0.7rem; }
 
     /* ── Bottom-sheet drawer ──────────────────────────────────────────── */
-    /* The open drawer floats above the timeslider. The timeline is ~54px tall at
-       bottom:14px (top ~68px), so anchor the drawer at bottom:80px for a clear
-       gap. The hidden state slides it fully off-screen (see the .drawer-min
-       transform, which accounts for this bottom offset). */
+    /* The drawer's own box now runs all the way to the true bottom of the
+       screen (bottom:0) rather than stopping at bottom:80px above the
+       timeslider — that previously cut the drawer's background off short,
+       leaving a gap of whatever's behind it (the map) showing through
+       instead of the drawer continuing down behind the timeline. The
+       timeline (z-index 11, above the drawer's z-index 10) still paints on
+       top of it, so visually the timeline is unchanged — only the drawer's
+       background now actually reaches the bottom edge. Bottom padding grows
+       by that same 80px so the drawer's real content still clears the
+       timeline; the drawer's rendered top edge (and thus everything above
+       it — content, buttons, map) ends up exactly where it was before. */
     #snow-info {
-      left: 0; right: 0; bottom: 80px;
+      left: 0; right: 0; bottom: 0;
       min-width: 0; width: 100%;
       border-radius: 18px 18px 0 0;
-      padding: 0 20px 16px;
+      padding: 0 20px 96px;
       touch-action: none;
       transition: transform 0.3s cubic-bezier(0.32, 0.72, 0, 1);
     }
 
     /* Same lift in live mode (overrides the desktop live-mode bottom:96px). */
-    #map-screen.live-mode #snow-info { bottom: 80px; }
+    #map-screen.live-mode #snow-info { bottom: 0; }
 
     #drawer-handle {
       display: flex; align-items: center; justify-content: center;
@@ -491,8 +501,12 @@
        peeking bar) so it never covers the freezing-level graph. Reopen via the
        #drawer-launch button. */
     #snow-info.drawer-min {
-      /* Move down by full height + the 80px bottom offset so it's fully hidden. */
-      transform: translateY(calc(100% + 96px));
+      /* The box is now 80px taller than before (see the padding-bottom change
+         above) and sits 80px further down (bottom:0 vs bottom:80px), so its
+         own full height (100%) already covers what the old fixed +96px
+         offset used to also account for — this now only needs a small fixed
+         buffer on top, same final hidden position as before. */
+      transform: translateY(calc(100% + 16px));
       pointer-events: none;
     }
     #snow-info.drawer-min #drawer-scroll { overflow: hidden; }
@@ -548,7 +562,7 @@
     <div class="pill-group" id="mode-switch">
       <button class="pill-btn" data-mode="live" onclick="setViewMode('live')">Live</button>
       <button class="pill-btn active" data-mode="hourly" onclick="setViewMode('hourly')">Hourly</button>
-      <button class="pill-btn" data-mode="accumulated" onclick="setViewMode('accumulated')">Accumulated</button>
+      <button class="pill-btn" data-mode="accumulated" onclick="setViewMode('accumulated')">Accum</button>
       <button class="pill-btn" data-mode="radar" onclick="setViewMode('radar')">Radar</button>
     </div>
     <div class="pill-group" id="period-switch">
