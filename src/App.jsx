@@ -1101,6 +1101,11 @@ function SnowfallForecast({ resort, setResort }) {
   const [containerWidth, setContainerWidth] = useState(() => window.innerWidth - 40)
   const [windowHeight, setWindowHeight] = useState(() => window.innerHeight)
   const [isMobile, setIsMobile] = useState(() => window.innerWidth <= 700)
+  // Hourly view's table header shows time-of-day (e.g. "3PM"), not a date, so
+  // once you've swiped a few hours in there's no date on screen at all. This
+  // tracks which date is currently at the left edge, to show in the sticky
+  // corner cell in its place.
+  const [visibleHourlyDate, setVisibleHourlyDate] = useState(null)
   const chartRef = useRef(null)
   const tableRef = useRef(null)
   const svgRef = useRef(null)
@@ -1409,6 +1414,35 @@ function SnowfallForecast({ resort, setResort }) {
       table.removeEventListener('scroll', onTableScroll)
     }
   }, [forecastData])
+
+  // Hourly view's table header shows time-of-day, not a date, so the sticky
+  // corner cell substitutes in the date of whichever column has scrolled to
+  // the left edge — read straight off the actual rendered header cells
+  // (each tagged with data-date) rather than re-deriving the chart's column
+  // width/padding formula here, so it can't drift out of sync with it.
+  useEffect(() => {
+    const table = tableRef.current
+    if (!table) return
+    let rafId = null
+    const measure = () => {
+      rafId = null
+      if (viewMode !== 'hourly') { setVisibleHourlyDate(null); return }
+      const firstTh = table.querySelector('thead th:first-child')
+      const boundary = (firstTh ? firstTh.getBoundingClientRect().right : table.getBoundingClientRect().left) + 1
+      let found = null
+      for (const th of table.querySelectorAll('thead th[data-date]')) {
+        if (th.getBoundingClientRect().right > boundary) { found = th.dataset.date; break }
+      }
+      setVisibleHourlyDate(found)
+    }
+    const onScroll = () => { if (rafId == null) rafId = requestAnimationFrame(measure) }
+    measure()
+    table.addEventListener('scroll', onScroll, { passive: true })
+    return () => {
+      table.removeEventListener('scroll', onScroll)
+      if (rafId != null) cancelAnimationFrame(rafId)
+    }
+  }, [viewMode, forecastData])
 
   // Click-drag-to-scroll with momentum (mouse/pen) on the chart and table
   useEffect(() => {
@@ -2402,7 +2436,9 @@ function SnowfallForecast({ resort, setResort }) {
         <table style={{ width: `${snowPadding.left + tableData.length * tableCellWidth}px` }}>
           <thead>
             <tr>
-              <th style={{ width: `${snowPadding.left}px` }}>Time</th>
+              <th style={{ width: `${snowPadding.left}px` }}>
+                {viewMode === 'hourly' && visibleHourlyDate ? visibleHourlyDate : 'Time'}
+              </th>
               {tableData.map((d, i) => {
                 const h = d.datetime.getHours()
                 const hour = h % 12 || 12
@@ -2412,7 +2448,7 @@ function SnowfallForecast({ resort, setResort }) {
                   ? d.datetime.toLocaleDateString('en-NZ', { weekday: 'short', day: 'numeric' })
                   : `${hour}${ampm}`
                 return (
-                  <th key={i} style={{
+                  <th key={i} data-date={viewMode === 'hourly' ? d.datetime.toLocaleDateString('en-NZ', { weekday: 'short', day: 'numeric' }) : undefined} style={{
                     width: `${tableCellWidth}px`,
                     background: 'rgba(26, 26, 26, 0.15)',
                     padding: '4px 2px',
