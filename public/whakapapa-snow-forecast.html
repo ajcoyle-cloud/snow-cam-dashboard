@@ -1548,11 +1548,13 @@ function initMap() {
 // snowflake button next to the rotate control, not tied to any real
 // forecast/weather data.
 function createSnowLayer(loc) {
-  const PARTICLE_COUNT = 500;
+  const PARTICLE_COUNT = 700;
   // Spawn area is a rough circle around the resort's own centre — not tied to
   // the actual camera framing, so it reads fine at the default view but may
-  // look sparse/dense if you zoom far in or out.
-  const SPAWN_RADIUS_DEG = 0.03; // ~3km at these latitudes
+  // look sparse/dense if you zoom far in or out. (First trial used 0.03/~3km,
+  // which was too tight — barely covered the visible frame at the resort's
+  // usual wide, pitched establishing shot.)
+  const SPAWN_RADIUS_DEG = 0.08; // ~8km at these latitudes
   const TOP_ALT = (loc.topElev || loc.summitElev + 200) + 400;
   const BOTTOM_ALT = Math.max(0, loc.baseElev - 300);
   const FALL_SPEED = 40; // metres/sec — tuned by eye, not physically modelled
@@ -1586,6 +1588,9 @@ function createSnowLayer(loc) {
         const s = gl.createShader(type);
         gl.shaderSource(s, src);
         gl.compileShader(s);
+        if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) {
+          console.error('snow-particles shader compile error:', gl.getShaderInfoLog(s));
+        }
         return s;
       };
       program = gl.createProgram();
@@ -1594,18 +1599,29 @@ function createSnowLayer(loc) {
         attribute vec3 a_pos;
         void main() {
           gl_Position = u_matrix * vec4(a_pos, 1.0);
-          gl_PointSize = 3.5;
+          gl_PointSize = 7.0;
         }
       `));
+      // A pure white dot barely shows up against snow-covered white terrain —
+      // first trial's actual failure mode (per a live screenshot: the layer
+      // was active but effectively invisible). Gives each flake a soft dark
+      // rim around a white core so it reads against light AND dark
+      // backgrounds instead of just one.
       gl.attachShader(program, compile(gl.FRAGMENT_SHADER, `
         precision mediump float;
         void main() {
           float dist = length(gl_PointCoord - vec2(0.5));
           if (dist > 0.5) discard;
-          gl_FragColor = vec4(1.0, 1.0, 1.0, smoothstep(0.5, 0.15, dist) * 0.85);
+          float core = 1.0 - smoothstep(0.24, 0.4, dist);
+          float rim = smoothstep(0.24, 0.4, dist) * (1.0 - smoothstep(0.4, 0.5, dist));
+          vec3 color = mix(vec3(0.2, 0.28, 0.4), vec3(1.0), core);
+          gl_FragColor = vec4(color, max(core, rim * 0.7));
         }
       `));
       gl.linkProgram(program);
+      if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
+        console.error('snow-particles program link error:', gl.getProgramInfoLog(program));
+      }
       aPos = gl.getAttribLocation(program, 'a_pos');
       uMatrix = gl.getUniformLocation(program, 'u_matrix');
       buffer = gl.createBuffer();
