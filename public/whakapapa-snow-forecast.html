@@ -1957,9 +1957,11 @@ function toggleSnowOverlay() {
 // trials above. Reuses decodeTerrainRGB/getDemTileUrlTemplate (defined with
 // the slope-overlay trial above) — same terrain-rgb DEM tiles, same decode.
 const DARK_TERRAIN_CONTOUR_INTERVAL_M = 100;
-const DARK_TERRAIN_BASE_RGB = [8, 10, 14];    // near-black, faint blue tint
-const DARK_TERRAIN_TOP_RGB = [85, 90, 98];    // subtle light grey — deliberately dim, not bright
-const DARK_TERRAIN_CONTOUR_RGB = [140, 140, 146];
+const DARK_TERRAIN_MAJOR_CONTOUR_INTERVAL_M = 500; // "special" index contours, called out brighter
+const DARK_TERRAIN_BASE_RGB = [2, 3, 5];      // darker near-black base
+const DARK_TERRAIN_TOP_RGB = [55, 58, 65];    // darker summit too — stays a dark map overall
+const DARK_TERRAIN_CONTOUR_RGB = [175, 178, 188];        // lighter minor (100m) contours
+const DARK_TERRAIN_MAJOR_CONTOUR_RGB = [240, 244, 250];  // bright near-white major (500m) contours
 
 let darkTerrainProtocolRegistered = false;
 function registerDarkTerrainProtocol() {
@@ -2000,12 +2002,23 @@ function registerDarkTerrainProtocol() {
         let b = DARK_TERRAIN_BASE_RGB[2] + t * (DARK_TERRAIN_TOP_RGB[2] - DARK_TERRAIN_BASE_RGB[2]);
 
         // A contour line crosses this pixel if it and its right/below
-        // neighbor fall into different 100m elevation bands.
+        // neighbor fall into different elevation bands — checked at both the
+        // regular 100m interval and the "special" 500m major/index interval,
+        // with the major one called out in a brighter colour and taking
+        // priority where the two coincide (every major contour is also a
+        // minor one).
+        const eRight = elev[py * size + xp1], eDown = elev[yp1 * size + px];
         const band = Math.floor(e / DARK_TERRAIN_CONTOUR_INTERVAL_M);
-        const bandRight = Math.floor(elev[py * size + xp1] / DARK_TERRAIN_CONTOUR_INTERVAL_M);
-        const bandDown = Math.floor(elev[yp1 * size + px] / DARK_TERRAIN_CONTOUR_INTERVAL_M);
-        if (band !== bandRight || band !== bandDown) {
-          const mix = 0.6;
+        const isMinorContour = band !== Math.floor(eRight / DARK_TERRAIN_CONTOUR_INTERVAL_M) || band !== Math.floor(eDown / DARK_TERRAIN_CONTOUR_INTERVAL_M);
+        const majorBand = Math.floor(e / DARK_TERRAIN_MAJOR_CONTOUR_INTERVAL_M);
+        const isMajorContour = majorBand !== Math.floor(eRight / DARK_TERRAIN_MAJOR_CONTOUR_INTERVAL_M) || majorBand !== Math.floor(eDown / DARK_TERRAIN_MAJOR_CONTOUR_INTERVAL_M);
+        if (isMajorContour) {
+          const mix = 0.9;
+          r += (DARK_TERRAIN_MAJOR_CONTOUR_RGB[0] - r) * mix;
+          g += (DARK_TERRAIN_MAJOR_CONTOUR_RGB[1] - g) * mix;
+          b += (DARK_TERRAIN_MAJOR_CONTOUR_RGB[2] - b) * mix;
+        } else if (isMinorContour) {
+          const mix = 0.65;
           r += (DARK_TERRAIN_CONTOUR_RGB[0] - r) * mix;
           g += (DARK_TERRAIN_CONTOUR_RGB[1] - g) * mix;
           b += (DARK_TERRAIN_CONTOUR_RGB[2] - b) * mix;
