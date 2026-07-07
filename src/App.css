@@ -373,6 +373,23 @@
   flex-direction: column;
 }
 
+/* Expanded snow report ("See more" tapped): the webcam must not shrink to
+   make room for the now-unclamped, potentially long report text below it.
+   Pin the image to a fixed height instead of letting it flex-share space
+   with its sibling, and let this column scroll as a whole so the extra
+   report text is reached by scrolling down past the (unchanged-size) image
+   rather than by squeezing the image or nesting a second scrollbar inside
+   the report panel. Collapsed state is untouched — :has() only matches
+   once .snow-report-summary carries .expanded. */
+.fullscreen-content > div:not(.fullscreen-sidebar):has(.snow-report-summary.expanded) {
+  overflow-y: auto;
+}
+
+.fullscreen-content > div:not(.fullscreen-sidebar):has(.snow-report-summary.expanded) .fullscreen-image-wrapper {
+  flex: 0 0 auto;
+  height: 62vh;
+}
+
 .fullscreen-content h2 {
   color: white;
   font-size: 1.05em;
@@ -489,13 +506,6 @@
   padding: 10px 14px;
   background: rgba(255, 255, 255, 0.06);
   border-radius: 8px;
-}
-
-/* Only the expanded (full-text) state scrolls — collapsed is always just the
-   2 clamped lines, so the webcam image keeps most of the modal's height. */
-.snow-report-summary.expanded {
-  max-height: 22vh;
-  overflow-y: auto;
 }
 
 .snow-report-summary h4 {
