@@ -405,6 +405,33 @@ function NzSkiCamera({ manifest, cameraKey, angle = 'Angle1', alt, onError, styl
   return <img src={src} alt={alt} onError={onError} style={style} />
 }
 
+// Text summary from Whakapapa's official daily snow report (scraped server-side
+// by api/whakapapa-report.js — mtruapehu.com blocks non-browser fetches, so the
+// dashboard can't read it directly). Renders nothing while loading or if the
+// scrape comes up empty, rather than showing a placeholder/error — same pattern
+// as StormArrivalBanner above.
+function WhakapapaSnowReport() {
+  const [report, setReport] = useState(null)
+
+  useEffect(() => {
+    let cancelled = false
+    fetch('/whakapapa-report')
+      .then((r) => (r.ok ? r.json() : Promise.reject()))
+      .then((data) => { if (!cancelled) setReport(data) })
+      .catch(() => { if (!cancelled) setReport(null) })
+    return () => { cancelled = true }
+  }, [])
+
+  if (!report?.summary) return null
+
+  return (
+    <div className="whakapapa-report">
+      <h4>Whakapapa Snow Report</h4>
+      <p>{report.summary}</p>
+    </div>
+  )
+}
+
 function CameraCard({ camera, allCameras = [] }) {
   const [fullscreenCam, setFullscreenCam] = useState(null)
   const [cameraIndex, setCameraIndex] = useState(0)
@@ -618,6 +645,7 @@ function CameraCard({ camera, allCameras = [] }) {
                 </>
               )}
             </div>
+            {activeCam.location === 'Whakapapa' && <WhakapapaSnowReport />}
             </div>
           </div>
         </div>

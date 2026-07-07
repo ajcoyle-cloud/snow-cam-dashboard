@@ -1,6 +1,7 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import { resolveLyfordCam } from './api/lyford-cam.js'
+import { resolveWhakapapaReport } from './api/whakapapa-report.js'
 
 // Dev parity for the Mt Lyford webcam scraper. In prod, /lyford-cam/<cam> is a
 // Vercel function (api/lyford-cam.js); the Vite dev server doesn't run that, so
@@ -34,8 +35,30 @@ function lyfordCamDev() {
   }
 }
 
+// Dev parity for the Whakapapa daily snow report scraper (api/whakapapa-report.js).
+function whakapapaReportDev() {
+  return {
+    name: 'whakapapa-report-dev',
+    configureServer(server) {
+      server.middlewares.use('/whakapapa-report', async (req, res) => {
+        const url = new URL(req.url, 'http://localhost')
+        try {
+          const result = await resolveWhakapapaReport({ debug: url.searchParams.has('debug') })
+          res.setHeader('Content-Type', 'application/json')
+          res.end(JSON.stringify(result.debug ? result.debug : result))
+        } catch (e) {
+          const status = e && typeof e.status === 'number' ? e.status : 502
+          res.statusCode = status
+          res.setHeader('Content-Type', 'application/json')
+          res.end(JSON.stringify(e && e.body ? e.body : { error: String((e && e.message) || e) }))
+        }
+      })
+    },
+  }
+}
+
 export default defineConfig({
-  plugins: [react(), lyfordCamDev()],
+  plugins: [react(), lyfordCamDev(), whakapapaReportDev()],
   server: {
     port: 5173,
     // MetService's public webdata API only allows its own origin (CORS), so the
