@@ -687,8 +687,8 @@
 .forecast-data-table table {
   border-collapse: collapse;
   background: #0a0a0a;
-  font-size: 13px;
-  font-family: monospace;
+  font-size: 14px;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto';
   table-layout: fixed;
 }
 
@@ -702,11 +702,11 @@
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  font-size: 0.75em;
+  font-size: 0.86em;
   word-break: break-word;
   box-sizing: border-box;
-  height: 20px;
-  line-height: 20px;
+  height: 23px;
+  line-height: 23px;
 }
 
 .forecast-data-table td {
@@ -716,7 +716,7 @@
   border: 1px solid #222;
   overflow: hidden;
   text-overflow: ellipsis;
-  font-size: 0.75em;
+  font-size: 0.86em;
   word-break: break-word;
   box-sizing: border-box;
 }
@@ -970,11 +970,11 @@
   /* Larger, single-line data cells so values stop wrapping into stacked
      digits. Row-label (first) column stays sticky and may wrap to 2 lines. */
   .forecast-data-table table {
-    font-size: 12px;
+    font-size: 13px;
   }
   .forecast-data-table td,
   .forecast-data-table th {
-    font-size: 0.82em;
+    font-size: 0.88em;
     padding: 3px 2px;
   }
   .forecast-data-table td:not(:first-child),
@@ -983,7 +983,7 @@
   }
   .forecast-data-table td:first-child,
   .forecast-data-table th:first-child {
-    font-size: 0.72em;
+    font-size: 0.8em;
     line-height: 1.05;
     white-space: normal;
     padding-right: 4px;

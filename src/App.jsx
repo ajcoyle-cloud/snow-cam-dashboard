@@ -1675,13 +1675,13 @@ function SnowfallForecast({ resort, setResort }) {
   // enforce a comfortable minimum width per day-column and let the chart + table
   // scroll horizontally together (they're scroll-synced). Desktop keeps the true
   // fit-to-container behaviour.
-  const MIN_MOBILE_DAY_COL = 52
+  const MIN_MOBILE_DAY_COL = 60
   const fitChartWidth = isMobile
     ? Math.max(containerWidth, snowPadding.left + snowPadding.right + tableData.length * MIN_MOBILE_DAY_COL)
     : containerWidth
   const snowChartWidth = viewMode === 'fit'
     ? fitChartWidth
-    : Math.max(1200, displayData.length * 40)
+    : Math.max(1200, displayData.length * 46)
   const snowPlotWidth = snowChartWidth - snowPadding.left - snowPadding.right
   const snowPlotHeight = snowChartHeight - snowPadding.top - snowPadding.bottom
   const cellWidth = snowPlotWidth / displayData.length
