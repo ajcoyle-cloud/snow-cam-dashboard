@@ -2461,6 +2461,35 @@ function SnowfallForecast({ resort, setResort }) {
             </tr>
           </thead>
           <tbody>
+            {/* Snowfall rows */}
+            {rowsForGroup('snowfall').map((m, idx, rows) => (
+              <tr key={`snow-${m.key}`} style={{ height: '23px' }}>
+                {labelCell('snowfall', rows, idx, 'Snowfall', '(cm)')}
+                {m.data.map((d, i) => {
+                  const dayIndex = viewMode === 'fit' ? Math.floor(i * FIT_GROUP / 24) : Math.floor(i / 24)
+                  const isDayEven = dayIndex % 2 === 0
+                  const data = elevation === 'summit' ? d.summit : d.base
+                  const snowfall = data.snowfall
+                  const prob = data.precipProbability
+                  const hasSnow = snowfall >= 0.1
+                  const clickable = m.key === 'gfs' && viewMode === 'hourly'
+                  const bg = hasSnow ? `rgba(${m.rgb}, ${isDayEven ? 0.12 : 0.08})` : (isDayEven ? 'rgba(26, 26, 26, 0.3)' : 'rgba(15, 15, 15, 0.3)')
+                  return (
+                    <td
+                      key={i}
+                      onClick={clickable ? () => {
+                        const iso = d.datetime.toISOString().slice(0, 16)
+                        window.open(`/whakapapa-snow-forecast.html?resort=${resort}&time=${iso}`, '_blank')
+                      } : undefined}
+                      title={clickable ? 'Open 3D snow elevation view for this hour' : undefined}
+                      style={{ width: `${tableCellWidth}px`, color: m.key === 'gfs' ? '#3b82f6' : m.color, fontWeight: 'bold', background: bg, lineHeight: 1.1, paddingTop: '1px', paddingBottom: '1px', cursor: clickable ? 'pointer' : 'default' }}>
+                      <div>{snowfall < 0.1 ? '' : (snowfall / 10).toFixed(1)}</div>
+                      {hasSnow && prob !== null && prob >= 5 && <div style={{ fontSize: '9px', color: '#5b9bd5', fontWeight: 'normal' }}>{prob}%</div>}
+                    </td>
+                  )
+                })}
+              </tr>
+            ))}
             {/* Temperature rows */}
             {rowsForGroup('temp').map((m, idx, rows) => (
               <tr key={`temp-${m.key}`} style={{ height: '23px' }}>
@@ -2509,35 +2538,6 @@ function SnowfallForecast({ resort, setResort }) {
                     <td key={i} style={{ width: `${tableCellWidth}px`, background: 'rgba(26, 26, 26, 0.15)', lineHeight: 1.1, paddingTop: '1px', paddingBottom: '1px', color: m.key === 'gfs' ? undefined : m.color }}>
                       <div>{mainVal}</div>
                       {!isSnow && prob !== null && prob >= 5 && <div style={{ fontSize: '9px', color: m.key === 'gfs' ? '#666' : '#5b9bd5', fontWeight: 'normal' }}>{prob}%</div>}
-                    </td>
-                  )
-                })}
-              </tr>
-            ))}
-            {/* Snowfall rows */}
-            {rowsForGroup('snowfall').map((m, idx, rows) => (
-              <tr key={`snow-${m.key}`} style={{ height: '23px' }}>
-                {labelCell('snowfall', rows, idx, 'Snowfall', '(cm)')}
-                {m.data.map((d, i) => {
-                  const dayIndex = viewMode === 'fit' ? Math.floor(i * FIT_GROUP / 24) : Math.floor(i / 24)
-                  const isDayEven = dayIndex % 2 === 0
-                  const data = elevation === 'summit' ? d.summit : d.base
-                  const snowfall = data.snowfall
-                  const prob = data.precipProbability
-                  const hasSnow = snowfall >= 0.1
-                  const clickable = m.key === 'gfs' && viewMode === 'hourly'
-                  const bg = hasSnow ? `rgba(${m.rgb}, ${isDayEven ? 0.12 : 0.08})` : (isDayEven ? 'rgba(26, 26, 26, 0.3)' : 'rgba(15, 15, 15, 0.3)')
-                  return (
-                    <td
-                      key={i}
-                      onClick={clickable ? () => {
-                        const iso = d.datetime.toISOString().slice(0, 16)
-                        window.open(`/whakapapa-snow-forecast.html?resort=${resort}&time=${iso}`, '_blank')
-                      } : undefined}
-                      title={clickable ? 'Open 3D snow elevation view for this hour' : undefined}
-                      style={{ width: `${tableCellWidth}px`, color: m.key === 'gfs' ? '#3b82f6' : m.color, fontWeight: 'bold', background: bg, lineHeight: 1.1, paddingTop: '1px', paddingBottom: '1px', cursor: clickable ? 'pointer' : 'default' }}>
-                      <div>{snowfall < 0.1 ? '' : (snowfall / 10).toFixed(1)}</div>
-                      {hasSnow && prob !== null && prob >= 5 && <div style={{ fontSize: '9px', color: '#5b9bd5', fontWeight: 'normal' }}>{prob}%</div>}
                     </td>
                   )
                 })}
