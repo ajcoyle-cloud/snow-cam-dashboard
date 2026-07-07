@@ -599,7 +599,7 @@
       <input type="range" id="soc-elev" oninput="onSnowOverlayElevInput(this.value)">
     </label>
     <label>Max slope <span id="soc-slope-val"></span>°
-      <input type="range" id="soc-slope" min="10" max="70" step="1" oninput="onSnowOverlaySlopeInput(this.value)">
+      <input type="range" id="soc-slope" min="5" max="89" step="1" oninput="onSnowOverlaySlopeInput(this.value)">
     </label>
     <label>Fade width <span id="soc-fade-val"></span>°
       <input type="range" id="soc-fade" min="1" max="20" step="1" oninput="onSnowOverlayFadeInput(this.value)">
@@ -1772,10 +1772,14 @@ function toggleSnowParticles() {
 // layer, no custom WebGL/terrain-internals needed for the actual draw.
 //
 // Known limitations of this first trial:
-// - Assumes the DEM's default "mapbox" terrain-RGB encoding (the source
-//   doesn't set `encoding`, and MapLibre defaults to "mapbox" when it's
-//   omitted) — if mapterhorn's tiles use a different encoding, elevations
-//   (and therefore the snow line itself) would come out wrong.
+// - The DEM source doesn't set `encoding`, so MapLibre's own terrain/
+//   hillshade/color-relief default to reading it as "mapbox". decodeTerrainRGB
+//   below tries that same formula first, but falls back to "terrarium" when
+//   the result is nowhere near a plausible elevation — protects the elevation
+//   cutoff and slope calc here in case mapterhorn's tiles turn out to use the
+//   other encoding (a mismatch would otherwise decode elevation as wildly
+//   too large, making the elevation gate never trigger and slope read far
+//   steeper than real terrain).
 // - Slope is computed from each tile's own pixels only (neighbors clamped at
 //   the tile edge, not sampled from the adjacent tile), so faint seams may
 //   be visible at tile boundaries.
@@ -1786,8 +1790,18 @@ function toggleSnowParticles() {
 // every tile it generates, not baked in as constants.
 const snowOverlayParams = { minElev: 0, maxSlopeDeg: 40, fadeDeg: 8, opacity: 0.9 };
 
+// No real DEM anywhere on earth is outside roughly this band (Dead Sea
+// shore to above Everest, with margin) — used only to sanity-check which
+// encoding formula actually matches the tiles below.
+const PLAUSIBLE_ELEV_MIN_M = -500;
+const PLAUSIBLE_ELEV_MAX_M = 9500;
+
 function decodeTerrainRGB(r, g, b) {
-  return -10000 + (r * 256 * 256 + g * 256 + b) * 0.1;
+  const mapbox = -10000 + (r * 256 * 256 + g * 256 + b) * 0.1;
+  if (mapbox >= PLAUSIBLE_ELEV_MIN_M && mapbox <= PLAUSIBLE_ELEV_MAX_M) return mapbox;
+  // mapbox decode landed way outside anything real — these tiles are almost
+  // certainly "terrarium"-encoded instead, so retry with that formula.
+  return (r * 256 + g + b / 256) - 32768;
 }
 
 function tileCenterLatRad(y, z) {
