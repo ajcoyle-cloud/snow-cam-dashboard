@@ -1963,19 +1963,20 @@ function toggleSnowOverlay() {
   }
 }
 
-// ── Trial: dark "sci-fi" elevation basemap with 100m contours ──────────────
+// ── Trial: dark "sci-fi" elevation basemap with contour lines ──────────────
 // Alternative to the satellite raster background — colours the terrain
 // purely by elevation (near-black at the base rising to a subtle, deliberately
-// dim light grey at the summit) with thin 100m contour lines in a mid grey,
-// instead of real photo imagery. Snow Test tab only, same as the other two
-// trials above. Reuses decodeTerrainRGB/getDemTileUrlTemplate (defined with
-// the slope-overlay trial above) — same terrain-rgb DEM tiles, same decode.
-const DARK_TERRAIN_CONTOUR_INTERVAL_M = 100;
-const DARK_TERRAIN_MAJOR_CONTOUR_INTERVAL_M = 500; // "special" index contours, called out brighter
+// dim light grey at the summit) with faded 20m contour lines plus brighter
+// 100m index contours, instead of real photo imagery. Snow Test tab only,
+// same as the other two trials above. Reuses decodeTerrainRGB/
+// getDemTileUrlTemplate (defined with the slope-overlay trial above) — same
+// terrain-rgb DEM tiles, same decode.
+const DARK_TERRAIN_CONTOUR_INTERVAL_M = 20;  // faded minor contours
+const DARK_TERRAIN_MAJOR_CONTOUR_INTERVAL_M = 100; // bright "special" index contours
 const DARK_TERRAIN_BASE_RGB = [2, 3, 5];      // darker near-black base
 const DARK_TERRAIN_TOP_RGB = [55, 58, 65];    // darker summit too — stays a dark map overall
-const DARK_TERRAIN_CONTOUR_RGB = [175, 178, 188];        // lighter minor (100m) contours
-const DARK_TERRAIN_MAJOR_CONTOUR_RGB = [240, 244, 250];  // bright near-white major (500m) contours
+const DARK_TERRAIN_CONTOUR_RGB = [175, 178, 188];        // faded minor (20m) contours
+const DARK_TERRAIN_MAJOR_CONTOUR_RGB = [240, 244, 250];  // bright near-white major (100m) contours
 
 let darkTerrainProtocolRegistered = false;
 function registerDarkTerrainProtocol() {
