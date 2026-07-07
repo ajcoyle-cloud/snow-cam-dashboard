@@ -124,7 +124,7 @@
   .speed-btn:hover { color: #fff; }
   .speed-btn.active { background: #333; color: #fff; }
 
-  #map-enlarge, #map-close, #obs-toggle, #rotate-toggle, #snow-toggle, #snow-overlay-toggle {
+  #map-enlarge, #map-close, #obs-toggle, #rotate-toggle, #snow-toggle, #snow-overlay-toggle, #basemap-toggle {
     position: absolute; top: 20px; z-index: 20;
     background: rgba(255,255,255,0.12); color: #fff; border: none;
     width: 40px; height: 40px; border-radius: 50%; font-size: 1.1rem; cursor: pointer;
@@ -148,6 +148,10 @@
   #snow-overlay-toggle.active { background: #333; }
   #snow-overlay-toggle:hover { background: rgba(255,255,255,0.25); }
   #snow-overlay-toggle.active:hover { background: #404040; }
+  #basemap-toggle { left: 240px; font-size: 0.95rem; }
+  #basemap-toggle.active { background: #333; }
+  #basemap-toggle:hover { background: rgba(255,255,255,0.25); }
+  #basemap-toggle.active:hover { background: #404040; }
 
   /* Tuning panel for the snow-overlay trial — hidden until that toggle is
      on (see toggleSnowOverlay()). Sits below the icon row, clear of
@@ -443,6 +447,7 @@
     #rotate-toggle { top: 60px; left: 60px; }
     #snow-toggle { top: 60px; left: 106px; }
     #snow-overlay-toggle { top: 60px; left: 152px; }
+    #basemap-toggle { top: 60px; left: 198px; }
     #snow-overlay-controls { top: 106px; left: 12px; right: 12px; width: auto; }
     #map-close { top: 14px; right: 14px; }
 
@@ -603,6 +608,9 @@
       <input type="range" id="soc-opacity" min="0" max="100" step="5" oninput="onSnowOverlayOpacityInput(this.value)">
     </label>
   </div>
+  <!-- Trial: dark "sci-fi" elevation basemap with 100m contours, swapping out
+       the satellite imagery — off by default, see toggleBasemap(). -->
+  <button id="basemap-toggle" onclick="toggleBasemap()" title="Toggle dark terrain basemap (trial)">🌑</button>
   <button id="map-close" onclick="exitFullscreenView()" title="Close fullscreen">✕</button>
   <div id="map-title"></div>
 
@@ -770,17 +778,19 @@ const requestedResort = new URLSearchParams(window.location.search).get('resort'
 const resortKey = VALID_RESORT_KEYS.has(requestedResort) ? requestedResort : 'ruapehu';
 const LOC = RESORT_CONFIG[resortKey];
 
-// Snow-particle/slope-overlay trial toggles are Snow Test tab only (?snow=1,
-// see SnowTestPage in App.jsx) — hidden here so they don't clutter the
-// regular Map tab everyone else uses. The button markup above has already
-// parsed by this point (this script tag comes after it in the document), so
-// no need to wait for DOMContentLoaded.
+// Snow-particle/slope-overlay/dark-terrain trial toggles are Snow Test tab
+// only (?snow=1, see SnowTestPage in App.jsx) — hidden here so they don't
+// clutter the regular Map tab everyone else uses. The button markup above
+// has already parsed by this point (this script tag comes after it in the
+// document), so no need to wait for DOMContentLoaded.
 const isSnowTestMode = new URLSearchParams(window.location.search).get('snow') === '1';
 if (!isSnowTestMode) {
   const snowBtn = document.getElementById('snow-toggle');
   const overlayBtn = document.getElementById('snow-overlay-toggle');
+  const basemapBtn = document.getElementById('basemap-toggle');
   if (snowBtn) snowBtn.style.display = 'none';
   if (overlayBtn) overlayBtn.style.display = 'none';
+  if (basemapBtn) basemapBtn.style.display = 'none';
 }
 
 // ── Other-resort navigation pills (shown when zoomed out) ──────────────────
@@ -1936,6 +1946,107 @@ function toggleSnowOverlay() {
     }
   } else if (map.getLayer('snow-overlay-layer')) {
     map.removeLayer('snow-overlay-layer');
+  }
+}
+
+// ── Trial: dark "sci-fi" elevation basemap with 100m contours ──────────────
+// Alternative to the satellite raster background — colours the terrain
+// purely by elevation (near-black at the base rising to a subtle, deliberately
+// dim light grey at the summit) with thin 100m contour lines in a mid grey,
+// instead of real photo imagery. Snow Test tab only, same as the other two
+// trials above. Reuses decodeTerrainRGB/getDemTileUrlTemplate (defined with
+// the slope-overlay trial above) — same terrain-rgb DEM tiles, same decode.
+const DARK_TERRAIN_CONTOUR_INTERVAL_M = 100;
+const DARK_TERRAIN_BASE_RGB = [8, 10, 14];    // near-black, faint blue tint
+const DARK_TERRAIN_TOP_RGB = [85, 90, 98];    // subtle light grey — deliberately dim, not bright
+const DARK_TERRAIN_CONTOUR_RGB = [140, 140, 146];
+
+let darkTerrainProtocolRegistered = false;
+function registerDarkTerrainProtocol() {
+  if (darkTerrainProtocolRegistered) return;
+  darkTerrainProtocolRegistered = true;
+  maplibregl.addProtocol('darkterrain', async (params) => {
+    const [z, x, y] = params.url.replace('darkterrain://', '').split('/').map(Number);
+    const template = await getDemTileUrlTemplate();
+    const demUrl = template.replace('{z}', z).replace('{x}', x).replace('{y}', y);
+    const res = await fetch(demUrl);
+    const blob = await res.blob();
+    const bitmap = await createImageBitmap(blob);
+    const size = bitmap.width;
+
+    const canvas = document.createElement('canvas');
+    canvas.width = size; canvas.height = size;
+    const ctx = canvas.getContext('2d');
+    ctx.drawImage(bitmap, 0, 0);
+    const src = ctx.getImageData(0, 0, size, size).data;
+
+    const elev = new Float32Array(size * size);
+    for (let i = 0; i < size * size; i++) {
+      elev[i] = decodeTerrainRGB(src[i * 4], src[i * 4 + 1], src[i * 4 + 2]);
+    }
+
+    const baseElev = LOC.baseElev, topElev = LOC.topElev || LOC.summitElev + 200;
+    const span = Math.max(1, topElev - baseElev);
+    const out = ctx.createImageData(size, size);
+    for (let py = 0; py < size; py++) {
+      const yp1 = Math.min(size - 1, py + 1);
+      for (let px = 0; px < size; px++) {
+        const i = py * size + px;
+        const xp1 = Math.min(size - 1, px + 1);
+        const e = elev[i];
+        const t = Math.min(1, Math.max(0, (e - baseElev) / span));
+        let r = DARK_TERRAIN_BASE_RGB[0] + t * (DARK_TERRAIN_TOP_RGB[0] - DARK_TERRAIN_BASE_RGB[0]);
+        let g = DARK_TERRAIN_BASE_RGB[1] + t * (DARK_TERRAIN_TOP_RGB[1] - DARK_TERRAIN_BASE_RGB[1]);
+        let b = DARK_TERRAIN_BASE_RGB[2] + t * (DARK_TERRAIN_TOP_RGB[2] - DARK_TERRAIN_BASE_RGB[2]);
+
+        // A contour line crosses this pixel if it and its right/below
+        // neighbor fall into different 100m elevation bands.
+        const band = Math.floor(e / DARK_TERRAIN_CONTOUR_INTERVAL_M);
+        const bandRight = Math.floor(elev[py * size + xp1] / DARK_TERRAIN_CONTOUR_INTERVAL_M);
+        const bandDown = Math.floor(elev[yp1 * size + px] / DARK_TERRAIN_CONTOUR_INTERVAL_M);
+        if (band !== bandRight || band !== bandDown) {
+          const mix = 0.6;
+          r += (DARK_TERRAIN_CONTOUR_RGB[0] - r) * mix;
+          g += (DARK_TERRAIN_CONTOUR_RGB[1] - g) * mix;
+          b += (DARK_TERRAIN_CONTOUR_RGB[2] - b) * mix;
+        }
+
+        const o = i * 4;
+        out.data[o] = Math.round(r); out.data[o + 1] = Math.round(g); out.data[o + 2] = Math.round(b);
+        out.data[o + 3] = 255;
+      }
+    }
+    ctx.putImageData(out, 0, 0);
+
+    const outBlob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/png'));
+    return { data: await outBlob.arrayBuffer() };
+  });
+}
+
+let darkTerrainActive = false;
+function toggleBasemap() {
+  if (!map) return;
+  darkTerrainActive = !darkTerrainActive;
+  const btn = document.getElementById('basemap-toggle');
+  if (btn) {
+    btn.classList.toggle('active', darkTerrainActive);
+    btn.title = darkTerrainActive ? 'Switch to satellite basemap' : 'Switch to dark terrain basemap (trial)';
+  }
+  if (darkTerrainActive) {
+    registerDarkTerrainProtocol();
+    if (!map.getSource('dark-terrain')) {
+      map.addSource('dark-terrain', { type: 'raster', tiles: ['darkterrain://{z}/{x}/{y}'], tileSize: 512 });
+    }
+    if (!map.getLayer('dark-terrain-layer')) {
+      // Inserted in the same slot 'satellite' occupies (right below hillshade/
+      // snow-relief), so those still layer on top of whichever basemap is showing.
+      map.addLayer({ id: 'dark-terrain-layer', type: 'raster', source: 'dark-terrain' }, 'depth-shade');
+    }
+    map.setLayoutProperty('satellite', 'visibility', 'none');
+    map.setLayoutProperty('dark-terrain-layer', 'visibility', 'visible');
+  } else {
+    map.setLayoutProperty('satellite', 'visibility', 'visible');
+    if (map.getLayer('dark-terrain-layer')) map.setLayoutProperty('dark-terrain-layer', 'visibility', 'none');
   }
 }
 
