@@ -2455,6 +2455,19 @@ function SnowfallForecast({ resort, setResort }) {
                 })}
               </tr>
             ))}
+            {/* Freezing level rows */}
+            {rowsForGroup('freezing').map((m, idx, rows) => (
+              <tr key={`freezing-${m.key}`} style={{ height: '28px' }}>
+                {labelCell('freezing', rows, idx, 'Freezing', '(m)')}
+                {m.data.map((d, i) => {
+                  const val = m.getFreezing(d)
+                  const isAboveSummit = val > RESORTS[resort].summitElev
+                  return (
+                    <td key={i} style={{ width: `${tableCellWidth}px`, color: isAboveSummit ? '#ef4444' : m.color, background: 'rgba(26, 26, 26, 0.15)' }}>{val || '—'}</td>
+                  )
+                })}
+              </tr>
+            ))}
             {/* Temperature rows */}
             {rowsForGroup('temp').map((m, idx, rows) => (
               <tr key={`temp-${m.key}`} style={{ height: '28px' }}>
@@ -2534,19 +2547,6 @@ function SnowfallForecast({ resort, setResort }) {
                     <td key={i} style={{ width: `${tableCellWidth}px`, background: 'rgba(26, 26, 26, 0.15)', color: m.key === 'gfs' ? undefined : m.color }}>
                       {windKmh != null ? <>{windKmh} <span style={{ fontSize: '18px' }}>{arrow}</span></> : '—'}
                     </td>
-                  )
-                })}
-              </tr>
-            ))}
-            {/* Freezing level rows */}
-            {rowsForGroup('freezing').map((m, idx, rows) => (
-              <tr key={`freezing-${m.key}`} style={{ height: '28px' }}>
-                {labelCell('freezing', rows, idx, 'Freezing', '(m)')}
-                {m.data.map((d, i) => {
-                  const val = m.getFreezing(d)
-                  const isAboveSummit = val > RESORTS[resort].summitElev
-                  return (
-                    <td key={i} style={{ width: `${tableCellWidth}px`, color: isAboveSummit ? '#ef4444' : m.color, background: 'rgba(26, 26, 26, 0.15)' }}>{val || '—'}</td>
                   )
                 })}
               </tr>
