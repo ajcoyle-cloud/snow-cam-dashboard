@@ -1066,7 +1066,6 @@ function SnowfallForecast({ resort, setResort }) {
   const [aifsFreezingData, setAifsFreezingData] = useState(null)
   const [ukmoFreezingData, setUkmoFreezingData] = useState(null)
   const [metserviceFzl, setMetserviceFzl] = useState(null)
-  const [cloudData, setCloudData] = useState(null)
   const [elevation, setElevation] = useState('summit') // 'summit' or 'base'
   const [viewMode, setViewMode] = useState('fit') // 'hourly' or 'fit'
   const [meteoBlueForecastData, setMeteoBlueForecastData] = useState(null)
@@ -1086,7 +1085,6 @@ function SnowfallForecast({ resort, setResort }) {
     const t = setInterval(() => setNow(new Date()), 1000)
     return () => clearInterval(t)
   }, [])
-  const [showCloud, setShowCloud] = useState(true)
   // Which models get their own row in the data table below the chart — independent
   // per-model toggles (unlike the chart's freezing-line dropdown, this controls
   // full temp/precip/snow/wind rows, so it only lists models with full hourly data).
@@ -1125,7 +1123,7 @@ function SnowfallForecast({ resort, setResort }) {
       try {
         // Fetch Open-Meteo GFS model (includes direct freezinglevel_height)
         // windspeed_700hPa ≈ 3000m (summit), windspeed_850hPa ≈ 1500m (base) — more accurate than surface wind
-        const summitUrl = `https://api.open-meteo.com/v1/forecast?latitude=${r.lat}&longitude=${r.lon}&elevation=${r.summitElev}&hourly=temperature_2m,precipitation,precipitation_probability,snowfall,weather_code,windspeed_700hPa,winddirection_700hPa,windspeed_850hPa,winddirection_850hPa,freezinglevel_height,cloud_cover_low,cloud_cover_mid,cloud_cover_high&models=gfs_global&temperature_unit=celsius&wind_speed_unit=kmh&timezone=${r.timezone}&forecast_days=16`
+        const summitUrl = `https://api.open-meteo.com/v1/forecast?latitude=${r.lat}&longitude=${r.lon}&elevation=${r.summitElev}&hourly=temperature_2m,precipitation,precipitation_probability,snowfall,weather_code,windspeed_700hPa,winddirection_700hPa,windspeed_850hPa,winddirection_850hPa,freezinglevel_height&models=gfs_global&temperature_unit=celsius&wind_speed_unit=kmh&timezone=${r.timezone}&forecast_days=16`
         const baseUrl = `https://api.open-meteo.com/v1/forecast?latitude=${r.lat}&longitude=${r.lon}&elevation=${r.baseElev}&hourly=temperature_2m,precipitation,precipitation_probability,snowfall,weather_code&models=gfs_global&temperature_unit=celsius&timezone=${r.timezone}&forecast_days=16`
         const ecmwfSummitUrl = `https://api.open-meteo.com/v1/forecast?latitude=${r.lat}&longitude=${r.lon}&elevation=${r.summitElev}&hourly=temperature_2m,precipitation,precipitation_probability,snowfall,weather_code,windspeed_700hPa,winddirection_700hPa,windspeed_850hPa,winddirection_850hPa&models=ecmwf_ifs025&temperature_unit=celsius&wind_speed_unit=kmh&timezone=${r.timezone}&forecast_days=16`
         const ecmwfBaseUrl = `https://api.open-meteo.com/v1/forecast?latitude=${r.lat}&longitude=${r.lon}&elevation=${r.baseElev}&hourly=temperature_2m,precipitation,precipitation_probability,snowfall,weather_code&models=ecmwf_ifs025&temperature_unit=celsius&timezone=${r.timezone}&forecast_days=16`
@@ -1307,13 +1305,6 @@ function SnowfallForecast({ resort, setResort }) {
           })
           setMeteoBlueForecastData(mbHours)
         }
-        if (openMeteoSummitData.hourly.cloud_cover_low) {
-          setCloudData({
-            low: openMeteoSummitData.hourly.cloud_cover_low,
-            mid: openMeteoSummitData.hourly.cloud_cover_mid,
-            high: openMeteoSummitData.hourly.cloud_cover_high,
-          })
-        }
         const ecmwfResult = buildAltModelData(ecmwfSummitData, ecmwfBaseData, r)
         if (ecmwfResult) {
           setEcmwfFreezingData(ecmwfResult.freezing)
@@ -1367,7 +1358,6 @@ function SnowfallForecast({ resort, setResort }) {
     setAifsFreezingData(null)
     setUkmoFreezingData(null)
     setMetserviceFzl(null)
-    setCloudData(null)
     fetchForecast()
   }, [resort])
 
@@ -1493,8 +1483,9 @@ function SnowfallForecast({ resort, setResort }) {
   if (!forecastData || !Array.isArray(forecastData) || forecastData.length === 0) {
     return (
       <div className="forecast-container">
-        <h2>Mt Ruapehu 16-Day Forecast</h2>
-        <p style={{color: '#888', textAlign: 'center', padding: '20px'}}>Loading hourly forecast data...</p>
+        <div className="forecast-loading">
+          <div className="spinner" />
+        </div>
       </div>
     )
   }
@@ -1991,67 +1982,55 @@ function SnowfallForecast({ resort, setResort }) {
         </div>
       </div>
 
-      <h2>16 Day Forecast</h2>
-
-      {/* Desktop: a single control line — location switcher pinned left, all
-          toggles in the same row. (On mobile the switcher is hidden here and
-          supplied by the top bar; the toggles wrap underneath.) */}
+      {/* Desktop: location switcher + elevation toggle stacked on the left,
+          the remaining toggles sharing a row to the right. (On mobile the
+          switcher is hidden here and supplied by the top bar; the toggles
+          wrap underneath.) */}
       <div className="forecast-controls-row">
-        <div className="forecast-selector-desktop">
-          <ResortSelector resort={resort} setResort={setResort} />
+        <div className="forecast-left-column">
+          <div className="forecast-selector-desktop">
+            <ResortSelector resort={resort} setResort={setResort} />
+          </div>
+
+          {/* Elevation toggle */}
+          <div className="elevation-toggle">
+            <button
+              className={`toggle-btn ${elevation === 'summit' ? 'active' : ''}`}
+              onClick={() => setElevation('summit')}
+            >
+              {RESORTS[resort].summitElev}m
+            </button>
+            <button
+              className={`toggle-btn ${elevation === 'base' ? 'active' : ''}`}
+              onClick={() => setElevation('base')}
+            >
+              {RESORTS[resort].baseElev}m
+            </button>
+          </div>
         </div>
 
         <div className="forecast-controls-toggles">
-        {/* View mode toggle - hidden on mobile, shown on desktop */}
-        <div className="elevation-toggle forecast-view-mode-desktop">
-          <button
-            className={`toggle-btn ${viewMode === 'hourly' ? 'active' : ''}`}
-            onClick={() => setViewMode('hourly')}
-          >
-            Hour
-          </button>
-          <button
-            className={`toggle-btn ${viewMode === 'fit' ? 'active' : ''}`}
-            onClick={() => setViewMode('fit')}
-          >
-            Day
-          </button>
-        </div>
+          {/* View mode toggle - hidden on mobile, shown on desktop */}
+          <div className="elevation-toggle forecast-view-mode-desktop">
+            <button
+              className={`toggle-btn ${viewMode === 'hourly' ? 'active' : ''}`}
+              onClick={() => setViewMode('hourly')}
+            >
+              Hour
+            </button>
+            <button
+              className={`toggle-btn ${viewMode === 'fit' ? 'active' : ''}`}
+              onClick={() => setViewMode('fit')}
+            >
+              Day
+            </button>
+          </div>
 
-        {/* Elevation toggle */}
-        <div className="elevation-toggle">
-          <button
-            className={`toggle-btn ${elevation === 'summit' ? 'active' : ''}`}
-            onClick={() => setElevation('summit')}
-          >
-            {RESORTS[resort].summitElev}m
-          </button>
-          <button
-            className={`toggle-btn ${elevation === 'base' ? 'active' : ''}`}
-            onClick={() => setElevation('base')}
-          >
-            {RESORTS[resort].baseElev}m
-          </button>
-        </div>
-
-        {/* Cloud cover toggle */}
-        <div className="elevation-toggle">
-          <button
-            className={`toggle-btn ${showCloud ? 'active' : ''}`}
-            onClick={() => setShowCloud(s => !s)}
-            disabled={!cloudData}
-            style={{ fontSize: '0.8em', opacity: !cloudData ? 0.5 : 1, cursor: !cloudData ? 'not-allowed' : 'pointer' }}
-          >
-            <span style={{ display: 'inline-block', width: 10, height: 10, background: '#555', borderRadius: 2, marginRight: 5, verticalAlign: 'middle' }} />
-            Cloud
-          </button>
-        </div>
-
-        {/* Freezing level line (model visibility) dropdown — tick/untick any
-            number of models to show them on the graph at once. Hidden on
-            mobile (forecast-models-desktop); the mobile top bar gets its own
-            copy at the far right instead — see forecast-top-bar above. */}
-        {renderModelsMenu(modelMenuRef, 'forecast-models-desktop')}
+          {/* Freezing level line (model visibility) dropdown — tick/untick any
+              number of models to show them on the graph at once. Hidden on
+              mobile (forecast-models-desktop); the mobile top bar gets its own
+              copy at the far right instead — see forecast-top-bar above. */}
+          {renderModelsMenu(modelMenuRef, 'forecast-models-desktop')}
         </div>
       </div>
 
@@ -2104,30 +2083,6 @@ function SnowfallForecast({ resort, setResort }) {
 
             return dayRects
           })()}
-
-          {/* Cloud cover bands — low: 0-2000m, mid: 2000-4000m */}
-          {showCloud && cloudData && displayData.map((d, i) => {
-            const x = snowXScale(i) - cellWidth / 2
-            const w = cellWidth
-            const lowPct = (cloudData.low[i] ?? 0) / 100
-            const midPct = (cloudData.mid[i] ?? 0) / 100
-            const yLowTop = freezingLevelScale(2000)
-            const yLowBot = freezingLevelScale(0)
-            const yMidTop = freezingLevelScale(4000)
-            const yMidBot = freezingLevelScale(2000)
-            return (
-              <g key={`cloud-${i}`}>
-                {lowPct > 0 && (
-                  <rect x={x} y={yLowTop} width={w} height={yLowBot - yLowTop}
-                    fill="#555" opacity={lowPct * 0.275} />
-                )}
-                {midPct > 0 && (
-                  <rect x={x} y={yMidTop} width={w} height={yMidBot - yMidTop}
-                    fill="#444" opacity={midPct * 0.25} />
-                )}
-              </g>
-            )
-          })}
 
           {/* Altitude reference lines - only base and summit (not intermediate) */}
           {[RESORTS[resort].baseElev, RESORTS[resort].summitElev].map((elev) => {
@@ -2435,13 +2390,6 @@ function SnowfallForecast({ resort, setResort }) {
                   Average: {averageFreezingData[hoveredIndex]}m
                 </div>
               )}
-              {showCloud && cloudData && (
-                <div style={{ color: '#888', marginTop: '4px', borderTop: '1px solid #333', paddingTop: '4px' }}>
-                  <span style={{ display: 'inline-block', width: 8, height: 8, background: '#555', borderRadius: 2, marginRight: 5, verticalAlign: 'middle' }} />
-                  <div>Low cloud: {cloudData.low[hoveredIndex] ?? 0}%</div>
-                  <div>Mid cloud: {cloudData.mid[hoveredIndex] ?? 0}%</div>
-                </div>
-              )}
             </div>
           )
         })()}
@@ -2480,7 +2428,7 @@ function SnowfallForecast({ resort, setResort }) {
           <tbody>
             {/* Snowfall rows */}
             {rowsForGroup('snowfall').map((m, idx, rows) => (
-              <tr key={`snow-${m.key}`} style={{ height: '23px' }}>
+              <tr key={`snow-${m.key}`} style={{ height: '28px' }}>
                 {labelCell('snowfall', rows, idx, 'Snowfall', '(cm)')}
                 {m.data.map((d, i) => {
                   const dayIndex = viewMode === 'fit' ? Math.floor(i * FIT_GROUP / 24) : Math.floor(i / 24)
@@ -2509,7 +2457,7 @@ function SnowfallForecast({ resort, setResort }) {
             ))}
             {/* Temperature rows */}
             {rowsForGroup('temp').map((m, idx, rows) => (
-              <tr key={`temp-${m.key}`} style={{ height: '23px' }}>
+              <tr key={`temp-${m.key}`} style={{ height: '28px' }}>
                 {labelCell('temp', rows, idx, 'Temp', '(°C)')}
                 {m.data.map((d, i) => {
                   const val = elevation === 'summit' ? d.summit.temp : d.base.temp
@@ -2523,7 +2471,7 @@ function SnowfallForecast({ resort, setResort }) {
             ))}
             {/* Condition rows */}
             {rowsForGroup('condition').map((m, idx, rows) => (
-              <tr key={`cond-${m.key}`} style={{ height: '23px' }}>
+              <tr key={`cond-${m.key}`} style={{ height: '28px' }}>
                 {labelCell('condition', rows, idx, 'Condition')}
                 {m.data.map((d, i) => {
                   const data = elevation === 'summit' ? d.summit : d.base
@@ -2540,7 +2488,7 @@ function SnowfallForecast({ resort, setResort }) {
             ))}
             {/* Precip rows */}
             {rowsForGroup('precip').map((m, idx, rows) => (
-              <tr key={`precip-${m.key}`} style={{ height: '23px' }}>
+              <tr key={`precip-${m.key}`} style={{ height: '28px' }}>
                 {labelCell('precip', rows, idx, 'Precip', '(mm)')}
                 {m.data.map((d, i) => {
                   const data = elevation === 'summit' ? d.summit : d.base
@@ -2562,7 +2510,7 @@ function SnowfallForecast({ resort, setResort }) {
             ))}
             {/* Wind at summit rows */}
             {rowsForGroup('windSummit').map((m, idx, rows) => (
-              <tr key={`windsummit-${m.key}`} style={{ height: '23px' }}>
+              <tr key={`windsummit-${m.key}`} style={{ height: '28px' }}>
                 {labelCell('windSummit', rows, idx, `Wind ${RESORTS[resort].summitElev}m`)}
                 {m.data.map((d, i) => {
                   const windKmh = d.summit.wind != null ? Math.round(d.summit.wind) : null
@@ -2577,7 +2525,7 @@ function SnowfallForecast({ resort, setResort }) {
             ))}
             {/* Wind at base rows */}
             {rowsForGroup('windBase').map((m, idx, rows) => (
-              <tr key={`windbase-${m.key}`} style={{ height: '23px' }}>
+              <tr key={`windbase-${m.key}`} style={{ height: '28px' }}>
                 {labelCell('windBase', rows, idx, `Wind ${RESORTS[resort].baseElev}m`)}
                 {m.data.map((d, i) => {
                   const windKmh = d.base.wind != null ? Math.round(d.base.wind) : null
@@ -2592,7 +2540,7 @@ function SnowfallForecast({ resort, setResort }) {
             ))}
             {/* Freezing level rows */}
             {rowsForGroup('freezing').map((m, idx, rows) => (
-              <tr key={`freezing-${m.key}`} style={{ height: '23px' }}>
+              <tr key={`freezing-${m.key}`} style={{ height: '28px' }}>
                 {labelCell('freezing', rows, idx, 'Freezing', '(m)')}
                 {m.data.map((d, i) => {
                   const val = m.getFreezing(d)
