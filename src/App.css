@@ -486,16 +486,21 @@
 .whakapapa-report {
   flex-shrink: 0;
   margin: 0 15px 15px;
-  padding: 14px 18px;
+  padding: 10px 14px;
   background: rgba(255, 255, 255, 0.06);
   border-radius: 8px;
+}
+
+/* Only the expanded (full-text) state scrolls — collapsed is always just the
+   2 clamped lines, so the webcam image keeps most of the modal's height. */
+.whakapapa-report.expanded {
   max-height: 22vh;
   overflow-y: auto;
 }
 
 .whakapapa-report h4 {
-  margin: 0 0 6px;
-  font-size: 0.68em;
+  margin: 0 0 4px;
+  font-size: 0.58em;
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.08em;
@@ -505,12 +510,48 @@
 .whakapapa-report p {
   margin: 0;
   color: rgba(255, 255, 255, 0.9);
-  font-size: 0.95em;
+  font-size: 0.72em;
   line-height: 1.5;
 }
 
 .whakapapa-report p + p {
-  margin-top: 8px;
+  margin-top: 6px;
+}
+
+.report-summary-clamp-wrap {
+  position: relative;
+}
+
+.report-summary-clamped {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  /* Reserved gutter the clamped text never reaches — the absolutely
+     positioned "See more" button below sits in it, at the end of the
+     visible text, without covering any real words. */
+  padding-right: 58px;
+}
+
+.report-toggle-btn {
+  background: none;
+  border: none;
+  padding: 0;
+  color: #8ec7ff;
+  font-size: 0.72em;
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.report-toggle-btn:hover {
+  text-decoration: underline;
+}
+
+.report-toggle-inline {
+  position: absolute;
+  right: 0;
+  bottom: 0;
 }
 
 .forecast-section {

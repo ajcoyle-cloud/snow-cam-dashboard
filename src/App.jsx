@@ -412,6 +412,7 @@ function NzSkiCamera({ manifest, cameraKey, angle = 'Angle1', alt, onError, styl
 // rather than showing a placeholder/error — same pattern as StormArrivalBanner.
 function WhakapapaSnowReport() {
   const [report, setReport] = useState(null)
+  const [expanded, setExpanded] = useState(false)
 
   useEffect(() => {
     let cancelled = false
@@ -425,13 +426,28 @@ function WhakapapaSnowReport() {
   if (!report?.summary) return null
 
   // The scraper joins the report's multiple paragraphs with blank lines —
-  // split them back out so each renders as its own <p>.
+  // split them back out so the expanded view renders each as its own <p>.
   const paragraphs = report.summary.split(/\n{2,}/).map((s) => s.trim()).filter(Boolean)
 
   return (
-    <div className="whakapapa-report">
+    <div className={`whakapapa-report ${expanded ? 'expanded' : ''}`}>
       <h4>Whakapapa Snow Report</h4>
-      {paragraphs.map((para, i) => <p key={i}>{para}</p>)}
+      {expanded ? (
+        <>
+          {paragraphs.map((para, i) => <p key={i}>{para}</p>)}
+          <button className="report-toggle-btn" onClick={() => setExpanded(false)}>See less</button>
+        </>
+      ) : (
+        // Collapsed to 2 lines via -webkit-line-clamp — reliable across
+        // widths, unlike a fixed character count. The right padding reserves
+        // a gutter the clamped text never reaches, so "See more" (absolutely
+        // positioned into that gutter) sits at the end of the visible text
+        // without ever overlapping/covering real words.
+        <div className="report-summary-clamp-wrap">
+          <p className="report-summary-clamped">{paragraphs.join(' ')}</p>
+          <button className="report-toggle-btn report-toggle-inline" onClick={() => setExpanded(true)}>See more</button>
+        </div>
+      )}
     </div>
   )
 }
