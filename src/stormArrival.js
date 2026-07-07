@@ -132,15 +132,15 @@ function kmBetween([lon1, lat1], [lon2, lat2]) {
   return Math.hypot(dx, dy) * 111.32
 }
 
-// Nearest precip pixel to `target` [lon, lat] — its distance (km) and radar
-// colour band. Subsamples the frame on a coarse grid — this is a demo
-// nowcast, not a certified radar tracker, so pixel-perfect precision buys
-// nothing here.
+// Nearest precip pixel to `target` [lon, lat] — its distance (km) and pixel
+// coordinates (for neighborhoodBand below). Subsamples the frame on a coarse
+// grid — this is a demo nowcast, not a certified radar tracker, so
+// pixel-perfect precision buys nothing here.
 const SAMPLE_STRIDE = 4
 function nearestPrecip(frame, corners, isolate, target) {
   const { data, width, height } = frame
   let best = Infinity
-  let bestBand = null
+  let bestX = null, bestY = null
   for (let y = 0; y < height; y += SAMPLE_STRIDE) {
     for (let x = 0; x < width; x += SAMPLE_STRIDE) {
       const i = (y * width + x) * 4
@@ -148,10 +148,39 @@ function nearestPrecip(frame, corners, isolate, target) {
       if (s < isolate.minSaturation || v < isolate.minBrightness || v > isolate.maxBrightness) continue
       if (!hueAllowed(h, isolate.hueBands)) continue
       const d = kmBetween(target, pixelToLngLat(x / width, y / height, corners))
-      if (d < best) { best = d; bestBand = hueBand(h) }
+      if (d < best) { best = d; bestX = x; bestY = y }
     }
   }
-  return best === Infinity ? null : { distanceKm: best, band: bestBand }
+  return best === Infinity ? null : { distanceKm: best, x: bestX, y: bestY }
+}
+
+// A single pixel's colour is noisy — a stray severe-looking pixel right at
+// the edge of an otherwise light cell would call the whole thing "Severe".
+// Instead, vote across every qualifying pixel in a small neighborhood around
+// the closest point (full resolution, not the coarse SAMPLE_STRIDE grid used
+// to find that point) and report whichever band is most common there — a
+// more representative read of what's actually about to arrive.
+const NEIGHBORHOOD_RADIUS_PX = 12
+function neighborhoodBand(frame, isolate, cx, cy) {
+  const { data, width, height } = frame
+  const counts = {}
+  const x0 = Math.max(0, cx - NEIGHBORHOOD_RADIUS_PX), x1 = Math.min(width - 1, cx + NEIGHBORHOOD_RADIUS_PX)
+  const y0 = Math.max(0, cy - NEIGHBORHOOD_RADIUS_PX), y1 = Math.min(height - 1, cy + NEIGHBORHOOD_RADIUS_PX)
+  for (let y = y0; y <= y1; y++) {
+    for (let x = x0; x <= x1; x++) {
+      const i = (y * width + x) * 4
+      const [h, s, v] = rgbToHsv(data[i], data[i + 1], data[i + 2])
+      if (s < isolate.minSaturation || v < isolate.minBrightness || v > isolate.maxBrightness) continue
+      if (!hueAllowed(h, isolate.hueBands)) continue
+      const band = hueBand(h)
+      counts[band] = (counts[band] || 0) + 1
+    }
+  }
+  let bestBand = null, bestCount = 0
+  for (const band in counts) {
+    if (counts[band] > bestCount) { bestCount = counts[band]; bestBand = band }
+  }
+  return bestBand
 }
 
 // "A few hours or less" per the feature request.
@@ -167,10 +196,11 @@ const MAX_FRAME_GAP_MIN = 25
 
 // Returns { etaMinutes, distanceKm, band } for a precip cell closing in on
 // `target` within STORM_ARRIVAL_MAX_ETA_MIN, or null when nothing qualifies —
-// callers should render nothing (no empty state) on null. `band` is the radar
-// colour band (see STORM_BAND_LABELS) of the closest qualifying pixel in the
-// latest frame — i.e. the leading edge of what's approaching, not necessarily
-// the most intense part of the whole cell.
+// callers should render nothing (no empty state) on null. `band` is the most
+// common radar colour band (see STORM_BAND_LABELS) in a small neighborhood
+// around the closest qualifying point in the latest frame — i.e. the leading
+// edge of what's approaching, not necessarily the most intense part of the
+// whole cell.
 export async function computeStormArrival(region, target) {
   const calibration = REGIONAL_RADAR_CALIBRATIONS[region]
   if (!calibration) return null
@@ -197,5 +227,6 @@ export async function computeStormArrival(region, target) {
   const etaMinutes = Math.max(0, Math.round(newHit.distanceKm / speedKmPerMin))
   if (etaMinutes > STORM_ARRIVAL_MAX_ETA_MIN) return null
 
-  return { etaMinutes, distanceKm: Math.round(newHit.distanceKm), band: newHit.band }
+  const band = neighborhoodBand(newer.frame, calibration.isolate, newHit.x, newHit.y) || 'blue'
+  return { etaMinutes, distanceKm: Math.round(newHit.distanceKm), band }
 }
