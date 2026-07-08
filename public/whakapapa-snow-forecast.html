@@ -129,7 +129,7 @@
      is a genuine mid-grey (not a darkened black) with a faint light border
      so these read clearly against a pure-black dark-mode sky too, not just
      against the map imagery. .active is brighter still, as a selected cue. */
-  #map-enlarge, #map-close, #obs-toggle, #rotate-toggle, #snow-toggle, #snow-overlay-toggle, #basemap-toggle, #contour-toggle {
+  #map-enlarge, #map-close, #obs-toggle, #rotate-toggle, #snow-toggle, #snow-overlay-toggle, #basemap-toggle, #contour-toggle, #orographic-toggle {
     /* z-index above .maplibregl-marker (40) — live station pills are
        lng/lat-anchored, so at some camera angles one projects right under
        this icon row; UI chrome must always win over map content. */
@@ -169,6 +169,13 @@
   #contour-toggle.active { background: rgba(92,92,106,0.95); }
   #contour-toggle:hover { background: rgba(70,70,80,0.9); }
   #contour-toggle.active:hover { background: rgba(106,106,122,0.95); }
+  /* Trial: wind-driven orographic snow overlay — real per-pixel DEM
+     gradient x current hour's wind, replacing the flat elevation-only tint
+     while active. See toggleOrographicSnow(). */
+  #orographic-toggle { left: 328px; font-size: 0.95rem; }
+  #orographic-toggle.active { background: rgba(92,92,106,0.95); }
+  #orographic-toggle:hover { background: rgba(70,70,80,0.9); }
+  #orographic-toggle.active:hover { background: rgba(106,106,122,0.95); }
 
   /* Tuning panel for the snow-overlay trial — hidden until that toggle is
      on (see toggleSnowOverlay()). Sits below the icon row, clear of
@@ -699,6 +706,12 @@
        lets contour lines be switched off to leave a plain elevation-shaded
        relief map. See toggleContours(). -->
   <button id="contour-toggle" class="active" onclick="toggleContours()" title="Toggle contour lines">〰️</button>
+  <!-- Trial: wind-driven orographic snow overlay — redistributes the hourly
+       forecast's snowfall spatially using real wind direction/speed x
+       terrain gradient (w = U.grad(h)) sampled per-pixel from the real DEM,
+       instead of the flat elevation-only tint. Off by default, see
+       toggleOrographicSnow(). -->
+  <button id="orographic-toggle" onclick="toggleOrographicSnow()" title="Toggle wind-driven snow overlay (trial)">🌬️</button>
   <button id="map-close" onclick="exitFullscreenView()" title="Close fullscreen">✕</button>
   <div id="map-title"></div>
 
@@ -876,9 +889,11 @@ if (!isSnowTestMode) {
   const snowBtn = document.getElementById('snow-toggle');
   const overlayBtn = document.getElementById('snow-overlay-toggle');
   const basemapBtn = document.getElementById('basemap-toggle');
+  const orographicBtn = document.getElementById('orographic-toggle');
   if (snowBtn) snowBtn.style.display = 'none';
   if (overlayBtn) overlayBtn.style.display = 'none';
   if (basemapBtn) basemapBtn.style.display = 'none';
+  if (orographicBtn) orographicBtn.style.display = 'none';
 }
 
 // Day/night sky gradients for the settings-cog "Dark mode" toggle
@@ -2204,6 +2219,145 @@ function toggleSnowOverlay() {
   }
 }
 
+// ── Trial: wind-driven orographic snow overlay ──────────────────────────
+// Real per-pixel spatial redistribution of the current hour's forecast
+// snowfall, instead of buildSnowRamp's flat elevation-only tint (which
+// paints every point at a given elevation identically, with no windward/lee
+// difference at all). For each DEM pixel this computes the forced-ascent
+// vertical velocity w = U·(dh/dx) + V·(dh/dy) — the real wind VECTOR
+// (speed + direction, from forecastHours[currentIndex]) dotted against the
+// real terrain gradient VECTOR sampled from the same terrain-rgb DEM tiles
+// dark-terrain/contours already use — then scales that hour's snowfall by a
+// tanh-saturating function of w, so windward slopes read heavier and lee
+// slopes lighter. See the standalone proof-of-concept this was validated
+// against before being wired up here (synthetic terrain + one real forecast
+// hour, both produced the expected windward/lee pattern).
+let orographicSnowActive = false;
+let orographicSnowProtocolRegistered = false;
+function registerOrographicSnowProtocol() {
+  if (orographicSnowProtocolRegistered) return;
+  orographicSnowProtocolRegistered = true;
+  maplibregl.addProtocol('orographicsnow', async (params) => {
+    const [z, x, y] = params.url.replace('orographicsnow://', '').split('/').map(Number);
+    const template = await getDemTileUrlTemplate();
+    const demUrl = template.replace('{z}', z).replace('{x}', x).replace('{y}', y);
+    const res = await fetch(demUrl);
+    const blob = await res.blob();
+    const bitmap = await createImageBitmap(blob);
+    const size = bitmap.width;
+
+    const canvas = document.createElement('canvas');
+    canvas.width = size; canvas.height = size;
+    const ctx = canvas.getContext('2d');
+    ctx.drawImage(bitmap, 0, 0);
+    const src = ctx.getImageData(0, 0, size, size).data;
+
+    const elev = new Float32Array(size * size);
+    for (let i = 0; i < size * size; i++) {
+      elev[i] = decodeTerrainRGB(src[i * 4], src[i * 4 + 1], src[i * 4 + 2]);
+    }
+
+    // Read live so a timeline scrub (see openMapView's refreshOrographicSnow
+    // call) regenerates this against whichever hour is now current, exactly
+    // like buildSnowRamp does for the elevation-only layer.
+    const hour = forecastHours[currentIndex];
+    const out = ctx.createImageData(size, size);
+    const validHour = hour && hour.windSpeedKmh != null && hour.windDirDeg != null && hour.freezingLevel != null && hour.snowfallMm != null;
+
+    if (validHour) {
+      const snowing = hour.snowfallMm >= SNOWFALL_THRESHOLD_MM;
+      const boundary = snowing ? hour.freezingLevel - SNOW_OFFSET : hour.freezingLevel;
+      const metersPerPixel = (156543.03392 * Math.cos(tileCenterLatRad(y, z))) / Math.pow(2, z) * (256 / size);
+
+      // Same U/V + tanh-saturation approach as the standalone POC.
+      const windSpeedMs = hour.windSpeedKmh / 3.6;
+      const windToRad = (((hour.windDirDeg + 180) % 360) * Math.PI) / 180;
+      const U = windSpeedMs * Math.sin(windToRad);
+      const V = windSpeedMs * Math.cos(windToRad);
+      const W_REF = 1.0, M_RANGE = 0.9;
+      // Same dark-mode-aware colour as buildSnowRamp's active-snowfall ramp
+      // — near-white-blue by day, darker grey in dark contour mode (see the
+      // "hourly snow overlay too bright in dark mode" fix).
+      const [cR, cG, cB] = darkTerrainActive ? [90, 95, 105] : [205, 225, 255];
+      const [flR, flG, flB] = darkTerrainActive ? [25, 55, 110] : [60, 130, 255];
+
+      for (let py = 0; py < size; py++) {
+        const ym1 = Math.max(0, py - 1), yp1 = Math.min(size - 1, py + 1);
+        for (let px = 0; px < size; px++) {
+          const i = py * size + px;
+          const o = i * 4;
+          const elevHere = elev[i];
+          if (elevHere < boundary) { out.data[o + 3] = 0; continue; }
+
+          if (!snowing) {
+            // No active snowfall — same flat freezing-level tint as
+            // buildSnowRamp's non-snowing branch. Wind-driven redistribution
+            // only makes physical sense for falling snow, not a static
+            // freezing-level highlight.
+            out.data[o] = flR; out.data[o + 1] = flG; out.data[o + 2] = flB;
+            out.data[o + 3] = darkTerrainActive ? 38 : 51; // ~0.15 / 0.2 opacity
+            continue;
+          }
+
+          const xm1 = Math.max(0, px - 1), xp1 = Math.min(size - 1, px + 1);
+          const dzdx = (elev[py * size + xp1] - elev[py * size + xm1]) / (2 * metersPerPixel);
+          const dzdyImg = (elev[yp1 * size + px] - elev[ym1 * size + px]) / (2 * metersPerPixel);
+          const gradEast = dzdx, gradNorth = -dzdyImg;
+          const w = U * gradEast + V * gradNorth; // m/s, +windward / -lee
+          const multiplier = 1 + M_RANGE * Math.tanh(w / W_REF); // ~0.1x - 1.9x
+
+          // Opacity driven by the multiplier itself (not the absolute mm
+          // amount) so the windward/lee pattern stays visible on both light
+          // and heavy snowfall hours, rather than washing out on a light hour.
+          const intensity = Math.max(0.2, Math.min(1, multiplier / 1.6));
+          out.data[o] = cR; out.data[o + 1] = cG; out.data[o + 2] = cB;
+          out.data[o + 3] = Math.round(intensity * 235);
+        }
+      }
+    }
+    // No usable hour yet (still loading forecast data) — leave `out` fully
+    // transparent (its default) rather than throwing, same defensive
+    // pattern as buildSnowRamp's malformed-hour guard.
+    ctx.putImageData(out, 0, 0);
+    const outBlob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/png'));
+    return { data: await outBlob.arrayBuffer() };
+  });
+}
+
+// Tiles are generated once per source add and MapLibre caches them from
+// there — remove+re-add is the reliable way to force every visible tile
+// back through the protocol with a fresh hour/wind reading, same pattern
+// refreshSnowOverlay() uses for the slope-overlay trial.
+function refreshOrographicSnow() {
+  if (!map || !orographicSnowActive) return;
+  if (map.getLayer('orographic-snow-layer')) map.removeLayer('orographic-snow-layer');
+  if (map.getSource('orographic-snow')) map.removeSource('orographic-snow');
+  map.addSource('orographic-snow', { type: 'raster', tiles: ['orographicsnow://{z}/{x}/{y}'], tileSize: 512 });
+  map.addLayer({
+    id: 'orographic-snow-layer', type: 'raster', source: 'orographic-snow',
+  }, map.getLayer('resort-lifts-line') ? 'resort-lifts-line' : undefined);
+  // Hide the flat elevation-only layer underneath while this is showing —
+  // both cover the same above-snowline area, so left visible together they'd
+  // just double up (and layer-order between two semi-transparent overlays
+  // would look muddier than either alone).
+  if (map.getLayer('snow-relief')) map.setLayoutProperty('snow-relief', 'visibility', 'none');
+}
+
+function toggleOrographicSnow() {
+  if (!map) return;
+  orographicSnowActive = !orographicSnowActive;
+  const btn = document.getElementById('orographic-toggle');
+  if (btn) btn.classList.toggle('active', orographicSnowActive);
+  if (orographicSnowActive) {
+    registerOrographicSnowProtocol();
+    refreshOrographicSnow();
+  } else {
+    if (map.getLayer('orographic-snow-layer')) map.removeLayer('orographic-snow-layer');
+    if (map.getSource('orographic-snow')) map.removeSource('orographic-snow');
+    if (map.getLayer('snow-relief')) map.setLayoutProperty('snow-relief', 'visibility', 'visible');
+  }
+}
+
 // ── Trial: dark "sci-fi" elevation basemap with contour lines ──────────────
 // Alternative to the satellite raster background — colours the terrain
 // purely by elevation (near-black at the base rising to a subtle, deliberately
@@ -2799,6 +2953,11 @@ function openMapView(index) {
   const hour = forecastHours[currentIndex];
 
   applyRampWhenReady(buildSnowRamp(hour));
+  // Regenerating orographic-snow-layer's tiles is real per-pixel DEM work,
+  // unlike buildSnowRamp's cheap interpolation array — only worth doing on
+  // an actual hour change (here), not on every smooth-playback animation
+  // frame (see startPlay's blendHour loop, which intentionally skips this).
+  refreshOrographicSnow();
 
   currentSnowLine = hour.freezingLevel - SNOW_OFFSET;
   currentHourCm = hour.snowfallMm / 10;
@@ -2980,6 +3139,14 @@ function setViewMode(mode) {
   // correct ramp anyway (openMapView/renderAccumulatedView/renderLiveTempView
   // all call applyRampWhenReady themselves).
   if (mode === 'radar') applyRampWhenReady(buildSnowRamp(null));
+  // orographic-snow-layer is tied to forecastHours[currentIndex] and only
+  // refreshed from openMapView (the 'hourly' branch below) — hide it in
+  // every other mode rather than leaving a stale hour's overlay showing;
+  // it comes back automatically next time openMapView -> refreshOrographicSnow
+  // runs (a fresh addLayer, so no explicit "show again" needed here).
+  if (mode !== 'hourly' && map && map.getLayer('orographic-snow-layer')) {
+    map.setLayoutProperty('orographic-snow-layer', 'visibility', 'none');
+  }
   // Snowfall pin shows on hourly + accumulated; clear it only in live/radar view.
   if ((mode === 'live' || mode === 'radar') && snowfallMarker) { snowfallMarker.remove(); snowfallMarker = null; }
   // The minimised-drawer summary is accumulated-only; clear it elsewhere so the
