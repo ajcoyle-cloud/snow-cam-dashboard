@@ -2383,6 +2383,7 @@ function toggleSnowOverlay() {
 // in localStorage so it survives reloads while testing; once one's locked in
 // we can drop the others and hardcode it.
 const OROGRAPHIC_RAMP_PRESETS = [
+  { key: 'skyberry', label: 'Sky → Berry',   bands: [[140,200,240],[30,60,150],[225,90,170],[120,40,150]] },
   { key: 'warmcool', label: 'Orange → Blue', bands: [[230,130,35],[230,195,55],[110,190,90],[70,90,210]] },
   { key: 'viridis',  label: 'Viridis',       bands: [[68,1,84],[59,82,139],[33,145,140],[93,201,99],[253,231,37]] },
   { key: 'plasma',   label: 'Plasma',        bands: [[13,8,135],[126,3,168],[204,71,120],[248,149,64],[240,249,33]] },
