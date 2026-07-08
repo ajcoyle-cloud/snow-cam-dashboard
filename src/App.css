@@ -756,30 +756,32 @@
 }
 
 /* Map settings cog — sits in the same row as the resort switcher above
-   (see .map-resort-switch / MapSettingsMenu in App.jsx), same dark-grey
-   pill language as .resort-button, sized to match its rendered height
-   (36px desktop / 38px mobile, measured directly rather than guessed). */
+   (see .map-resort-switch / MapSettingsMenu in App.jsx), matching the
+   38px-tall rgba(0,0,0,0.6)+blur pill language used by the rest of that
+   row (resort switcher, mode pills, model switch — see .map-resort-switch
+   .resort-button / .pill-group / #model-switch-btn). */
 .map-settings-menu {
   position: relative;
 }
 
 .map-settings-toggle {
-  width: 36px;
-  height: 36px;
+  width: 38px;
+  height: 38px;
   border-radius: 50%;
-  background: #1a1a1a;
-  border: 1px solid #333;
+  background: rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(14px);
+  border: none;
   color: #fff;
   display: flex;
   align-items: center;
   justify-content: center;
   cursor: pointer;
   transition: all 0.2s ease;
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.3);
 }
 
 .map-settings-toggle:hover {
-  background: #252525;
-  border-color: #444;
+  background: rgba(0, 0, 0, 0.8);
 }
 
 .map-settings-dropdown {
@@ -1290,5 +1292,19 @@
     left: 50%;
     top: 50%;
     transform: translate(calc(-100% - 8px), -50%);
+  }
+  /* Match height/background to the iframe's pill-group and model-switch
+     (both rgba(0,0,0,0.6) + blur, 38px tall) so the whole top row reads as
+     one consistent set instead of mismatched pill styles/heights. */
+  .map-resort-switch .resort-button {
+    height: 38px;
+    box-sizing: border-box;
+    background: rgba(0, 0, 0, 0.6);
+    backdrop-filter: blur(14px);
+    border: none;
+    box-shadow: 0 4px 24px rgba(0, 0, 0, 0.3);
+  }
+  .map-resort-switch .resort-button:hover {
+    background: rgba(0, 0, 0, 0.8);
   }
 }

@@ -124,39 +124,45 @@
   .speed-btn:hover { color: #fff; }
   .speed-btn.active { background: #333; color: #fff; }
 
+  /* Same rgba(0,0,0,0.6)+blur dark-pill language as the top-controls row
+     (pill-group/model-switch/resort-switcher/settings cog — all 38px tall)
+     so this icon row reads as one consistent button family instead of the
+     previous lighter translucent-white circles. */
   #map-enlarge, #map-close, #obs-toggle, #rotate-toggle, #snow-toggle, #snow-overlay-toggle, #basemap-toggle, #contour-toggle {
     position: absolute; top: 20px; z-index: 20;
-    background: rgba(255,255,255,0.12); color: #fff; border: none;
-    width: 40px; height: 40px; border-radius: 50%; font-size: 1.1rem; cursor: pointer;
+    background: rgba(0,0,0,0.6); backdrop-filter: blur(14px); color: #fff; border: none;
+    width: 38px; height: 38px; border-radius: 50%; font-size: 1.1rem; cursor: pointer;
     transition: background 0.15s;
     display: flex; align-items: center; justify-content: center;
+    box-shadow: 0 4px 24px rgba(0,0,0,0.3);
   }
   #map-enlarge { left: 20px; }
+  #map-enlarge:hover { background: rgba(0,0,0,0.8); }
   #obs-toggle { left: 64px; }
   #obs-toggle.active { background: #333; }
-  #obs-toggle:hover { background: rgba(255,255,255,0.25); }
+  #obs-toggle:hover { background: rgba(0,0,0,0.8); }
   #obs-toggle.active:hover { background: #404040; }
   #rotate-toggle { left: 108px; }
   #rotate-toggle.active { background: #333; }
-  #rotate-toggle:hover { background: rgba(255,255,255,0.25); }
+  #rotate-toggle:hover { background: rgba(0,0,0,0.8); }
   #rotate-toggle.active:hover { background: #404040; }
   #snow-toggle { left: 152px; }
   #snow-toggle.active { background: #333; }
-  #snow-toggle:hover { background: rgba(255,255,255,0.25); }
+  #snow-toggle:hover { background: rgba(0,0,0,0.8); }
   #snow-toggle.active:hover { background: #404040; }
   #snow-overlay-toggle { left: 196px; font-size: 0.95rem; }
   #snow-overlay-toggle.active { background: #333; }
-  #snow-overlay-toggle:hover { background: rgba(255,255,255,0.25); }
+  #snow-overlay-toggle:hover { background: rgba(0,0,0,0.8); }
   #snow-overlay-toggle.active:hover { background: #404040; }
   #basemap-toggle { left: 240px; font-size: 0.95rem; }
   #basemap-toggle.active { background: #333; }
-  #basemap-toggle:hover { background: rgba(255,255,255,0.25); }
+  #basemap-toggle:hover { background: rgba(0,0,0,0.8); }
   #basemap-toggle.active:hover { background: #404040; }
   /* Only meaningful (and only shown — see toggleBasemap()) while the dark
      terrain basemap itself is on, so it sits right after that toggle. */
   #contour-toggle { left: 284px; font-size: 0.95rem; display: none; }
   #contour-toggle.active { background: #333; }
-  #contour-toggle:hover { background: rgba(255,255,255,0.25); }
+  #contour-toggle:hover { background: rgba(0,0,0,0.8); }
   #contour-toggle.active:hover { background: #404040; }
 
   /* Tuning panel for the snow-overlay trial — hidden until that toggle is
@@ -174,7 +180,7 @@
   #snow-overlay-controls input[type="range"] { width: 100%; accent-color: #4d9fff; }
   #snow-overlay-controls span { color: #9fd3ff; font-variant-numeric: tabular-nums; }
   #map-close { right: 64px; display: none; }
-  #map-enlarge:hover, #map-close:hover { background: rgba(255,255,255,0.25); }
+  #map-close:hover { background: rgba(0,0,0,0.8); }
   #map-screen.is-fullscreen #map-enlarge { display: none; }
   #map-screen.is-fullscreen #map-close { display: block; }
 
@@ -203,15 +209,21 @@
     position: absolute; top: 20px; left: calc(50% + 8px); z-index: 15;
     display: flex; gap: 10px;
   }
+  /* height:38px + box-sizing:border-box makes this match the resort switcher,
+     settings cog, and model switch exactly (all 38px tall) — see App.css
+     .map-resort-switch .resort-button / .map-settings-toggle. pill-btn has
+     no vertical padding of its own; it stretches to the group's full height
+     (flex default align-items:stretch) and centers its own text/icon. */
   .pill-group {
-    display: flex; gap: 4px;
+    display: flex; gap: 4px; height: 38px; box-sizing: border-box;
     background: rgba(0,0,0,0.6); backdrop-filter: blur(14px);
-    border-radius: 999px; padding: 5px;
+    border-radius: 999px; padding: 4px;
     box-shadow: 0 4px 24px rgba(0,0,0,0.3);
   }
   .pill-btn {
+    display: flex; align-items: center; justify-content: center;
     background: transparent; color: rgba(255,255,255,0.65); border: none;
-    padding: 8px 16px; border-radius: 999px; font-size: 0.78rem; font-weight: 700;
+    padding: 0 16px; border-radius: 999px; font-size: 0.78rem; font-weight: 700;
     cursor: pointer; transition: all 0.15s; font-family: inherit; white-space: nowrap;
   }
   .pill-btn:hover { color: #fff; }
@@ -230,9 +242,10 @@
   #map-screen.is-fullscreen #model-switch { top: 72px; }
   #model-switch-btn {
     display: flex; align-items: center; gap: 8px;
+    height: 38px; box-sizing: border-box;
     background: rgba(0,0,0,0.6); backdrop-filter: blur(14px);
     color: #fff; border: none; border-radius: 999px;
-    padding: 10px 16px; font-size: 0.78rem; font-weight: 700;
+    padding: 0 16px; font-size: 0.78rem; font-weight: 700;
     cursor: pointer; font-family: inherit; white-space: nowrap;
     box-shadow: 0 4px 24px rgba(0,0,0,0.3);
   }
