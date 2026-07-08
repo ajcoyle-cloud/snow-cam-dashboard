@@ -1,6 +1,6 @@
 // Updated with Loveland ski area and forecast view switcher
 import { useState, useEffect, useRef } from 'react'
-import { Camera, LineChart, Map as MapIcon, Snowflake } from 'lucide-react'
+import { Camera, LineChart, Map as MapIcon, Snowflake, Settings } from 'lucide-react'
 import HLS from 'hls.js'
 import { computeStormArrival, STORM_BAND_LABELS } from './stormArrival'
 import './App.css'
@@ -2692,6 +2692,82 @@ function SnowfallForecast({ resort, setResort }) {
   )
 }
 
+// Map settings — "Winter snow" and "Dark mode" toggles. The actual layer/sky
+// manipulation lives inside whakapapa-snow-forecast.html (applyWinterSnow(),
+// setDarkMode()) since that's where the MapLibre `map` instance lives; this
+// button only sits in the React layer so it can share the resort switcher's
+// row (same plane/height, per design). It reads/writes the same
+// localStorage key the iframe itself uses (same-origin, so this works
+// without any bridge) for its own checked state and for a fresh iframe's
+// initial load, and posts a message to the *currently mounted* iframe
+// (topIframeRef) so a live toggle takes effect immediately without a reload
+// — mirrors the existing window.__mapSetViewMode bridge pattern below.
+const MAP_SETTINGS_STORAGE_KEY = 'sc-map-settings'
+function loadMapSettings() {
+  try { return JSON.parse(localStorage.getItem(MAP_SETTINGS_STORAGE_KEY)) || {} }
+  catch (e) { return {} }
+}
+function MapSettingsMenu({ topIframeRef }) {
+  const [isOpen, setIsOpen] = useState(false)
+  const [winterSnow, setWinterSnow] = useState(false)
+  const [darkMode, setDarkMode] = useState(false)
+  const dropdownRef = useRef(null)
+
+  useEffect(() => {
+    const saved = loadMapSettings()
+    setWinterSnow(!!saved.winterSnow)
+    setDarkMode(!!saved.darkMode)
+  }, [])
+
+  useEffect(() => {
+    const handleClickOutside = (e) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target)) setIsOpen(false)
+    }
+    document.addEventListener('click', handleClickOutside)
+    return () => document.removeEventListener('click', handleClickOutside)
+  }, [])
+
+  const applyAndSave = (patch) => {
+    const next = { ...loadMapSettings(), ...patch }
+    try { localStorage.setItem(MAP_SETTINGS_STORAGE_KEY, JSON.stringify(next)) } catch (e) {}
+    topIframeRef.current?.contentWindow?.postMessage({ type: 'apply-settings', ...next }, '*')
+  }
+
+  return (
+    <div className="map-settings-menu" ref={dropdownRef}>
+      <button className="map-settings-toggle" onClick={() => setIsOpen(!isOpen)} aria-label="Map settings" title="Map settings">
+        <Settings size={18} />
+      </button>
+      {isOpen && (
+        <div className="map-settings-dropdown">
+          <label className="map-settings-row">
+            <span>Winter snow</span>
+            <span className="map-settings-switch">
+              <input
+                type="checkbox"
+                checked={winterSnow}
+                onChange={(e) => { setWinterSnow(e.target.checked); applyAndSave({ winterSnow: e.target.checked }) }}
+              />
+              <span className="map-settings-switch-track"></span>
+            </span>
+          </label>
+          <label className="map-settings-row">
+            <span>Dark mode</span>
+            <span className="map-settings-switch">
+              <input
+                type="checkbox"
+                checked={darkMode}
+                onChange={(e) => { setDarkMode(e.target.checked); applyAndSave({ darkMode: e.target.checked }) }}
+              />
+              <span className="map-settings-switch-track"></span>
+            </span>
+          </label>
+        </div>
+      )}
+    </div>
+  )
+}
+
 function ForecastMap3D({ resort, setResort }) {
   const locations = {
     ruapehu: { name: 'Whakapapa' },
@@ -2772,8 +2848,9 @@ function ForecastMap3D({ resort, setResort }) {
 
   return (
     <div className="map-3d-wrap" style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
-      <div className="map-resort-switch" style={{ display: 'flex', justifyContent: 'center', padding: '10px 0' }}>
+      <div className="map-resort-switch" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 0' }}>
         <ResortSelector resort={resort} setResort={setResort} />
+        <MapSettingsMenu topIframeRef={topIframeRef} />
       </div>
       <div style={{ position: 'relative', width: '100%', flex: 1, minHeight: 0 }}>
         {frames.map((f, i) => {

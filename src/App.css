@@ -755,6 +755,108 @@
   border-radius: 0 0 11px 11px;
 }
 
+/* Map settings cog — sits in the same row as the resort switcher above
+   (see .map-resort-switch / MapSettingsMenu in App.jsx), same dark-grey
+   pill language as .resort-button, sized to match its rendered height
+   (36px desktop / 38px mobile, measured directly rather than guessed). */
+.map-settings-menu {
+  position: relative;
+}
+
+.map-settings-toggle {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: #1a1a1a;
+  border: 1px solid #333;
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.map-settings-toggle:hover {
+  background: #252525;
+  border-color: #444;
+}
+
+.map-settings-dropdown {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  background: #1a1a1a;
+  border: 1px solid #333;
+  border-radius: 12px;
+  padding: 6px 0;
+  min-width: 200px;
+  z-index: 1000;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+}
+
+.map-settings-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 10px 16px;
+  cursor: pointer;
+  color: #aaa;
+  font-size: 0.9em;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto';
+}
+
+.map-settings-row:hover {
+  background: #2a2a2a;
+  color: #fff;
+}
+
+.map-settings-switch {
+  position: relative;
+  width: 38px;
+  height: 22px;
+  flex-shrink: 0;
+}
+
+.map-settings-switch input {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  margin: 0;
+  cursor: pointer;
+  z-index: 1;
+}
+
+.map-settings-switch-track {
+  position: absolute;
+  inset: 0;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.2);
+  transition: background 0.15s;
+}
+
+.map-settings-switch-track::before {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+  transition: transform 0.15s;
+}
+
+.map-settings-switch input:checked ~ .map-settings-switch-track {
+  background: #34d399;
+}
+
+.map-settings-switch input:checked ~ .map-settings-switch-track::before {
+  transform: translateX(16px);
+}
+
 .forecast-table-wrapper {
   width: 100%;
   overflow-x: auto;
@@ -1043,6 +1145,23 @@
   .map-resort-switch .resort-selector,
   .map-resort-switch .resort-button {
     pointer-events: auto;
+  }
+
+  /* Settings cog shares the resort switcher's row/pointer-events treatment.
+     margin-left:auto pushes it to the row's right edge regardless of the
+     !important justify-content:flex-start above (that flex-start exists so
+     the switcher itself hugs the left edge — it wasn't written expecting a
+     second item). NOTE: at this width #top-controls (Live/Hourly/Accum,
+     inside the iframe) also sits top-right — this may crowd/overlap it on a
+     true narrow phone; flagged for a live-device check, not verified here. */
+  .map-resort-switch .map-settings-menu {
+    pointer-events: auto;
+    margin-left: auto;
+    margin-right: 12px;
+  }
+  .map-settings-toggle {
+    width: 38px;
+    height: 38px;
   }
 
   /* Same dark grey as .elevation-toggle/.toggle-btn everywhere else — this

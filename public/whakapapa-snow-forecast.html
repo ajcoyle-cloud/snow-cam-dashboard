@@ -209,10 +209,11 @@
   #period-switch { display: none; }
 
   /* ── Model switcher (top-right) — single-select, same visual language as
-     the Models dropdown on the forecast table/graph page. Pushed down 52px
-     from the corner (top:20 -> top:72) to leave room for #settings-toggle,
-     which now owns that top-right corner slot — see below. ────────────── */
-  #model-switch { position: absolute; top: 72px; right: 20px; z-index: 15; }
+     the Models dropdown on the forecast table/graph page. ─────────────── */
+  #model-switch { position: absolute; top: 20px; right: 20px; z-index: 15; }
+  /* In fullscreen, #map-close (40px, right:64px) sits under where this
+     button would otherwise land — drop it below the icon row instead. */
+  #map-screen.is-fullscreen #model-switch { top: 72px; }
   #model-switch-btn {
     display: flex; align-items: center; gap: 8px;
     background: rgba(0,0,0,0.6); backdrop-filter: blur(14px);
@@ -243,55 +244,6 @@
   .model-option:disabled { opacity: 0.35; cursor: not-allowed; }
   .model-option:disabled:hover { background: transparent; }
   .model-option-swatch { width: 10px; height: 10px; border-radius: 3px; flex-shrink: 0; }
-
-  /* ── Settings cog (top-right corner) — production-facing, always visible.
-     Same visual language as the model switcher above (dark blurred pill/
-     panel), but a plain icon-circle trigger like the trial toggle buttons
-     rather than a labelled pill, since it opens a menu, not a single value. */
-  #settings-menu-wrap { position: absolute; top: 20px; right: 20px; z-index: 16; }
-  #settings-toggle {
-    width: 40px; height: 40px; border-radius: 50%;
-    background: rgba(0,0,0,0.6); backdrop-filter: blur(14px);
-    color: #fff; border: none; font-size: 1.1rem; cursor: pointer;
-    display: flex; align-items: center; justify-content: center;
-    box-shadow: 0 4px 24px rgba(0,0,0,0.3);
-    transition: background 0.15s;
-  }
-  #settings-toggle:hover { background: rgba(255,255,255,0.15); }
-  #settings-menu-wrap.open #settings-toggle { background: #333; }
-  #settings-menu {
-    display: none;
-    position: absolute; top: calc(100% + 8px); right: 0;
-    background: rgba(20,20,20,0.92); backdrop-filter: blur(14px);
-    border: 1px solid rgba(255,255,255,0.1);
-    border-radius: 12px; padding: 6px 0; min-width: 220px;
-    box-shadow: 0 8px 28px rgba(0,0,0,0.5);
-  }
-  #settings-menu-wrap.open #settings-menu { display: block; }
-  .settings-row {
-    display: flex; align-items: center; justify-content: space-between; gap: 16px;
-    padding: 11px 16px; cursor: pointer;
-    color: rgba(255,255,255,0.85); font-size: 0.82rem; font-weight: 600;
-  }
-  .settings-row:hover { background: rgba(255,255,255,0.06); }
-  /* Plain checkbox restyled as an iOS-style pill switch — hidden but still
-     keyboard/screen-reader operable (opacity:0 + absolute, not display:none). */
-  .settings-switch { position: relative; width: 38px; height: 22px; flex-shrink: 0; }
-  .settings-switch input {
-    position: absolute; inset: 0; opacity: 0; margin: 0; cursor: pointer; z-index: 1;
-  }
-  .settings-switch-track {
-    position: absolute; inset: 0; border-radius: 999px;
-    background: rgba(255,255,255,0.2); transition: background 0.15s;
-  }
-  .settings-switch-track::before {
-    content: ''; position: absolute; top: 2px; left: 2px;
-    width: 18px; height: 18px; border-radius: 50%; background: #fff;
-    box-shadow: 0 1px 3px rgba(0,0,0,0.4);
-    transition: transform 0.15s;
-  }
-  .settings-switch input:checked ~ .settings-switch-track { background: #34d399; }
-  .settings-switch input:checked ~ .settings-switch-track::before { transform: translateX(16px); }
 
   /* ── Freezing-level sparkline (live mode, just above the time slider) ── */
   #fl-overlay {
@@ -474,26 +426,30 @@
 
     /* Mode toggle (LIVE/HOURLY/ACCUMULATED) pinned to the TOP-RIGHT, on the
        same row as the location switcher (which floats top-left from the React
-       layer). Reserve ~152px on the left for that switcher so the two never
-       collide. In accumulated mode the extra 5/10/15 period group wraps to a
+       layer). Reserve ~152px on the left for that switcher, and ~46px on the
+       right for the React-layer settings cog (.map-settings-menu, also on
+       this row — 38px button + 12px margin, see App.css), so neither ever
+       collides. In accumulated mode the extra 5/10/15 period group wraps to a
        second right-aligned row rather than growing left into the switcher. */
     #top-controls {
       top: 14px;
       left: auto;
-      right: 12px;
+      right: 58px;
       transform: none;
       width: max-content;
-      max-width: calc(100vw - 152px);
+      max-width: calc(100vw - 198px);
       flex-wrap: wrap;
       justify-content: flex-end;
     }
     /* Height matched to the React-layer location switcher (.map-resort-switch
        .resort-button, 38px) so the two sit on the same horizontal line. */
-    /* gap/padding trimmed (from 4px/7px 12px) so Live/Hour/Accum/Radar all fit
-       on one line without needing the overflow-x scroll below — kept as a
-       safety net for any narrower device rather than the primary fix. */
-    .pill-group { overflow-x: auto; min-height: 38px; align-items: center; gap: 2px; padding: 4px; }
-    .pill-btn { padding: 6px 9px; font-size: 0.72rem; }
+    /* gap/padding trimmed (from 4px/7px 12px, then again from 9px/2px once
+       the settings cog started sharing this row's remaining width — see
+       #top-controls above) so Live/Hourly/Accum/Radar all fit on one line
+       without needing the overflow-x scroll below — kept as a safety net
+       for any narrower device rather than the primary fix. */
+    .pill-group { overflow-x: auto; min-height: 38px; align-items: center; gap: 1px; padding: 3px; }
+    .pill-btn { padding: 6px 6px; font-size: 0.7rem; }
 
     /* Map toggle buttons (live-obs, auto-rotate) tuck just under the top control
        row (top row sits at 14px and is ~38px tall, ending ~52px). */
@@ -510,18 +466,10 @@
     #speed-select { top: 60px; bottom: auto; right: 12px; padding: 4px; }
     .speed-btn { padding: 6px 8px; font-size: 0.66rem; }
 
-    /* Settings cog: its own third row, top-right (row 1 = resort switch +
-       mode pills, row 2 = obs/rotate toggles + playback speed). Kept
-       right-anchored like desktop (not moved to the left icon row) so its
-       dropdown — anchored right:0 off the trigger — opens fully on-screen
-       rather than spilling off the left edge. */
-    #settings-menu-wrap { top: 106px; right: 12px; }
-    #settings-toggle { width: 34px; height: 34px; font-size: 1rem; }
-
-    /* Model switcher: pushed to a fourth row to make room for the settings
-       cog above it (row 1 = resort switch + mode pills, row 2 = obs/rotate
-       toggles + playback speed, row 3 = settings cog). */
-    #model-switch { top: 148px; right: 12px; }
+    /* Model switcher: its own third row, top-right (row 1 = resort switch +
+       mode pills, row 2 = obs/rotate toggles + playback speed). */
+    #model-switch { top: 106px; right: 12px; }
+    #map-screen.is-fullscreen #model-switch { top: 106px; }
     #model-switch-btn { padding: 8px 12px; font-size: 0.72rem; }
 
     /* Freezing-level sparkline: overlay it across the bottom of the map, but only
@@ -705,44 +653,6 @@
     </button>
     <div id="model-switch-list"></div>
   </div>
-
-  <!-- Production-facing settings — locked/simplified wrappers around two of
-       the Snow Test trials above (see toggleSettingsMenu()/applyWinterSnow()/
-       setDarkMode()). Always visible, unlike the raw trial buttons. -->
-  <div id="settings-menu-wrap">
-    <button id="settings-toggle" onclick="toggleSettingsMenu()" title="Map settings">⚙️</button>
-    <div id="settings-menu">
-      <label class="settings-row">
-        <span>Winter snow</span>
-        <span class="settings-switch">
-          <input type="checkbox" id="settings-winter-snow" onchange="onSettingsWinterSnowChange(this.checked)">
-          <span class="settings-switch-track"></span>
-        </span>
-      </label>
-      <label class="settings-row">
-        <span>Dark mode</span>
-        <span class="settings-switch">
-          <input type="checkbox" id="settings-dark-mode" onchange="onSettingsDarkModeChange(this.checked)">
-          <span class="settings-switch-track"></span>
-        </span>
-      </label>
-    </div>
-  </div>
-  <script>
-    // Reflect any saved settings-cog preference in the checkboxes immediately
-    // on page load, rather than waiting for the map's 'load' event (which
-    // restoreMapSettings() above also drives) — purely so the switches don't
-    // visibly flash from unchecked to checked a second or two into the page.
-    (function () {
-      try {
-        const saved = JSON.parse(localStorage.getItem('sc-map-settings')) || {};
-        const winterInput = document.getElementById('settings-winter-snow');
-        const darkInput = document.getElementById('settings-dark-mode');
-        if (winterInput) winterInput.checked = !!saved.winterSnow;
-        if (darkInput) darkInput.checked = !!saved.darkMode;
-      } catch (e) {}
-    })();
-  </script>
 
   <div id="snow-info">
     <div id="drawer-handle"><span class="grip"></span></div>
@@ -2295,8 +2205,6 @@ function setDarkMode(enabled) {
     contourBtn.classList.toggle('active', darkTerrainShowContours);
     contourBtn.title = 'Hide contour lines';
   }
-  const cogInput = document.getElementById('settings-dark-mode');
-  if (cogInput) cogInput.checked = enabled;
   if (enabled) {
     registerDarkTerrainProtocol();
     if (map.getLayer('dark-terrain-layer')) map.removeLayer('dark-terrain-layer');
@@ -2318,9 +2226,10 @@ function toggleBasemap() {
   setDarkMode(!darkTerrainActive);
 }
 
-// ── Settings cog (top-right) ────────────────────────────────────────────
-// Production-facing, always visible regardless of isSnowTestMode — wraps
-// two of the Snow Test trials above in simplified, locked on/off switches:
+// ── Settings (Winter snow / Dark mode) — applied here, controlled from the
+// React layer ────────────────────────────────────────────────────────────
+// Wraps two of the Snow Test trials above in simplified, locked on/off
+// switches:
 //   - "Winter snow": the slope-aware snow overlay (🏔️ trial button), fixed
 //     to a region-appropriate min elevation and hand-tuned slope/fade/
 //     opacity. No sliders offered.
@@ -2328,17 +2237,22 @@ function toggleBasemap() {
 //     trial button) as one combined toggle — contours are always on
 //     whenever this is on. The separate #contour-toggle trial control (on/
 //     off for contours alone) stays Snow-Test-only, not duplicated here.
-// Both persist across reloads/resort switches via localStorage, unlike the
-// raw trial toggles, which are session-only/experimental by design.
-
+// The actual on/off switches live in the React app's MapSettingsMenu
+// (App.jsx), in the same row as the resort switcher — not inside this
+// iframe — since that's the only way for them to share that row's plane/
+// height. This file just applies whichever setting is asked of it (see the
+// 'apply-settings' message listener below) and persists it, same
+// localStorage key/format the React layer reads/writes directly (same-
+// origin, so no bridge is needed for THAT half — only a live toggle while
+// this iframe is already mounted needs the message, since only this script
+// holds the actual MapLibre `map` instance).
+// Same key/format the React-layer MapSettingsMenu (App.jsx) reads and
+// writes — this file only ever reads it (see restoreMapSettings below);
+// writes happen on the React side since that's where the switches live.
 const SETTINGS_STORAGE_KEY = 'sc-map-settings';
 function loadMapSettings() {
   try { return JSON.parse(localStorage.getItem(SETTINGS_STORAGE_KEY)) || {}; }
   catch (e) { return {}; }
-}
-function saveMapSettings(patch) {
-  const merged = Object.assign(loadMapSettings(), patch);
-  try { localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(merged)); } catch (e) {}
 }
 
 // Ruapehu (Whakapapa) is the only North Island NZ resort configured here;
@@ -2357,8 +2271,6 @@ const WINTER_SNOW_LOCKED_PARAMS = { patchBandM: 0, maxSlopeDeg: 62, fadeDeg: 4, 
 function applyWinterSnow(enabled) {
   if (!map) return;
   snowOverlayActive = enabled;
-  const cogInput = document.getElementById('settings-winter-snow');
-  if (cogInput) cogInput.checked = enabled;
   // Keep the raw Snow-Test trial button + its sliders panel in sync too, in
   // case both surfaces are reachable in the same session (?snow=1) — the
   // panel must never be left open showing stale slider values for a layer
@@ -2379,31 +2291,28 @@ function applyWinterSnow(enabled) {
   if (map.getLayer('snow-overlay-layer')) map.setPaintProperty('snow-overlay-layer', 'raster-opacity', snowOverlayParams.opacity);
 }
 
-function onSettingsWinterSnowChange(checked) {
-  saveMapSettings({ winterSnow: checked });
-  applyWinterSnow(checked);
-}
-function onSettingsDarkModeChange(checked) {
-  saveMapSettings({ darkMode: checked });
-  setDarkMode(checked);
-}
-
-// Called once, at the end of map.on('load') in initMap() above.
+// Called once, at the end of map.on('load') in initMap() above — picks up
+// whatever was last saved (by this iframe's own previous session, or by the
+// React-layer settings menu, same key/format either way).
 function restoreMapSettings() {
   const settings = loadMapSettings();
   if (settings.winterSnow) applyWinterSnow(true);
   if (settings.darkMode) setDarkMode(true);
 }
 
-function toggleSettingsMenu() {
-  document.getElementById('settings-menu-wrap')?.classList.toggle('open');
-}
-function closeSettingsMenu() {
-  document.getElementById('settings-menu-wrap')?.classList.remove('open');
-}
-document.addEventListener('click', (e) => {
-  const el = document.getElementById('settings-menu-wrap');
-  if (el && el.classList.contains('open') && !el.contains(e.target)) closeSettingsMenu();
+// Live bridge from the React-layer MapSettingsMenu (App.jsx) — sent whenever
+// a switch is flipped while this iframe is already mounted (a fresh mount
+// picks the setting up on its own via restoreMapSettings() above, since
+// localStorage is shared same-origin; only an already-running map needs to
+// be told to actually re-render its layers/sky).
+window.addEventListener('message', (event) => {
+  if (event.data?.type !== 'apply-settings') return;
+  if (typeof event.data.winterSnow === 'boolean' && event.data.winterSnow !== snowOverlayActive) {
+    applyWinterSnow(event.data.winterSnow);
+  }
+  if (typeof event.data.darkMode === 'boolean' && event.data.darkMode !== darkTerrainActive) {
+    setDarkMode(event.data.darkMode);
+  }
 });
 
 // Decorative only: applies the single selected hour's wind speed/direction
