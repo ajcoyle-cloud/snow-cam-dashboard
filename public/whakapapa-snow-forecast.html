@@ -922,6 +922,12 @@ if (isHighResMode) {
   // permanently 'hourly' (see restoreViewMode()'s early return below).
   const topControls = document.getElementById('top-controls');
   if (topControls) topControls.style.display = 'none';
+  // Live weather-station temp pills don't apply to a forecast-only page —
+  // no manual toggle for them either, same "one thing this page does"
+  // reasoning as the orographic-toggle button above. See pwRenderPill's
+  // own isHighResMode guard, which stops any pill from ever being created.
+  const obsBtn = document.getElementById('obs-toggle');
+  if (obsBtn) obsBtn.style.display = 'none';
 }
 
 // Day/night sky gradients for the settings-cog "Dark mode" toggle
@@ -4400,6 +4406,7 @@ function pwOpenModal(data) {
 }
 
 function pwRenderPill(trackId) {
+  if (isHighResMode) return; // no temp pills on the forecast-only High-Res page
   const st = pwState[trackId];
   if (!st || !st.series.length) return;
   // Profile-only station (see PW_CONFIG's pill:false / showPill above) —
