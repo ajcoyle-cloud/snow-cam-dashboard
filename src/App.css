@@ -213,8 +213,11 @@
   display: inline-flex;
   gap: 0;
   padding: 3px;
-  background: #1a1a1a;
+  background: rgba(54, 54, 62, 0.85);
+  backdrop-filter: blur(14px);
+  border: 1px solid rgba(255, 255, 255, 0.14);
   border-radius: 999px;
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.3);
 }
 
 .grid-size-option {
@@ -235,7 +238,7 @@
 }
 
 .grid-size-option.active {
-  background: #333;
+  background: rgba(92, 92, 106, 0.95);
   color: #fff;
 }
 
@@ -576,9 +579,12 @@
   gap: 0;
   justify-content: center;
   margin: 8px auto;
-  background: #1a1a1a;
+  background: rgba(54, 54, 62, 0.85);
+  backdrop-filter: blur(14px);
+  border: 1px solid rgba(255, 255, 255, 0.14);
   border-radius: 24px;
   padding: 3px;
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.3);
 }
 
 .forecast-loading {
@@ -664,7 +670,7 @@
 }
 
 .toggle-btn.active {
-  background: #333;
+  background: rgba(92, 92, 106, 0.95);
   color: #fff;
   box-shadow: none;
 }
@@ -676,13 +682,19 @@
   padding-top: 10px;
 }
 
+/* Same grey+blur pill treatment as the Map feature's top-row buttons (see
+   .map-resort-switch .resort-button / .pill-group / #model-switch-btn in
+   App.css and whakapapa-snow-forecast.html) — used everywhere .resort-button
+   appears: the location switcher and Models dropdown on Forecast, the
+   location switcher on Webcams, and the Map feature. */
 .resort-button {
   display: flex;
   align-items: center;
   gap: 8px;
   padding: 8px 20px;
-  background: #1a1a1a;
-  border: 1px solid #333;
+  background: rgba(54, 54, 62, 0.85);
+  backdrop-filter: blur(14px);
+  border: 1px solid rgba(255, 255, 255, 0.14);
   border-radius: 24px;
   color: #fff;
   font-size: 0.95em;
@@ -691,11 +703,12 @@
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto';
   transition: all 0.2s ease;
   text-align: center;
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.3);
 }
 
 .resort-button:hover {
-  background: #252525;
-  border-color: #444;
+  background: rgba(70, 70, 80, 0.9);
+  border-color: rgba(255, 255, 255, 0.2);
 }
 
 .dropdown-arrow {
@@ -1176,18 +1189,11 @@
     height: 38px;
   }
 
-  /* Same dark grey as .elevation-toggle/.toggle-btn everywhere else — this
-     used to be translucent black, which stood out against the other
-     buttons/switchers next to it instead of matching them. */
+  /* Mobile-only sizing tweak — colour/border/blur now come from the base
+     .resort-button rule above, same grey pill used everywhere else. */
   .resort-button {
     padding: 8px 16px;
     font-size: 0.9em;
-    background: #1a1a1a;
-    border: 1px solid #333;
-  }
-
-  .resort-button:hover {
-    background: #252525;
   }
 
   .resort-dropdown {
