@@ -720,7 +720,7 @@
         </span>
       </label>
       <label class="settings-row">
-        <span>Elevation Contours</span>
+        <span>Dark mode</span>
         <span class="settings-switch">
           <input type="checkbox" id="settings-dark-mode" onchange="onSettingsDarkModeChange(this.checked)">
           <span class="settings-switch-track"></span>
@@ -901,8 +901,8 @@ if (!isSnowTestMode) {
   if (basemapBtn) basemapBtn.style.display = 'none';
 }
 
-// Day/night sky gradients for the settings-cog "Elevation Contours" dark
-// mode (see setDarkMode() near the dark-terrain trial code below) — top-
+// Day/night sky gradients for the settings-cog "Dark mode" toggle
+// (see setDarkMode() near the dark-terrain trial code below) — top-
 // level so both initMap()'s first map.setSky() call and setDarkMode() can
 // use them.
 const SKY_DAY = { 'sky-color': '#3a82d6', 'horizon-color': '#cfe9fb', 'sky-horizon-blend': 0.8 };
@@ -1569,8 +1569,8 @@ function initMap() {
   // model is just a sky-color (zenith) blending into a horizon-color —
   // bright blue overhead fading to a pale, almost-white blue at the
   // horizon. Overridden to a dark navy night sky further below, once the
-  // rest of 'load' has run, if the settings-cog "Elevation Contours" dark
-  // mode was left on from a previous visit (restoreMapSettings()) — see
+  // rest of 'load' has run, if the settings-cog "Dark mode" toggle
+  // was left on from a previous visit (restoreMapSettings()) — see
   // setDarkMode() near the dark-terrain trial code.
   map.on('load', () => {
     // Container sizing is handled by the ResizeObserver set up right after
@@ -1617,7 +1617,7 @@ function initMap() {
     // for it guarantees this frame is the fully-settled one.
     map.once('idle', maybeSignalMapReady);
 
-    // Re-apply settings-cog preferences (Winter snow / Elevation Contours)
+    // Re-apply settings-cog preferences (Winter snow / Dark mode)
     // left on from a previous visit — after everything above so the layers
     // setDarkMode()/applyWinterSnow() reference ('satellite', 'depth-shade',
     // 'resort-lifts-line') already exist. Declared later in this script
@@ -2273,7 +2273,7 @@ function toggleContours() {
 }
 
 // Shared by the raw Snow Test trial toggle (#basemap-toggle) and the
-// settings-cog "Elevation Contours" toggle further down — one source of
+// settings-cog "Dark mode" toggle further down — one source of
 // truth for switching the basemap + sky together, so the two surfaces can
 // never disagree. Always regenerates the dark-terrain tiles on enable
 // (rather than reusing whatever's cached) so darkTerrainShowContours is
@@ -2324,7 +2324,7 @@ function toggleBasemap() {
 //   - "Winter snow": the slope-aware snow overlay (🏔️ trial button), fixed
 //     to a region-appropriate min elevation and hand-tuned slope/fade/
 //     opacity. No sliders offered.
-//   - "Elevation Contours": the dark-terrain basemap + contour lines (🌑
+//   - "Dark mode": the dark-terrain basemap + contour lines (🌑
 //     trial button) as one combined toggle — contours are always on
 //     whenever this is on. The separate #contour-toggle trial control (on/
 //     off for contours alone) stays Snow-Test-only, not duplicated here.
