@@ -2403,8 +2403,9 @@ function orographicMultiplier(U, V, gradEast, gradNorth) {
 // indices the way the raster protocol's own gradient is). offsetM is a
 // similar real-world scale to the box-blur smoothing used when rendering
 // the coloured overlay, so a tap reads the same "local terrain" area a
-// finger-width covers rather than one noisy single point.
-function orographicSampleGradient(lngLat, offsetM = 40) {
+// finger-width covers rather than one noisy single point. 10m keeps that
+// local while still averaging over a few DEM pixels, not just one.
+function orographicSampleGradient(lngLat, offsetM = 10) {
   const latRad = (lngLat.lat * Math.PI) / 180;
   const dLat = offsetM / 111320;
   const dLng = offsetM / (111320 * Math.cos(latRad));
