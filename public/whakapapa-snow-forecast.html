@@ -283,6 +283,16 @@
   .legend-row.active-band { color: #fff; font-weight: 700; }
   .legend-swatch { width: 16px; height: 16px; border-radius: 4px; flex-shrink: 0; border: 1px solid rgba(255,255,255,0.35); }
 
+  /* MapLibre markers (station-pill, resort-pill, snowfall marker — anything
+     added via `new maplibregl.Marker(...).addTo(map)`) are plain DOM
+     elements, not WebGL layers, so they normally paint above the map canvas
+     regardless of which raster layers (satellite, dark-terrain, contours,
+     radar) are active — but that only holds while nothing else out-stacks
+     them. Pin it explicitly rather than relying on default/library
+     ordering, so live station pills are guaranteed to stay on top of the
+     canvas no matter which basemap/overlay combination is showing. */
+  .maplibregl-marker { z-index: 40; }
+
   /* ── Live observation temp pill (map marker) + modal ─────────────────── */
   .station-pill {
     display: inline-flex; align-items: center; gap: 5px;
@@ -817,6 +827,28 @@ if (!isSnowTestMode) {
 // use them.
 const SKY_DAY = { 'sky-color': '#3a82d6', 'horizon-color': '#cfe9fb', 'sky-horizon-blend': 0.8 };
 const SKY_NIGHT = { 'sky-color': '#03050c', 'horizon-color': '#1b2338', 'sky-horizon-blend': 0.7 };
+
+// Depth fog for dark mode — the dense 20m contour lines turn the far
+// distance into visual noise (every band crossing is an equally bright
+// line all the way to the horizon, with nothing to indicate depth), so
+// fade terrain/contours toward black the further they are from the
+// camera. MapLibre's fog (same shape as Mapbox's) works entirely in
+// screen/camera space — it's applied to the whole 3D scene, not any one
+// layer, so it darkens the raster basemap AND the contour-lines layer
+// together as distance increases; it does not touch DOM markers (station
+// pills etc.), which is what we want — those must stay fully legible
+// regardless of distance (see .maplibregl-marker z-index fix above).
+// range/horizon-blend are hand-tuned by eye for this map's usual pitch
+// (~62-69°) and zoom (~13) — not derived from anything, may need
+// further adjustment once seen live.
+const DARK_FOG = {
+  range: [0.3, 6],
+  color: '#05070c',
+  'horizon-blend': 0.15,
+  'high-color': '#03050c',
+  'space-color': '#000000',
+  'star-intensity': 0,
+};
 
 // ── Other-resort navigation pills (shown when zoomed out) ──────────────────
 // Lets the user jump straight to another resort's map from within the map
@@ -2271,6 +2303,11 @@ function setDarkMode(enabled) {
     if (map.getLayer('dark-terrain-contours-layer')) map.setLayoutProperty('dark-terrain-contours-layer', 'visibility', 'none');
   }
   map.setSky(enabled ? SKY_NIGHT : SKY_DAY);
+  // Only fogged in dark mode — the satellite basemap is a real photo, and
+  // fading it to black with distance wasn't asked for and would just look
+  // like a rendering bug there. setFog(null) clears it (MapLibre's own
+  // no-fog signal), same as how satellite has no dark-terrain-layer.
+  map.setFog(enabled ? DARK_FOG : null);
 }
 
 function toggleBasemap() {
