@@ -2353,11 +2353,15 @@ function toggleSnowOverlay() {
 // orographicBoxBlur above, the real fix for that; this is a complementary
 // change making whatever range of hues shows up easier to read at a glance.
 const OROGRAPHIC_RAMP_BANDS = [
-  [190, 40, 35],   // red — most lee
-  [230, 130, 35],  // orange
+  // Reduced from 6 bands to 4 — the old ramp ran pure red (most lee) opposite
+  // pure blue (most windward), and those two extremes clashed badly wherever
+  // they sat near each other. Dropping the hot red band (orange is now the
+  // hottest) and the redundant cyan band gives a calmer 4-step gradient with
+  // no harsh red-against-blue opposition, while keeping the same lee→windward
+  // warm→cool direction.
+  [230, 130, 35],  // orange — most lee
   [230, 195, 55],  // yellow
   [110, 190, 90],  // green
-  [55, 150, 190],  // cyan
   [70, 90, 210],   // blue — most windward
 ];
 function orographicRampColor(t) {
