@@ -1747,16 +1747,22 @@ function SnowfallForecast({ resort, setResort }) {
   // "Temp (GFS)") — the rest just carry the model name, since repeating
   // "Temp" on every row is redundant and the row's own text color already
   // ties it back to that model.
-  const groupRowLabel = (rows, idx, base, unit = '') => {
+  // avgLabel names the blended-model row specifically — "Average" for
+  // mean-based parameters (temp, freezing, wind), "Median" for snowfall,
+  // since that row is now computed with buildAverageForecastData's median
+  // (see there) rather than a mean, and calling it "Average" there would be
+  // inaccurate.
+  const groupRowLabel = (rows, idx, base, unit = '', avgLabel = 'Average') => {
     if (rows.length === 1) return unit ? `${base} ${unit}` : base
-    return idx === 0 ? `${base} (${rows[idx].label})` : `(${rows[idx].label})`
+    const label = rows[idx].key === 'average' ? avgLabel : rows[idx].label
+    return idx === 0 ? `${base} (${label})` : `(${label})`
   }
   // The whole label cell (not just the arrow glyph) is the tap target — small
   // arrow-only buttons are too fiddly to hit, especially on touch.
-  const labelCell = (groupKey, rows, idx, base, unit = '') => (
+  const labelCell = (groupKey, rows, idx, base, unit = '', avgLabel = 'Average') => (
     <td
       onClick={idx === 0 ? () => setExpandedRows((s) => ({ ...s, [groupKey]: !s[groupKey] })) : undefined}
-      title={idx === 0 ? (expandedRows[groupKey] ? 'Collapse to Average' : 'Expand to show each model') : undefined}
+      title={idx === 0 ? (expandedRows[groupKey] ? `Collapse to ${avgLabel}` : 'Expand to show each model') : undefined}
       style={{
         width: `${snowPadding.left}px`,
         color: rows.length > 1 && idx === 0 ? '#fff' : undefined,
@@ -1767,7 +1773,7 @@ function SnowfallForecast({ resort, setResort }) {
         justifyContent: 'space-between',
       }}
     >
-      <span>{groupRowLabel(rows, idx, base, unit)}</span>
+      <span>{groupRowLabel(rows, idx, base, unit, avgLabel)}</span>
       {idx === 0 && (
         <span aria-hidden="true" style={{ display: 'inline-block', color: '#888', marginLeft: 5, fontSize: '10px' }}>
           {expandedRows[groupKey] ? '▾' : '▸'}
@@ -2569,7 +2575,7 @@ function SnowfallForecast({ resort, setResort }) {
             {/* Snowfall rows */}
             {rowsForGroup('snowfall').map((m, idx, rows) => (
               <tr key={`snow-${m.key}`} style={{ height: '28px' }}>
-                {labelCell('snowfall', rows, idx, 'Snowfall', '(cm)')}
+                {labelCell('snowfall', rows, idx, 'Snowfall', '(cm)', 'Median')}
                 {m.data.map((d, i) => {
                   const dayIndex = viewMode === 'fit' ? Math.floor(i * FIT_GROUP / 24) : Math.floor(i / 24)
                   const isDayEven = dayIndex % 2 === 0
