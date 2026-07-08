@@ -1322,8 +1322,12 @@
        (40px) instead of padding+button (78px) — pulling its centerline up to
        y=20 instead of y=39, out of line with the iframe's top:20px, 38px-tall
        pills (model-switch, ramp-select). min-height restores the intended
-       78px box so everything across this row shares the same centerline. */
-    min-height: 38px;
+       78px box so everything across this row shares the same centerline.
+       78, not 38 — this project's global `* { box-sizing: border-box }`
+       reset (src/index.css) means min-height already includes the 40px of
+       padding above, so 38 alone was smaller than the padding itself and
+       had no effect at all. */
+    min-height: 78px;
     justify-content: flex-end !important;
     pointer-events: none;
   }
