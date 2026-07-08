@@ -2482,6 +2482,11 @@ function setDarkMode(enabled) {
   // not a separate call — SKY_DAY carries no fog-* properties at all, so
   // switching back to satellite naturally has none, same as it always did.
   map.setSky(enabled ? SKY_NIGHT : SKY_DAY);
+  // Hourly view's snow/freezing-level overlay ramp branches on
+  // darkTerrainActive (see buildSnowRamp) — reapply now so toggling dark
+  // mode updates its colours immediately instead of waiting for the next
+  // timeline scrub to recompute the ramp.
+  if (viewMode === 'hourly' && forecastHours.length) openMapView(currentIndex);
 }
 
 function toggleBasemap() {
@@ -2671,9 +2676,10 @@ function buildSnowRamp(hour) {
   const line = Math.min(boundary, TOP_ELEV - 2);
 
   if (!snowing) {
-    // Freezing-level overlay (no active snowfall). Opacity 0.2 so the drape
-    // reads as a subtle tint rather than a solid wash.
-    const color = 'rgba(60,130,255,0.2)';
+    // Freezing-level overlay (no active snowfall). Dark contour mode uses a
+    // darker, more subtle blue (and lower opacity) than the daytime tint,
+    // which read as too bright/saturated against the dark relief basemap.
+    const color = darkTerrainActive ? 'rgba(25,55,110,0.15)' : 'rgba(60,130,255,0.2)';
     return [
       'interpolate', ['linear'], ['elevation'],
       line - 1, 'rgba(255,255,255,0)',
@@ -2689,12 +2695,18 @@ function buildSnowRamp(hour) {
   const a3 = (1 * intensity).toFixed(2);
   const midPoint = Math.min(line + 100, TOP_ELEV - 1);
 
+  // Dark contour mode: darker grey instead of the near-white daytime tint —
+  // white read as blown-out against the dark relief basemap.
+  const [c0, c1, c2] = darkTerrainActive
+    ? ['90,95,105', '110,115,125', '130,135,145']
+    : ['205,225,255', '225,240,255', '248,251,255'];
+
   return [
     'interpolate', ['linear'], ['elevation'],
-    line - 1, 'rgba(205,225,255,0)',
-    line, `rgba(205,225,255,${a1})`,
-    midPoint, `rgba(225,240,255,${a2})`,
-    TOP_ELEV, `rgba(248,251,255,${a3})`
+    line - 1, `rgba(${c0},0)`,
+    line, `rgba(${c0},${a1})`,
+    midPoint, `rgba(${c1},${a2})`,
+    TOP_ELEV, `rgba(${c2},${a3})`
   ];
 }
 
