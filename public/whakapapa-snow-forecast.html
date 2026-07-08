@@ -1727,6 +1727,10 @@ function initMap() {
   }
 
   map.on('click', (e) => {
+    // High-Res has its own precise, position-aware probe (see below) — this
+    // generic one reports a single flat per-hour/per-elevation number with
+    // no real x/y variation, which is exactly what High-Res must NOT show.
+    if (isHighResMode) return;
     // The click-to-probe popup reports snow depth (cm) for the snowfall/
     // accumulated views; it has no meaning on the Live temperature map, so
     // skip it there.
@@ -1746,6 +1750,42 @@ function initMap() {
     } else {
       showClickPopup(e.point.x, e.point.y, `${depthCm.toFixed(1)}cm`);
     }
+  });
+
+  // High-Res: precise, position-aware tap-to-probe. Unlike getDepthAtElevation
+  // (used by the generic handler above — one flat number for the whole
+  // mountain in Hourly mode, ignoring x/y entirely, which is the exact bug
+  // reported: tapping an unshaded/lee area still showing the same "1-2cm" as
+  // a shaded/windward one), this recomputes the real per-point calculation —
+  // same gradient/wind-vector/multiplier formula the coloured overlay itself
+  // is rendered with (see orographicWindVectorsForHour/orographicMultiplier
+  // above) — so the number always matches the colour under your finger.
+  map.on('click', (e) => {
+    if (!isHighResMode) return;
+    const hour = forecastHours[currentIndex];
+    if (!hour || hour.windSpeedKmh == null || hour.windDirDeg == null || hour.freezingLevel == null || hour.snowfallMm == null) return;
+    const rawElev = map.queryTerrainElevation(e.lngLat, { exaggerated: false });
+    if (rawElev == null || isNaN(rawElev)) return;
+    const elev = Math.min(rawElev, TOP_ELEV);
+
+    const snowing = hour.snowfallMm >= SNOWFALL_THRESHOLD_MM;
+    const boundary = snowing ? hour.freezingLevel - SNOW_OFFSET : hour.freezingLevel;
+    if (elev < boundary) { showClickPopup(e.point.x, e.point.y, '0.0cm'); return; }
+    if (!snowing) { showClickPopup(e.point.x, e.point.y, 'No active snowfall'); return; }
+
+    const grad = orographicSampleGradient(e.lngLat);
+    if (!grad) {
+      // Terrain query failed for a neighbour point (e.g. right at a tile
+      // edge) — report the unadjusted point-forecast value rather than
+      // nothing, but say so plainly instead of implying it's spatially precise.
+      showClickPopup(e.point.x, e.point.y, `~${(hour.snowfallMm / 10).toFixed(1)}cm (unadjusted)`);
+      return;
+    }
+    const vectors = orographicWindVectorsForHour(hour);
+    const { U, V } = orographicWindAtElevation(vectors, elev);
+    const multiplier = orographicMultiplier(U, V, grad.gradEast, grad.gradNorth);
+    const cm = (hour.snowfallMm * multiplier) / 10;
+    showClickPopup(e.point.x, e.point.y, `${cm.toFixed(1)}cm`);
   });
 
   // A user drag/zoom/rotate/pitch invalidates every particle's last screen
@@ -2318,6 +2358,68 @@ function orographicBoxBlur(src, size, radius) {
   return out;
 }
 
+// ── Core orographic-lift math, shared between the raster tile protocol
+// below and the click-to-probe handler (orographicProbeAt) — one
+// implementation, so a tapped point's reported snowfall always matches the
+// colour actually rendered there, not two independently-written formulas
+// that could quietly drift apart. ─────────────────────────────────────────
+const OROGRAPHIC_W_REF = 1.8;
+const OROGRAPHIC_M_RANGE = 0.9;
+
+function orographicWindVectorsForHour(hour) {
+  const windSpeedMsTop = hour.windSpeedKmh / 3.6;
+  const windToRadTop = (((hour.windDirDeg + 180) % 360) * Math.PI) / 180;
+  const U_top = windSpeedMsTop * Math.sin(windToRadTop);
+  const V_top = windSpeedMsTop * Math.cos(windToRadTop);
+  // Falls back to the summit vector (uniform-with-elevation behaviour) when
+  // base-level wind wasn't fetched/available (e.g. demo fallback data).
+  let U_base = U_top, V_base = V_top;
+  if (hour.windSpeedKmhBase != null && hour.windDirDegBase != null) {
+    const windSpeedMsBase = hour.windSpeedKmhBase / 3.6;
+    const windToRadBase = (((hour.windDirDegBase + 180) % 360) * Math.PI) / 180;
+    U_base = windSpeedMsBase * Math.sin(windToRadBase);
+    V_base = windSpeedMsBase * Math.cos(windToRadBase);
+  }
+  return { U_top, V_top, U_base, V_base };
+}
+
+function orographicWindAtElevation(vectors, elevHere) {
+  const elevSpan = Math.max(1, LOC.summitElev - LOC.baseElev);
+  const t = Math.max(0, Math.min(1, (elevHere - LOC.baseElev) / elevSpan));
+  return {
+    U: vectors.U_base + (vectors.U_top - vectors.U_base) * t,
+    V: vectors.V_base + (vectors.V_top - vectors.V_base) * t,
+  };
+}
+
+function orographicMultiplier(U, V, gradEast, gradNorth) {
+  const w = U * gradEast + V * gradNorth; // m/s, +windward / -lee
+  return 1 + OROGRAPHIC_M_RANGE * Math.tanh(w / OROGRAPHIC_W_REF); // ~0.1x - 1.9x
+}
+
+// Local terrain gradient at a real-world lng/lat, for the click-to-probe
+// handler — 4 elevation samples via map.queryTerrainElevation (works at any
+// point already covered by loaded terrain tiles, not tied to raw DEM pixel
+// indices the way the raster protocol's own gradient is). offsetM is a
+// similar real-world scale to the box-blur smoothing used when rendering
+// the coloured overlay, so a tap reads the same "local terrain" area a
+// finger-width covers rather than one noisy single point.
+function orographicSampleGradient(lngLat, offsetM = 40) {
+  const latRad = (lngLat.lat * Math.PI) / 180;
+  const dLat = offsetM / 111320;
+  const dLng = offsetM / (111320 * Math.cos(latRad));
+  const q = (lng, lat) => map.queryTerrainElevation({ lng, lat }, { exaggerated: false });
+  const elevE = q(lngLat.lng + dLng, lngLat.lat);
+  const elevW = q(lngLat.lng - dLng, lngLat.lat);
+  const elevN = q(lngLat.lng, lngLat.lat + dLat);
+  const elevS = q(lngLat.lng, lngLat.lat - dLat);
+  if ([elevE, elevW, elevN, elevS].some((v) => v == null || isNaN(v))) return null;
+  return {
+    gradEast: (elevE - elevW) / (2 * offsetM),
+    gradNorth: (elevN - elevS) / (2 * offsetM),
+  };
+}
+
 let orographicSnowActive = false;
 let orographicSnowProtocolRegistered = false;
 function registerOrographicSnowProtocol() {
@@ -2364,39 +2466,13 @@ function registerOrographicSnowProtocol() {
       const boundary = snowing ? hour.freezingLevel - SNOW_OFFSET : hour.freezingLevel;
       const metersPerPixel = (156543.03392 * Math.cos(tileCenterLatRad(y, z))) / Math.pow(2, z) * (256 / size);
 
-      // Wind vector at summit level (700hPa, always available) and at base
-      // level (850hPa) — each pixel below interpolates between these two by
-      // its own real DEM elevation, rather than applying the summit's wind
-      // speed/direction uniformly all the way down to the base (real wind
-      // speed increases with height above the surface; this is a first-order
-      // approximation of that shear, not a full boundary-layer profile).
-      // Direction is blended via the vector components (not raw degrees) so
-      // there's no wraparound bug interpolating e.g. 350deg toward 10deg.
-      const windSpeedMsTop = hour.windSpeedKmh / 3.6;
-      const windToRadTop = (((hour.windDirDeg + 180) % 360) * Math.PI) / 180;
-      const U_top = windSpeedMsTop * Math.sin(windToRadTop);
-      const V_top = windSpeedMsTop * Math.cos(windToRadTop);
-      // Falls back to the summit vector (old uniform behaviour) when base-
-      // level wind wasn't fetched/available (e.g. demo fallback data) —
-      // U_base===U_top && V_base===V_top then makes the lerp below a no-op.
-      let U_base = U_top, V_base = V_top;
-      if (hour.windSpeedKmhBase != null && hour.windDirDegBase != null) {
-        const windSpeedMsBase = hour.windSpeedKmhBase / 3.6;
-        const windToRadBase = (((hour.windDirDegBase + 180) % 360) * Math.PI) / 180;
-        U_base = windSpeedMsBase * Math.sin(windToRadBase);
-        V_base = windSpeedMsBase * Math.cos(windToRadBase);
-      }
-      const elevSpan = Math.max(1, LOC.summitElev - LOC.baseElev);
-      // W_REF raised from 1.0 — even after smoothing, real terrain has
-      // genuinely steep local slopes (crater walls, ridgelines), and 1.0
-      // still saturated the tanh (and so the colour band) too easily,
-      // leaving little visible middle ground between the two end colours.
-      const W_REF = 1.8, M_RANGE = 0.9;
-      // multiplier's range is exactly [1-M_RANGE, 1+M_RANGE] (tanh is
-      // bounded to +/-1) — a fixed normalisation rather than a per-tile
-      // min/max, so a given colour always means the same thing everywhere
-      // on the map and across different hours, not auto-rescaled per frame.
-      const M_LO = 1 - M_RANGE, M_HI = 1 + M_RANGE;
+      // Wind vectors (summit/base) and the fixed multiplier normalisation —
+      // see orographicWindVectorsForHour/OROGRAPHIC_W_REF/OROGRAPHIC_M_RANGE
+      // above. Shared with the click-to-probe handler (orographicProbeAt)
+      // so the number reported on tap always matches the colour rendered
+      // at that exact point — one formula, not two that could drift apart.
+      const windVectors = orographicWindVectorsForHour(hour);
+      const M_LO = 1 - OROGRAPHIC_M_RANGE, M_HI = 1 + OROGRAPHIC_M_RANGE;
       const [flR, flG, flB] = darkTerrainActive ? [25, 55, 110] : [60, 130, 255];
 
       for (let py = 0; py < size; py++) {
@@ -2420,16 +2496,13 @@ function registerOrographicSnowProtocol() {
           // Base-to-summit wind gradient: this pixel's own elevation decides
           // where it sits between the two measured levels (clamped, so
           // terrain below base or above summit just uses that nearer level).
-          const elevT = Math.max(0, Math.min(1, (elevHere - LOC.baseElev) / elevSpan));
-          const U = U_base + (U_top - U_base) * elevT;
-          const V = V_base + (V_top - V_base) * elevT;
+          const { U, V } = orographicWindAtElevation(windVectors, elevHere);
 
           const xm1 = Math.max(0, px - 1), xp1 = Math.min(size - 1, px + 1);
           const dzdx = (elevSmooth[py * size + xp1] - elevSmooth[py * size + xm1]) / (2 * metersPerPixel);
           const dzdyImg = (elevSmooth[yp1 * size + px] - elevSmooth[ym1 * size + px]) / (2 * metersPerPixel);
           const gradEast = dzdx, gradNorth = -dzdyImg;
-          const w = U * gradEast + V * gradNorth; // m/s, +windward / -lee
-          const multiplier = 1 + M_RANGE * Math.tanh(w / W_REF); // ~0.1x - 1.9x
+          const multiplier = orographicMultiplier(U, V, gradEast, gradNorth); // ~0.1x - 1.9x
 
           // Colour (not opacity) is the primary signal now — every distinct
           // multiplier value gets a genuinely different hue off the rainbow
@@ -4787,6 +4860,12 @@ function pwFreezingSeries(hours = 6) {
 
 function pwRenderFreezingOverlay() {
   const host = document.getElementById('fl-overlay');
+  // High-Res is a pure snowfall-only feature — the freezing-level sparkline
+  // (visible in the regular Map tab's Hourly/Live views) is unrelated
+  // clutter here and was covering terrain the colour overlay is meant to
+  // show. Single choke point: every call site (openMapView, resize, live
+  // nowcast ticks, etc.) goes through this function.
+  if (isHighResMode) { host.style.display = 'none'; return; }
 
   // HOURLY mode: use pure forecast data - show full 16-day forecast with marker
   if (viewMode === 'hourly') {
