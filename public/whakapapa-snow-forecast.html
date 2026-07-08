@@ -169,9 +169,10 @@
   #contour-toggle.active { background: rgba(92,92,106,0.95); }
   #contour-toggle:hover { background: rgba(70,70,80,0.9); }
   #contour-toggle.active:hover { background: rgba(106,106,122,0.95); }
-  /* Trial: wind-driven orographic snow overlay — real per-pixel DEM
-     gradient x current hour's wind, replacing the flat elevation-only tint
-     while active. See toggleOrographicSnow(). */
+  /* Wind-driven orographic snow overlay — real per-pixel DEM gradient x
+     current hour's wind, replacing the flat elevation-only tint while
+     active. Only High-Res tab (?highres=1, see isHighResMode below), not
+     Snow Test or the regular Map tab. See toggleOrographicSnow(). */
   #orographic-toggle { left: 328px; font-size: 0.95rem; }
   #orographic-toggle.active { background: rgba(92,92,106,0.95); }
   #orographic-toggle:hover { background: rgba(70,70,80,0.9); }
@@ -706,12 +707,13 @@
        lets contour lines be switched off to leave a plain elevation-shaded
        relief map. See toggleContours(). -->
   <button id="contour-toggle" class="active" onclick="toggleContours()" title="Toggle contour lines">〰️</button>
-  <!-- Trial: wind-driven orographic snow overlay — redistributes the hourly
+  <!-- Wind-driven orographic snow overlay — redistributes the hourly
        forecast's snowfall spatially using real wind direction/speed x
        terrain gradient (w = U.grad(h)) sampled per-pixel from the real DEM,
-       instead of the flat elevation-only tint. Off by default, see
+       instead of the flat elevation-only tint. Only shown on the dedicated
+       High-Res tab (?highres=1) — see isHighResMode. Off by default, see
        toggleOrographicSnow(). -->
-  <button id="orographic-toggle" onclick="toggleOrographicSnow()" title="Toggle wind-driven snow overlay (trial)">🌬️</button>
+  <button id="orographic-toggle" onclick="toggleOrographicSnow()" title="Toggle wind-driven snow overlay">🌬️</button>
   <button id="map-close" onclick="exitFullscreenView()" title="Close fullscreen">✕</button>
   <div id="map-title"></div>
 
@@ -889,10 +891,17 @@ if (!isSnowTestMode) {
   const snowBtn = document.getElementById('snow-toggle');
   const overlayBtn = document.getElementById('snow-overlay-toggle');
   const basemapBtn = document.getElementById('basemap-toggle');
-  const orographicBtn = document.getElementById('orographic-toggle');
   if (snowBtn) snowBtn.style.display = 'none';
   if (overlayBtn) overlayBtn.style.display = 'none';
   if (basemapBtn) basemapBtn.style.display = 'none';
+}
+// The wind-driven orographic snow overlay is its own dedicated tab
+// (?highres=1, see HighResSnowPage in App.jsx) — deliberately NOT part of
+// Snow Test or the regular Map tab, so it's gated on its own flag rather
+// than isSnowTestMode above.
+const isHighResMode = new URLSearchParams(window.location.search).get('highres') === '1';
+if (!isHighResMode) {
+  const orographicBtn = document.getElementById('orographic-toggle');
   if (orographicBtn) orographicBtn.style.display = 'none';
 }
 
@@ -2219,9 +2228,12 @@ function toggleSnowOverlay() {
   }
 }
 
-// ── Trial: wind-driven orographic snow overlay ──────────────────────────
-// Real per-pixel spatial redistribution of the current hour's forecast
-// snowfall, instead of buildSnowRamp's flat elevation-only tint (which
+// ── High-Res tab: wind-driven orographic snow overlay ───────────────────
+// Own dedicated tab (?highres=1, App.jsx's HighResSnowPage/NAV_ITEMS) —
+// deliberately not folded into the regular Map tab or Snow Test, since this
+// is an unvalidated physics proxy, not yet something every Map visitor
+// should see. Real per-pixel spatial redistribution of the current hour's
+// forecast snowfall, instead of buildSnowRamp's flat elevation-only tint (which
 // paints every point at a given elevation identically, with no windward/lee
 // difference at all). For each DEM pixel this computes the forced-ascent
 // vertical velocity w = U·(dh/dx) + V·(dh/dy) — the real wind VECTOR
