@@ -1183,13 +1183,23 @@ function buildAverageHours(sources) {
       const vals = rows.map(pick).filter(v => v != null);
       return vals.length ? vals.reduce((s, v) => s + v, 0) / vals.length : null;
     };
+    // Median for snowfall — UKMO consistently forecasts higher than
+    // GFS/ECMWF/AIFS for this region, and a mean lets that one outlier drag
+    // the accumulated total up every hour. Median excludes whichever model
+    // is consistently highest (or lowest) instead of diluting toward it.
+    const median = (pick) => {
+      const vals = rows.map(pick).filter(v => v != null).sort((a, b) => a - b);
+      if (!vals.length) return null;
+      const mid = Math.floor(vals.length / 2);
+      return vals.length % 2 !== 0 ? vals[mid] : (vals[mid - 1] + vals[mid]) / 2;
+    };
     const first = rows[0];
     return {
       time: first.time,
       temp: avg(r => r.temp),
       baseTemp: avg(r => r.baseTemp),
       precip: first.precip,
-      snowfallMm: avg(r => r.snowfallMm),
+      snowfallMm: median(r => r.snowfallMm),
       freezingLevel: avg(r => r.freezingLevel),
       windSpeedKmh: first.windSpeedKmh,
       windDirDeg: first.windDirDeg

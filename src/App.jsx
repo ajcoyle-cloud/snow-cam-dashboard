@@ -954,6 +954,17 @@ function buildAverageForecastData(sources) {
     const vals = rows.map(pick).filter(v => v !== null && v !== undefined)
     return vals.length ? vals.reduce((s, v) => s + v, 0) / vals.length : null
   }
+  // Median instead of mean for precip/snowfall — UKMO consistently forecasts
+  // higher than GFS/ECMWF/AIFS for this region, and a straight mean lets that
+  // one outlier drag the "average" up every hour. Median picks the middle-
+  // ranked value(s) instead, so a model that's consistently the highest (or
+  // lowest) gets excluded from the result rather than diluting it.
+  const median = (rows, pick) => {
+    const vals = rows.map(pick).filter(v => v !== null && v !== undefined).sort((a, b) => a - b)
+    if (!vals.length) return null
+    const mid = Math.floor(vals.length / 2)
+    return vals.length % 2 !== 0 ? vals[mid] : (vals[mid - 1] + vals[mid]) / 2
+  }
   // Averaging already-rounded model values produces a raw float (e.g.
   // 1766.66666667) — round the result to the nearest 10m for display.
   const avgFreezing = (rows, pick) => {
@@ -970,18 +981,18 @@ function buildAverageForecastData(sources) {
       freezingLevel: avgFreezing(rows, (d) => d.freezingLevelGFS ?? d.freezingLevel),
       summit: {
         temp: avg(rows, (d) => d.summit.temp),
-        precipitation: avg(rows, (d) => d.summit.precipitation) ?? 0,
+        precipitation: median(rows, (d) => d.summit.precipitation) ?? 0,
         precipProbability: avg(rows, (d) => d.summit.precipProbability),
-        snowfall: avg(rows, (d) => d.summit.snowfall) ?? 0,
+        snowfall: median(rows, (d) => d.summit.snowfall) ?? 0,
         wind: avg(rows, (d) => d.summit.wind),
         windDir: first.summit.windDir,
         weatherCode: first.summit.weatherCode,
       },
       base: {
         temp: avg(rows, (d) => d.base.temp),
-        precipitation: avg(rows, (d) => d.base.precipitation) ?? 0,
+        precipitation: median(rows, (d) => d.base.precipitation) ?? 0,
         precipProbability: avg(rows, (d) => d.base.precipProbability),
-        snowfall: avg(rows, (d) => d.base.snowfall) ?? 0,
+        snowfall: median(rows, (d) => d.base.snowfall) ?? 0,
         wind: avg(rows, (d) => d.base.wind),
         windDir: first.base.windDir,
         weatherCode: first.base.weatherCode,
