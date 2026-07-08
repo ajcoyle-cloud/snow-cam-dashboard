@@ -2841,9 +2841,19 @@ const NAV_ITEMS = [
   { id: 'webcams', label: 'Webcams', Icon: Camera, path: '/' },
   { id: 'forecast', label: 'Forecast', Icon: LineChart, path: '/forecast' },
   { id: 'map', label: 'Map', Icon: MapIcon, path: '/map' },
-  { id: 'snow-test', label: 'Snow Test', Icon: Snowflake, path: '/snow-test' },
+  // 'Snow Test' hidden from prod nav now that its two production-ready
+  // trials (slope-aware snow overlay, dark-terrain basemap+contours) have
+  // shipped as the settings-cog "Winter snow"/"Elevation Contours" toggles
+  // on the regular Map tab (see whakapapa-snow-forecast.html). SnowTestPage
+  // and its route below are left in place, just unreachable from the UI —
+  // re-add this entry to bring the raw trial sliders back for further
+  // tuning. Removing it from NAV_ITEMS also means tabForPath('/snow-test')
+  // no longer matches, so a direct/bookmarked link falls back to the last-
+  // viewed tab instead of resurrecting the page.
+  { id: 'snow-test', label: 'Snow Test', Icon: Snowflake, path: '/snow-test', hidden: true },
 ]
-const tabForPath = (pathname) => NAV_ITEMS.find(n => n.path === pathname)?.id
+const VISIBLE_NAV_ITEMS = NAV_ITEMS.filter(n => !n.hidden)
+const tabForPath = (pathname) => VISIBLE_NAV_ITEMS.find(n => n.path === pathname)?.id
 
 export default function App() {
   // Each tab gets a real URL (/, /forecast, /map) via pushState — no full
@@ -2857,7 +2867,7 @@ export default function App() {
     if (fromUrl) return fromUrl
     try {
       const t = localStorage.getItem('sc-active-tab')
-      if (t && NAV_ITEMS.some(n => n.id === t)) return t
+      if (t && VISIBLE_NAV_ITEMS.some(n => n.id === t)) return t
     } catch (e) {}
     return 'webcams'
   })
@@ -2914,7 +2924,7 @@ export default function App() {
   return (
     <div className="app-layout">
       <nav className="sidebar">
-        {NAV_ITEMS.map(({ id, label, Icon }) => (
+        {VISIBLE_NAV_ITEMS.map(({ id, label, Icon }) => (
           <button
             key={id}
             className={`sidebar-item ${activeTab === id ? 'active' : ''}`}

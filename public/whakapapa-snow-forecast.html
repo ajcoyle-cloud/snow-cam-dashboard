@@ -209,11 +209,10 @@
   #period-switch { display: none; }
 
   /* ── Model switcher (top-right) — single-select, same visual language as
-     the Models dropdown on the forecast table/graph page. ─────────────── */
-  #model-switch { position: absolute; top: 20px; right: 20px; z-index: 15; }
-  /* In fullscreen, #map-close (40px, right:64px) sits under where this
-     button would otherwise land — drop it below the icon row instead. */
-  #map-screen.is-fullscreen #model-switch { top: 72px; }
+     the Models dropdown on the forecast table/graph page. Pushed down 52px
+     from the corner (top:20 -> top:72) to leave room for #settings-toggle,
+     which now owns that top-right corner slot — see below. ────────────── */
+  #model-switch { position: absolute; top: 72px; right: 20px; z-index: 15; }
   #model-switch-btn {
     display: flex; align-items: center; gap: 8px;
     background: rgba(0,0,0,0.6); backdrop-filter: blur(14px);
@@ -244,6 +243,55 @@
   .model-option:disabled { opacity: 0.35; cursor: not-allowed; }
   .model-option:disabled:hover { background: transparent; }
   .model-option-swatch { width: 10px; height: 10px; border-radius: 3px; flex-shrink: 0; }
+
+  /* ── Settings cog (top-right corner) — production-facing, always visible.
+     Same visual language as the model switcher above (dark blurred pill/
+     panel), but a plain icon-circle trigger like the trial toggle buttons
+     rather than a labelled pill, since it opens a menu, not a single value. */
+  #settings-menu-wrap { position: absolute; top: 20px; right: 20px; z-index: 16; }
+  #settings-toggle {
+    width: 40px; height: 40px; border-radius: 50%;
+    background: rgba(0,0,0,0.6); backdrop-filter: blur(14px);
+    color: #fff; border: none; font-size: 1.1rem; cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    box-shadow: 0 4px 24px rgba(0,0,0,0.3);
+    transition: background 0.15s;
+  }
+  #settings-toggle:hover { background: rgba(255,255,255,0.15); }
+  #settings-menu-wrap.open #settings-toggle { background: #333; }
+  #settings-menu {
+    display: none;
+    position: absolute; top: calc(100% + 8px); right: 0;
+    background: rgba(20,20,20,0.92); backdrop-filter: blur(14px);
+    border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 12px; padding: 6px 0; min-width: 220px;
+    box-shadow: 0 8px 28px rgba(0,0,0,0.5);
+  }
+  #settings-menu-wrap.open #settings-menu { display: block; }
+  .settings-row {
+    display: flex; align-items: center; justify-content: space-between; gap: 16px;
+    padding: 11px 16px; cursor: pointer;
+    color: rgba(255,255,255,0.85); font-size: 0.82rem; font-weight: 600;
+  }
+  .settings-row:hover { background: rgba(255,255,255,0.06); }
+  /* Plain checkbox restyled as an iOS-style pill switch — hidden but still
+     keyboard/screen-reader operable (opacity:0 + absolute, not display:none). */
+  .settings-switch { position: relative; width: 38px; height: 22px; flex-shrink: 0; }
+  .settings-switch input {
+    position: absolute; inset: 0; opacity: 0; margin: 0; cursor: pointer; z-index: 1;
+  }
+  .settings-switch-track {
+    position: absolute; inset: 0; border-radius: 999px;
+    background: rgba(255,255,255,0.2); transition: background 0.15s;
+  }
+  .settings-switch-track::before {
+    content: ''; position: absolute; top: 2px; left: 2px;
+    width: 18px; height: 18px; border-radius: 50%; background: #fff;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.4);
+    transition: transform 0.15s;
+  }
+  .settings-switch input:checked ~ .settings-switch-track { background: #34d399; }
+  .settings-switch input:checked ~ .settings-switch-track::before { transform: translateX(16px); }
 
   /* ── Freezing-level sparkline (live mode, just above the time slider) ── */
   #fl-overlay {
@@ -462,10 +510,18 @@
     #speed-select { top: 60px; bottom: auto; right: 12px; padding: 4px; }
     .speed-btn { padding: 6px 8px; font-size: 0.66rem; }
 
-    /* Model switcher: its own third row, top-right (row 1 = resort switch +
-       mode pills, row 2 = obs/rotate toggles + playback speed). */
-    #model-switch { top: 106px; right: 12px; }
-    #map-screen.is-fullscreen #model-switch { top: 106px; }
+    /* Settings cog: its own third row, top-right (row 1 = resort switch +
+       mode pills, row 2 = obs/rotate toggles + playback speed). Kept
+       right-anchored like desktop (not moved to the left icon row) so its
+       dropdown — anchored right:0 off the trigger — opens fully on-screen
+       rather than spilling off the left edge. */
+    #settings-menu-wrap { top: 106px; right: 12px; }
+    #settings-toggle { width: 34px; height: 34px; font-size: 1rem; }
+
+    /* Model switcher: pushed to a fourth row to make room for the settings
+       cog above it (row 1 = resort switch + mode pills, row 2 = obs/rotate
+       toggles + playback speed, row 3 = settings cog). */
+    #model-switch { top: 148px; right: 12px; }
     #model-switch-btn { padding: 8px 12px; font-size: 0.72rem; }
 
     /* Freezing-level sparkline: overlay it across the bottom of the map, but only
@@ -650,6 +706,44 @@
     <div id="model-switch-list"></div>
   </div>
 
+  <!-- Production-facing settings — locked/simplified wrappers around two of
+       the Snow Test trials above (see toggleSettingsMenu()/applyWinterSnow()/
+       setDarkMode()). Always visible, unlike the raw trial buttons. -->
+  <div id="settings-menu-wrap">
+    <button id="settings-toggle" onclick="toggleSettingsMenu()" title="Map settings">⚙️</button>
+    <div id="settings-menu">
+      <label class="settings-row">
+        <span>Winter snow</span>
+        <span class="settings-switch">
+          <input type="checkbox" id="settings-winter-snow" onchange="onSettingsWinterSnowChange(this.checked)">
+          <span class="settings-switch-track"></span>
+        </span>
+      </label>
+      <label class="settings-row">
+        <span>Elevation Contours</span>
+        <span class="settings-switch">
+          <input type="checkbox" id="settings-dark-mode" onchange="onSettingsDarkModeChange(this.checked)">
+          <span class="settings-switch-track"></span>
+        </span>
+      </label>
+    </div>
+  </div>
+  <script>
+    // Reflect any saved settings-cog preference in the checkboxes immediately
+    // on page load, rather than waiting for the map's 'load' event (which
+    // restoreMapSettings() above also drives) — purely so the switches don't
+    // visibly flash from unchecked to checked a second or two into the page.
+    (function () {
+      try {
+        const saved = JSON.parse(localStorage.getItem('sc-map-settings')) || {};
+        const winterInput = document.getElementById('settings-winter-snow');
+        const darkInput = document.getElementById('settings-dark-mode');
+        if (winterInput) winterInput.checked = !!saved.winterSnow;
+        if (darkInput) darkInput.checked = !!saved.darkMode;
+      } catch (e) {}
+    })();
+  </script>
+
   <div id="snow-info">
     <div id="drawer-handle"><span class="grip"></span></div>
     <!-- Compact summary shown in the otherwise-blank grey space when the drawer
@@ -806,6 +900,13 @@ if (!isSnowTestMode) {
   if (overlayBtn) overlayBtn.style.display = 'none';
   if (basemapBtn) basemapBtn.style.display = 'none';
 }
+
+// Day/night sky gradients for the settings-cog "Elevation Contours" dark
+// mode (see setDarkMode() near the dark-terrain trial code below) — top-
+// level so both initMap()'s first map.setSky() call and setDarkMode() can
+// use them.
+const SKY_DAY = { 'sky-color': '#3a82d6', 'horizon-color': '#cfe9fb', 'sky-horizon-blend': 0.8 };
+const SKY_NIGHT = { 'sky-color': '#03050c', 'horizon-color': '#1b2338', 'sky-horizon-blend': 0.7 };
 
 // ── Other-resort navigation pills (shown when zoomed out) ──────────────────
 // Lets the user jump straight to another resort's map from within the map
@@ -1467,15 +1568,14 @@ function initMap() {
   // for the whole style. Unlike Mapbox's gradient-based sky, MapLibre's
   // model is just a sky-color (zenith) blending into a horizon-color —
   // bright blue overhead fading to a pale, almost-white blue at the
-  // horizon.
+  // horizon. Overridden to a dark navy night sky further below, once the
+  // rest of 'load' has run, if the settings-cog "Elevation Contours" dark
+  // mode was left on from a previous visit (restoreMapSettings()) — see
+  // setDarkMode() near the dark-terrain trial code.
   map.on('load', () => {
     // Container sizing is handled by the ResizeObserver set up right after
     // construction, above.
-    map.setSky({
-      'sky-color': '#3a82d6',
-      'horizon-color': '#cfe9fb',
-      'sky-horizon-blend': 0.8
-    });
+    map.setSky(SKY_DAY);
 
     const liftData = resortKey === 'ruapehu' ? WHAKAPAPA_LIFTS
       : resortKey === 'cardrona' ? CARDRONA_LIFTS
@@ -1516,6 +1616,13 @@ function initMap() {
     // transitions are done AND every requested tile has loaded, so waiting
     // for it guarantees this frame is the fully-settled one.
     map.once('idle', maybeSignalMapReady);
+
+    // Re-apply settings-cog preferences (Winter snow / Elevation Contours)
+    // left on from a previous visit — after everything above so the layers
+    // setDarkMode()/applyWinterSnow() reference ('satellite', 'depth-shade',
+    // 'resort-lifts-line') already exist. Declared later in this script
+    // (function-hoisted, safe to call from here).
+    restoreMapSettings();
   });
 
   map.addControl(new maplibregl.NavigationControl({ visualizePitch: true, showZoom: true, showCompass: true }), 'top-right');
@@ -2007,6 +2114,28 @@ function onSnowOverlayOpacityInput(v) {
   if (map && map.getLayer('snow-overlay-layer')) map.setPaintProperty('snow-overlay-layer', 'raster-opacity', snowOverlayParams.opacity);
 }
 
+// Shared by the raw Snow Test trial toggle below and the settings-cog
+// "Winter snow" toggle further down — adds the source/layer if missing, or
+// (forceRefresh) removes and re-adds them so tiles regenerate against
+// whatever snowOverlayParams currently holds. registerSnowOverlayProtocol()
+// is idempotent, safe to call every time.
+function addOrRefreshSnowOverlayLayer(forceRefresh) {
+  registerSnowOverlayProtocol();
+  if (forceRefresh) {
+    if (map.getLayer('snow-overlay-layer')) map.removeLayer('snow-overlay-layer');
+    if (map.getSource('snow-overlay')) map.removeSource('snow-overlay');
+  }
+  if (!map.getSource('snow-overlay')) {
+    map.addSource('snow-overlay', { type: 'raster', tiles: ['snowslope://{z}/{x}/{y}'], tileSize: 512 });
+  }
+  if (!map.getLayer('snow-overlay-layer')) {
+    map.addLayer({
+      id: 'snow-overlay-layer', type: 'raster', source: 'snow-overlay',
+      paint: { 'raster-opacity': snowOverlayParams.opacity },
+    }, map.getLayer('resort-lifts-line') ? 'resort-lifts-line' : undefined);
+  }
+}
+
 let snowOverlayActive = false;
 function toggleSnowOverlay() {
   if (!map) return;
@@ -2016,17 +2145,8 @@ function toggleSnowOverlay() {
   const controls = document.getElementById('snow-overlay-controls');
   if (controls) controls.style.display = snowOverlayActive ? 'flex' : 'none';
   if (snowOverlayActive) {
-    registerSnowOverlayProtocol();
     initSnowOverlayControls();
-    if (!map.getSource('snow-overlay')) {
-      map.addSource('snow-overlay', { type: 'raster', tiles: ['snowslope://{z}/{x}/{y}'], tileSize: 512 });
-    }
-    if (!map.getLayer('snow-overlay-layer')) {
-      map.addLayer({
-        id: 'snow-overlay-layer', type: 'raster', source: 'snow-overlay',
-        paint: { 'raster-opacity': snowOverlayParams.opacity },
-      }, map.getLayer('resort-lifts-line') ? 'resort-lifts-line' : undefined);
-    }
+    addOrRefreshSnowOverlayLayer(false);
   } else if (map.getLayer('snow-overlay-layer')) {
     map.removeLayer('snow-overlay-layer');
   }
@@ -2152,34 +2272,139 @@ function toggleContours() {
   refreshDarkTerrain();
 }
 
+// Shared by the raw Snow Test trial toggle (#basemap-toggle) and the
+// settings-cog "Elevation Contours" toggle further down — one source of
+// truth for switching the basemap + sky together, so the two surfaces can
+// never disagree. Always regenerates the dark-terrain tiles on enable
+// (rather than reusing whatever's cached) so darkTerrainShowContours is
+// guaranteed fresh even if the separate Snow-Test-only contour trial button
+// last left it off.
 let darkTerrainActive = false;
-function toggleBasemap() {
+function setDarkMode(enabled) {
   if (!map) return;
-  darkTerrainActive = !darkTerrainActive;
-  const btn = document.getElementById('basemap-toggle');
-  if (btn) {
-    btn.classList.toggle('active', darkTerrainActive);
-    btn.title = darkTerrainActive ? 'Switch to satellite basemap' : 'Switch to dark terrain basemap (trial)';
+  darkTerrainActive = enabled;
+  darkTerrainShowContours = true; // always on for this combined toggle — no separate control offered here
+  const trialBtn = document.getElementById('basemap-toggle');
+  if (trialBtn) {
+    trialBtn.classList.toggle('active', enabled);
+    trialBtn.title = enabled ? 'Switch to satellite basemap' : 'Switch to dark terrain basemap (trial)';
   }
   const contourBtn = document.getElementById('contour-toggle');
-  if (contourBtn) contourBtn.style.display = darkTerrainActive ? 'flex' : 'none';
-  if (darkTerrainActive) {
+  if (contourBtn) {
+    contourBtn.style.display = enabled ? 'flex' : 'none';
+    contourBtn.classList.toggle('active', darkTerrainShowContours);
+    contourBtn.title = 'Hide contour lines';
+  }
+  const cogInput = document.getElementById('settings-dark-mode');
+  if (cogInput) cogInput.checked = enabled;
+  if (enabled) {
     registerDarkTerrainProtocol();
-    if (!map.getSource('dark-terrain')) {
-      map.addSource('dark-terrain', { type: 'raster', tiles: ['darkterrain://{z}/{x}/{y}'], tileSize: 512 });
-    }
-    if (!map.getLayer('dark-terrain-layer')) {
-      // Inserted in the same slot 'satellite' occupies (right below hillshade/
-      // snow-relief), so those still layer on top of whichever basemap is showing.
-      map.addLayer({ id: 'dark-terrain-layer', type: 'raster', source: 'dark-terrain' }, 'depth-shade');
-    }
+    if (map.getLayer('dark-terrain-layer')) map.removeLayer('dark-terrain-layer');
+    if (map.getSource('dark-terrain')) map.removeSource('dark-terrain');
+    map.addSource('dark-terrain', { type: 'raster', tiles: ['darkterrain://{z}/{x}/{y}'], tileSize: 512 });
+    // Inserted in the same slot 'satellite' occupies (right below hillshade/
+    // snow-relief), so those still layer on top of whichever basemap is showing.
+    map.addLayer({ id: 'dark-terrain-layer', type: 'raster', source: 'dark-terrain' }, 'depth-shade');
     map.setLayoutProperty('satellite', 'visibility', 'none');
     map.setLayoutProperty('dark-terrain-layer', 'visibility', 'visible');
   } else {
     map.setLayoutProperty('satellite', 'visibility', 'visible');
     if (map.getLayer('dark-terrain-layer')) map.setLayoutProperty('dark-terrain-layer', 'visibility', 'none');
   }
+  map.setSky(enabled ? SKY_NIGHT : SKY_DAY);
 }
+
+function toggleBasemap() {
+  setDarkMode(!darkTerrainActive);
+}
+
+// ── Settings cog (top-right) ────────────────────────────────────────────
+// Production-facing, always visible regardless of isSnowTestMode — wraps
+// two of the Snow Test trials above in simplified, locked on/off switches:
+//   - "Winter snow": the slope-aware snow overlay (🏔️ trial button), fixed
+//     to a region-appropriate min elevation and hand-tuned slope/fade/
+//     opacity. No sliders offered.
+//   - "Elevation Contours": the dark-terrain basemap + contour lines (🌑
+//     trial button) as one combined toggle — contours are always on
+//     whenever this is on. The separate #contour-toggle trial control (on/
+//     off for contours alone) stays Snow-Test-only, not duplicated here.
+// Both persist across reloads/resort switches via localStorage, unlike the
+// raw trial toggles, which are session-only/experimental by design.
+
+const SETTINGS_STORAGE_KEY = 'sc-map-settings';
+function loadMapSettings() {
+  try { return JSON.parse(localStorage.getItem(SETTINGS_STORAGE_KEY)) || {}; }
+  catch (e) { return {}; }
+}
+function saveMapSettings(patch) {
+  const merged = Object.assign(loadMapSettings(), patch);
+  try { localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(merged)); } catch (e) {}
+}
+
+// Ruapehu (Whakapapa) is the only North Island NZ resort configured here;
+// every other NZ resort is South Island; Loveland/Mt Vernon are Colorado, USA.
+const WINTER_SNOW_REGION = {
+  ruapehu: 'northIslandNZ',
+  cardrona: 'southIslandNZ', mtlyford: 'southIslandNZ', roundhill: 'southIslandNZ',
+  treblecone: 'southIslandNZ', mthutt: 'southIslandNZ',
+  loveland: 'american', mtvernon: 'american',
+};
+const WINTER_SNOW_MIN_ELEV_BY_REGION = { northIslandNZ: 1400, southIslandNZ: 1200, american: 1000 };
+// Everything except minElev (region-dependent, set in applyWinterSnow) is
+// fixed — no sliders offered to the user for this toggle.
+const WINTER_SNOW_LOCKED_PARAMS = { patchBandM: 0, maxSlopeDeg: 62, fadeDeg: 4, opacity: 0.9 };
+
+function applyWinterSnow(enabled) {
+  if (!map) return;
+  snowOverlayActive = enabled;
+  const cogInput = document.getElementById('settings-winter-snow');
+  if (cogInput) cogInput.checked = enabled;
+  // Keep the raw Snow-Test trial button + its sliders panel in sync too, in
+  // case both surfaces are reachable in the same session (?snow=1) — the
+  // panel must never be left open showing stale slider values for a layer
+  // this toggle has taken over with locked params.
+  const trialBtn = document.getElementById('snow-overlay-toggle');
+  if (trialBtn) trialBtn.classList.toggle('active', enabled);
+  const controls = document.getElementById('snow-overlay-controls');
+  if (controls) controls.style.display = 'none';
+  if (!enabled) {
+    if (map.getLayer('snow-overlay-layer')) map.removeLayer('snow-overlay-layer');
+    return;
+  }
+  const region = WINTER_SNOW_REGION[resortKey] || 'southIslandNZ';
+  Object.assign(snowOverlayParams, WINTER_SNOW_LOCKED_PARAMS, {
+    minElev: WINTER_SNOW_MIN_ELEV_BY_REGION[region],
+  });
+  addOrRefreshSnowOverlayLayer(true);
+  if (map.getLayer('snow-overlay-layer')) map.setPaintProperty('snow-overlay-layer', 'raster-opacity', snowOverlayParams.opacity);
+}
+
+function onSettingsWinterSnowChange(checked) {
+  saveMapSettings({ winterSnow: checked });
+  applyWinterSnow(checked);
+}
+function onSettingsDarkModeChange(checked) {
+  saveMapSettings({ darkMode: checked });
+  setDarkMode(checked);
+}
+
+// Called once, at the end of map.on('load') in initMap() above.
+function restoreMapSettings() {
+  const settings = loadMapSettings();
+  if (settings.winterSnow) applyWinterSnow(true);
+  if (settings.darkMode) setDarkMode(true);
+}
+
+function toggleSettingsMenu() {
+  document.getElementById('settings-menu-wrap')?.classList.toggle('open');
+}
+function closeSettingsMenu() {
+  document.getElementById('settings-menu-wrap')?.classList.remove('open');
+}
+document.addEventListener('click', (e) => {
+  const el = document.getElementById('settings-menu-wrap');
+  if (el && el.classList.contains('open') && !el.contains(e.target)) closeSettingsMenu();
+});
 
 // Decorative only: applies the single selected hour's wind speed/direction
 // uniformly across the whole view (not a true spatially-varying field), but
