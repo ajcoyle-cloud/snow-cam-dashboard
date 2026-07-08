@@ -2363,6 +2363,37 @@ function orographicRampColor(t) {
   return OROGRAPHIC_RAMP_BANDS[idx];
 }
 
+// ── Hillshade (natural terrain shading) for the orographic drape ────────────
+// A single brightness factor per pixel from the classic sun-angle hillshade:
+// the terrain's surface normal dotted with a fixed light direction. Applied
+// by MULTIPLYING all three colour channels equally, so the drape's colour
+// gradient (which hue means which snow multiplier) is completely untouched —
+// only brightness changes with the shape of the land, giving lit slopes and
+// shadowed gullies/lee faces the way a relief map or a photo at that sun
+// angle would. Light from the NW at 45° elevation is the standard
+// cartographic convention (reads as "lit from top-left"). Ambient keeps the
+// darkest faces at HS_AMBIENT of full brightness rather than crushing them to
+// black, so even deep-shadow terrain still shows its gradient colour.
+const OROGRAPHIC_HS_AZIMUTH_DEG = 315;   // NW
+const OROGRAPHIC_HS_ALTITUDE_DEG = 45;
+const OROGRAPHIC_HS_AMBIENT = 0.55;      // darkest shaded faces = 55% brightness
+const _hsAz = OROGRAPHIC_HS_AZIMUTH_DEG * Math.PI / 180;
+const _hsAlt = OROGRAPHIC_HS_ALTITUDE_DEG * Math.PI / 180;
+// Unit light vector in ENU (east, north, up). Azimuth is clockwise from north.
+const OROGRAPHIC_HS_LX = Math.sin(_hsAz) * Math.cos(_hsAlt);
+const OROGRAPHIC_HS_LY = Math.cos(_hsAz) * Math.cos(_hsAlt);
+const OROGRAPHIC_HS_LZ = Math.sin(_hsAlt);
+// gradEast/gradNorth are rise/run (dimensionless slope, same as used by the
+// orographic-lift math), so the upward surface normal is (-gradEast,
+// -gradNorth, 1). Returns a brightness multiplier in [HS_AMBIENT, 1].
+function orographicHillshade(gradEast, gradNorth) {
+  const nx = -gradEast, ny = -gradNorth, nz = 1;
+  const nlen = Math.sqrt(nx * nx + ny * ny + nz * nz) || 1;
+  const dot = (nx * OROGRAPHIC_HS_LX + ny * OROGRAPHIC_HS_LY + nz * OROGRAPHIC_HS_LZ) / nlen;
+  const lit = dot > 0 ? dot : 0; // self-shadowed faces clamp to fully in-shade
+  return OROGRAPHIC_HS_AMBIENT + (1 - OROGRAPHIC_HS_AMBIENT) * lit;
+}
+
 // Box blur (radius in pixels) — flattens single-pixel DEM noise before the
 // slope/gradient calculation, see its call site in the protocol below.
 function orographicBoxBlur(src, size, radius) {
@@ -2547,11 +2578,17 @@ function registerOrographicSnowProtocol() {
           // at a glance for this one hour, not just "more or less faint blue."
           const t = (multiplier - M_LO) / (M_HI - M_LO);
           const [cR, cG, cB] = orographicRampColor(t);
+          // Natural hillshade (see orographicHillshade above) reuses this
+          // pixel's own terrain gradient — a pure brightness factor, so the
+          // colour gradient is unchanged; only light/shadow is added.
+          const shade = orographicHillshade(gradEast, gradNorth);
           // Depth-darken fog alternative (see DEPTH_DARKEN_RADIUS_KM above) —
           // same resort-distance falloff as the dark-relief base layer, so
           // the whole scene (base + colour overlay) darkens toward the Alps
           // together as one consistent depth effect, not just the terrain.
-          out.data[o] = cR * darken; out.data[o + 1] = cG * darken; out.data[o + 2] = cB * darken;
+          // Combined with the hillshade into one brightness multiplier.
+          const f = shade * darken;
+          out.data[o] = cR * f; out.data[o + 1] = cG * f; out.data[o + 2] = cB * f;
           out.data[o + 3] = 225; // strong, near-constant opacity — bold colours read clearly against the dark relief basemap
         }
       }
