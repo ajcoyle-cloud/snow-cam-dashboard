@@ -851,13 +851,12 @@ const SKY_DAY = { 'sky-color': '#3a82d6', 'horizon-color': '#cfe9fb', 'sky-horiz
 // 3D terrain — this map has terrain: {source:'terrain'} in its style, so
 // that's satisfied) and fog-ground-blend (0 = map centre, 1 = horizon) are
 // the two properties that actually exist, both in the range [0,1]
-// (default 0.5) — pushed close to the top of that range for a strong,
-// clearly-visible fade rather than a subtle one. fog-color dropped to
-// pure black to match. Confirmed working live; these are the "more fog"
-// values after that first pass read as too weak.
+// (default 0.5) — maxed out at the top of that range (1) for the
+// strongest fade the API allows, after 0.92/0.9 was confirmed working
+// live but still asked for more. fog-color pure black to match.
 const SKY_NIGHT = {
   'sky-color': '#03050c', 'horizon-color': '#1b2338', 'sky-horizon-blend': 0.7,
-  'fog-color': '#000000', 'fog-ground-blend': 0.92, 'horizon-fog-blend': 0.9,
+  'fog-color': '#000000', 'fog-ground-blend': 1, 'horizon-fog-blend': 1,
 };
 
 // ── Other-resort navigation pills (shown when zoomed out) ──────────────────
