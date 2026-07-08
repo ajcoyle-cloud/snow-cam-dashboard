@@ -7,6 +7,17 @@ import './App.css'
 
 const METEOBLUE_API_KEY = import.meta.env.VITE_METEOBLUE_API_KEY || 'DEMO'
 
+// whakapapa-snow-forecast.html is a plain public/ file (no content-hashed
+// filename like the bundled JS/CSS get), so nothing forces the browser to
+// fetch a fresh copy after a deploy — iOS Safari in particular will happily
+// keep serving an old cached response into a freshly-mounted iframe,
+// producing confusing "my fix isn't live" reports that are actually just a
+// stale cache. Evaluated once when this module loads (a real page load /
+// hard refresh), not per-render, so switching tabs within the app doesn't
+// thrash the iframe with a new URL every time — only an actual fresh load
+// of the outer app changes this and busts the cache.
+const IFRAME_CACHE_BUST = Date.now()
+
 const WEATHER_LOCATIONS = {
   Whakapapa: { lat: -39.2, lon: 175.5, elevation: 2300 },
   Turoa: { lat: -39.2, lon: 175.5, elevation: 2300 },
@@ -2796,7 +2807,7 @@ function ForecastMap3D({ resort, setResort }) {
     mtvernon: { name: 'Mt Vernon' },
     treblecone: { name: 'Treble Cone' },
   }
-  const srcFor = (r) => `/whakapapa-snow-forecast.html?resort=${r}`
+  const srcFor = (r) => `/whakapapa-snow-forecast.html?resort=${r}&v=${IFRAME_CACHE_BUST}`
 
   // Switching resorts used to remount the iframe (key={src}) outright, which
   // flashed the old map disappearing before the new one had anything to
@@ -2924,7 +2935,7 @@ function SnowTestPage({ resort, setResort }) {
         <iframe
           key={resort}
           className="map-3d-frame"
-          src={`/whakapapa-snow-forecast.html?resort=${resort}&snow=1`}
+          src={`/whakapapa-snow-forecast.html?resort=${resort}&snow=1&v=${IFRAME_CACHE_BUST}`}
           style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', border: 'none', display: 'block' }}
           allowFullScreen
         />
@@ -2960,7 +2971,7 @@ function HighResSnowPage({ resort, setResort }) {
         <iframe
           key={resort}
           className="map-3d-frame"
-          src={`/whakapapa-snow-forecast.html?resort=${resort}&highres=1`}
+          src={`/whakapapa-snow-forecast.html?resort=${resort}&highres=1&v=${IFRAME_CACHE_BUST}`}
           style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', border: 'none', display: 'block' }}
           allowFullScreen
         />
