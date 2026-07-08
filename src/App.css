@@ -1,6 +1,7 @@
 .app-layout {
   display: flex;
   height: 100vh;
+  height: 100dvh;
   background: #000;
 }
 
@@ -40,6 +41,7 @@
   flex: 1;
   min-width: 0;
   height: 100vh;
+  height: 100dvh;
   overflow-x: hidden;
   overflow-y: auto;
   /* Stops a swipe-down-to-refresh drag from handing off to the browser's own
