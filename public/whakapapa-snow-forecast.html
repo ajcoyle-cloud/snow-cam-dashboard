@@ -189,8 +189,18 @@
   }
 
   /* ── Top mode/period switchers ──────────────────────────────────────── */
+  /* Desktop: left edge fixed at calc(50% + 8px) rather than self-centered
+     via translateX(-50%) — pairs with the React-layer resort switcher
+     (.map-resort-switch .resort-selector in App.css), whose right edge sits
+     8px left of center, so the two form one visually-centered group without
+     overlapping (both were previously centered independently on the exact
+     same point). Fixing the left edge (instead of centering on own width)
+     also means #period-switch appearing/disappearing in Accum mode only
+     grows this row rightward into blank space — it never shifts mode-switch
+     itself, since nothing here depends on the row's total width. Mobile
+     overrides this completely below (max-width: 700px). */
   #top-controls {
-    position: absolute; top: 20px; left: 50%; transform: translateX(-50%); z-index: 15;
+    position: absolute; top: 20px; left: calc(50% + 8px); z-index: 15;
     display: flex; gap: 10px;
   }
   .pill-group {
@@ -210,7 +220,11 @@
 
   /* ── Model switcher (top-right) — single-select, same visual language as
      the Models dropdown on the forecast table/graph page. ─────────────── */
-  #model-switch { position: absolute; top: 20px; right: 20px; z-index: 15; }
+  /* Desktop: right offset leaves room for the React-layer settings cog
+     (.map-settings-menu, 36px circle, right-anchored with the same 20px
+     edge margin as this row — see App.css), so the two sit side by side on
+     the far right instead of overlapping: 20px edge + 36px cog + 12px gap. */
+  #model-switch { position: absolute; top: 20px; right: 68px; z-index: 15; }
   /* In fullscreen, #map-close (40px, right:64px) sits under where this
      button would otherwise land — drop it below the icon row instead. */
   #map-screen.is-fullscreen #model-switch { top: 72px; }

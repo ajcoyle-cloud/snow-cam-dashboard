@@ -1280,10 +1280,15 @@
   .map-resort-switch .map-settings-menu {
     pointer-events: auto;
   }
+  /* Resort selector sits just LEFT of center; the iframe's mode-pill group
+     (#top-controls, its left edge fixed at calc(50% + 8px), see
+     whakapapa-snow-forecast.html) sits just RIGHT of center — together they
+     read as one centered group without the two independently-centered
+     elements landing on top of each other (the previous overlap bug). */
   .map-resort-switch .resort-selector {
     position: absolute;
     left: 50%;
     top: 50%;
-    transform: translate(-50%, -50%);
+    transform: translate(calc(-100% - 8px), -50%);
   }
 }
