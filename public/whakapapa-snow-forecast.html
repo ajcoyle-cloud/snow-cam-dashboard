@@ -903,6 +903,12 @@ const isHighResMode = new URLSearchParams(window.location.search).get('highres')
 if (!isHighResMode) {
   const orographicBtn = document.getElementById('orographic-toggle');
   if (orographicBtn) orographicBtn.style.display = 'none';
+} else {
+  // Forecast (Hourly) only — no Live/Accumulated/Radar switching, so the
+  // mode-switch/period-switch row has nothing to do here. viewMode stays
+  // permanently 'hourly' (see restoreViewMode()'s early return below).
+  const topControls = document.getElementById('top-controls');
+  if (topControls) topControls.style.display = 'none';
 }
 
 // Day/night sky gradients for the settings-cog "Dark mode" toggle
@@ -2730,7 +2736,10 @@ function applyWinterSnow(enabled) {
 function restoreMapSettings() {
   const settings = loadMapSettings();
   if (settings.winterSnow) applyWinterSnow(true);
-  if (settings.darkMode) setDarkMode(true);
+  // High-Res defaults to the normal (non-dark) view regardless of what's
+  // saved from the regular Map tab's settings cog — this is a separate,
+  // deliberately simple destination, not meant to inherit that page's state.
+  if (settings.darkMode && !isHighResMode) setDarkMode(true);
 }
 
 // Live bridge from the React-layer MapSettingsMenu (App.jsx) — sent whenever
@@ -3676,6 +3685,11 @@ function pwBroadcastProfile() {
 // Re-apply the view mode (live/hourly/accumulated, plus accumulated period)
 // saved on the previous resort, so switching location keeps the same view.
 function restoreViewMode() {
+  // High-Res is Hourly-forecast only — never restore Live/Accumulated/Radar
+  // from localStorage (shared same-origin with the regular Map tab, which
+  // could easily have left it on something else). viewMode's own initial
+  // value ('hourly', declared above) is already correct; just don't touch it.
+  if (isHighResMode) return;
   let saved = null, savedDays = NaN;
   try {
     saved = localStorage.getItem('sp-view-mode');
