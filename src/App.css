@@ -1317,6 +1317,13 @@
     right: 0;
     z-index: 40;
     padding: 20px !important;
+    /* .resort-selector below is position:absolute (out of flow), so without
+       an explicit min-height this row collapses to just its own padding
+       (40px) instead of padding+button (78px) — pulling its centerline up to
+       y=20 instead of y=39, out of line with the iframe's top:20px, 38px-tall
+       pills (model-switch, ramp-select). min-height restores the intended
+       78px box so everything across this row shares the same centerline. */
+    min-height: 38px;
     justify-content: flex-end !important;
     pointer-events: none;
   }
