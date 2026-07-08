@@ -928,6 +928,14 @@ if (isHighResMode) {
   // own isHighResMode guard, which stops any pill from ever being created.
   const obsBtn = document.getElementById('obs-toggle');
   if (obsBtn) obsBtn.style.display = 'none';
+  // Bottom-left "Selected Forecast Hour" drawer duplicates what the precise
+  // tap-to-probe now gives per-point (see the dedicated High-Res click
+  // handler in initMap()) — remove it, and its minimised-state reopen
+  // launcher, so nothing pops it back up.
+  const snowInfo = document.getElementById('snow-info');
+  if (snowInfo) snowInfo.style.display = 'none';
+  const drawerLaunch = document.getElementById('drawer-launch');
+  if (drawerLaunch) drawerLaunch.style.display = 'none';
 }
 
 // Day/night sky gradients for the settings-cog "Dark mode" toggle
