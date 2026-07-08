@@ -607,9 +607,12 @@
   to { transform: rotate(360deg); }
 }
 
-/* Forecast controls: one top line — location switcher + elevation toggle
-   stacked on the left, the remaining toggle clusters sharing the same row
-   to the right. */
+/* Forecast controls: one top line — location switcher (left), elevation +
+   Hour/Day toggles (center), Models dropdown (right). Desktop arranges these
+   three as a proper 3-column grid (see the min-width:701px override below)
+   so the center group is centered on the row itself; this flex/wrap version
+   is the mobile fallback, where forecast-left-column/-right-column end up
+   empty (their desktop-only children are hidden) and only the toggles show. */
 .forecast-controls-row {
   display: flex;
   align-items: center;
@@ -623,10 +626,6 @@
   flex-direction: column;
   align-items: flex-start;
   gap: 6px;
-}
-
-.forecast-left-column .elevation-toggle {
-  margin: 0;
 }
 
 .forecast-controls-toggles {
@@ -1261,6 +1260,27 @@
 
   .forecast-view-mode-desktop {
     display: inline-flex !important;
+  }
+
+  /* Forecast header: 3-column grid — switcher (left), elevation + Hour/Day
+     (center), Models dropdown (right). Grid (not flex:1 on the center piece)
+     is what makes the center column genuinely centered on the row itself,
+     rather than centered only within whatever space is left after the
+     switcher — the two side columns are equal-width (1fr each) regardless
+     of how wide the switcher or Models button happen to render. */
+  .forecast-controls-row {
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
+    align-items: center;
+  }
+  .forecast-left-column {
+    justify-self: start;
+  }
+  .forecast-controls-toggles {
+    justify-self: center;
+  }
+  .forecast-right-column {
+    justify-self: end;
   }
 
   /* Desktop map view: switcher/cog float directly over the map instead of

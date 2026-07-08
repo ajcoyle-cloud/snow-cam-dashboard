@@ -2116,8 +2116,8 @@ function SnowfallForecast({ resort, setResort }) {
         </div>
       </div>
 
-      {/* Desktop: location switcher + elevation toggle stacked on the left,
-          the remaining toggles sharing a row to the right. (On mobile the
+      {/* Desktop: 3-column header — location switcher (left), elevation +
+          Hour/Day (centered), Models dropdown (right). (On mobile the
           switcher is hidden here and supplied by the top bar; the toggles
           wrap underneath.) */}
       <div className="forecast-controls-row">
@@ -2125,7 +2125,9 @@ function SnowfallForecast({ resort, setResort }) {
           <div className="forecast-selector-desktop">
             <ResortSelector resort={resort} setResort={setResort} />
           </div>
+        </div>
 
+        <div className="forecast-controls-toggles">
           {/* Elevation toggle */}
           <div className="elevation-toggle">
             <button
@@ -2141,9 +2143,7 @@ function SnowfallForecast({ resort, setResort }) {
               {RESORTS[resort].baseElev}m
             </button>
           </div>
-        </div>
 
-        <div className="forecast-controls-toggles">
           {/* View mode toggle - hidden on mobile, shown on desktop */}
           <div className="elevation-toggle forecast-view-mode-desktop">
             <button
@@ -2159,11 +2159,13 @@ function SnowfallForecast({ resort, setResort }) {
               Day
             </button>
           </div>
+        </div>
 
-          {/* Freezing level line (model visibility) dropdown — tick/untick any
-              number of models to show them on the graph at once. Hidden on
-              mobile (forecast-models-desktop); the mobile top bar gets its own
-              copy at the far right instead — see forecast-top-bar above. */}
+        {/* Freezing level line (model visibility) dropdown — tick/untick any
+            number of models to show them on the graph at once. Hidden on
+            mobile (forecast-models-desktop); the mobile top bar gets its own
+            copy at the far right instead — see forecast-top-bar above. */}
+        <div className="forecast-right-column">
           {renderModelsMenu(modelMenuRef, 'forecast-models-desktop')}
         </div>
       </div>
