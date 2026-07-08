@@ -2272,6 +2272,39 @@ function toggleSnowOverlay() {
 // windDirDegBase. See the standalone proof-of-concept this was validated
 // against before being wired up here (synthetic terrain + one real forecast
 // hour, both produced the expected windward/lee pattern).
+// Bold multi-stop rainbow ramp (red=lee/least snow through orange/yellow/
+// green/teal/blue to violet=windward/most snow) instead of a single hue at
+// varying opacity — a flat colour only ever shows "more or less of the same
+// tint," which reads as one blob at a glance; many distinguishable hues
+// make the actual windward/lee gradient visible at each individual hour,
+// including the subtler mid-range terrain, not just the two extremes.
+const OROGRAPHIC_RAMP_STOPS = [
+  [0.00, [120, 20, 20]],   // deep maroon — most lee
+  [0.14, [200, 40, 30]],   // red
+  [0.28, [235, 110, 30]],  // orange
+  [0.42, [245, 190, 40]],  // yellow
+  [0.56, [170, 210, 70]],  // yellow-green
+  [0.70, [70, 190, 150]],  // teal
+  [0.85, [50, 130, 220]],  // blue
+  [1.00, [90, 60, 200]],   // violet — most windward
+];
+function orographicRampColor(t) {
+  t = t < 0 ? 0 : t > 1 ? 1 : t;
+  for (let s = 0; s < OROGRAPHIC_RAMP_STOPS.length - 1; s++) {
+    const [t0, c0] = OROGRAPHIC_RAMP_STOPS[s];
+    const [t1, c1] = OROGRAPHIC_RAMP_STOPS[s + 1];
+    if (t >= t0 && t <= t1) {
+      const u = (t - t0) / (t1 - t0 || 1);
+      return [
+        Math.round(c0[0] + (c1[0] - c0[0]) * u),
+        Math.round(c0[1] + (c1[1] - c0[1]) * u),
+        Math.round(c0[2] + (c1[2] - c0[2]) * u),
+      ];
+    }
+  }
+  return OROGRAPHIC_RAMP_STOPS[OROGRAPHIC_RAMP_STOPS.length - 1][1];
+}
+
 let orographicSnowActive = false;
 let orographicSnowProtocolRegistered = false;
 function registerOrographicSnowProtocol() {
@@ -2333,10 +2366,11 @@ function registerOrographicSnowProtocol() {
       }
       const elevSpan = Math.max(1, LOC.summitElev - LOC.baseElev);
       const W_REF = 1.0, M_RANGE = 0.9;
-      // Same dark-mode-aware colour as buildSnowRamp's active-snowfall ramp
-      // — near-white-blue by day, darker grey in dark contour mode (see the
-      // "hourly snow overlay too bright in dark mode" fix).
-      const [cR, cG, cB] = darkTerrainActive ? [90, 95, 105] : [205, 225, 255];
+      // multiplier's range is exactly [1-M_RANGE, 1+M_RANGE] (tanh is
+      // bounded to +/-1) — a fixed normalisation rather than a per-tile
+      // min/max, so a given colour always means the same thing everywhere
+      // on the map and across different hours, not auto-rescaled per frame.
+      const M_LO = 1 - M_RANGE, M_HI = 1 + M_RANGE;
       const [flR, flG, flB] = darkTerrainActive ? [25, 55, 110] : [60, 130, 255];
 
       for (let py = 0; py < size; py++) {
@@ -2371,12 +2405,14 @@ function registerOrographicSnowProtocol() {
           const w = U * gradEast + V * gradNorth; // m/s, +windward / -lee
           const multiplier = 1 + M_RANGE * Math.tanh(w / W_REF); // ~0.1x - 1.9x
 
-          // Opacity driven by the multiplier itself (not the absolute mm
-          // amount) so the windward/lee pattern stays visible on both light
-          // and heavy snowfall hours, rather than washing out on a light hour.
-          const intensity = Math.max(0.2, Math.min(1, multiplier / 1.6));
+          // Colour (not opacity) is the primary signal now — every distinct
+          // multiplier value gets a genuinely different hue off the rainbow
+          // ramp above, so the windward/lee/ridge/gully pattern is legible
+          // at a glance for this one hour, not just "more or less faint blue."
+          const t = (multiplier - M_LO) / (M_HI - M_LO);
+          const [cR, cG, cB] = orographicRampColor(t);
           out.data[o] = cR; out.data[o + 1] = cG; out.data[o + 2] = cB;
-          out.data[o + 3] = Math.round(intensity * 235);
+          out.data[o + 3] = 225; // strong, near-constant opacity — bold colours read clearly against the dark relief basemap
         }
       }
     }
@@ -2630,10 +2666,14 @@ const RESORT_COUNTRY_ISO3 = {
 };
 
 let darkTerrainActive = false;
-function setDarkMode(enabled) {
+function setDarkMode(enabled, withContours = true) {
   if (!map) return;
   darkTerrainActive = enabled;
-  darkTerrainShowContours = true; // always on for this combined toggle — no separate control offered here
+  // Combined toggle defaults contours on (no separate control offered on
+  // the regular Map tab/settings cog); High-Res explicitly passes false for
+  // a plain relief map, so its orographic colour ramp isn't competing with
+  // contour lines for visual attention.
+  darkTerrainShowContours = withContours;
   const trialBtn = document.getElementById('basemap-toggle');
   if (trialBtn) {
     trialBtn.classList.toggle('active', enabled);
@@ -2783,10 +2823,15 @@ function applyWinterSnow(enabled) {
 function restoreMapSettings() {
   const settings = loadMapSettings();
   if (settings.winterSnow) applyWinterSnow(true);
-  // High-Res defaults to the normal (non-dark) view regardless of what's
-  // saved from the regular Map tab's settings cog — this is a separate,
-  // deliberately simple destination, not meant to inherit that page's state.
-  if (settings.darkMode && !isHighResMode) setDarkMode(true);
+  if (isHighResMode) {
+    // Always the dark relief basemap with no contour lines here, regardless
+    // of whatever's saved from the regular Map tab's settings cog — a plain
+    // dark background is what makes the orographic overlay's colour ramp
+    // read clearly, and satellite imagery/contour lines would compete with it.
+    setDarkMode(true, false);
+  } else if (settings.darkMode) {
+    setDarkMode(true);
+  }
 }
 
 // Live bridge from the React-layer MapSettingsMenu (App.jsx) — sent whenever
