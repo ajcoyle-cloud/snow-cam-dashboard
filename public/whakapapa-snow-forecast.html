@@ -3521,12 +3521,16 @@ const PW_CONFIG = {
   ruapehu: {
     tiles: [[10, 390, 1011], [10, 390, 1010], [10, 389, 1011], [10, 389, 1010]],
     stations: [
+      // Only these two actually sit on the mountain — the rest are valley/
+      // town stations kept purely to anchor the low end of the lapse-rate
+      // fit (pill: false below skips creating a map marker for them; they
+      // still feed pwProfile/the temp overlay via pwState).
       { trackId: '363045', name: 'Whakapapa 2000m' },
       { trackId: '363044', name: 'Halidays Hut' },
-      { trackId: '363039', name: 'Desert Road' },
-      { trackId: '362779', name: 'National Park Township' },
-      { trackId: '362785', name: 'Waiouru Aerodrome' },
-      { trackId: '363053', name: 'Raetihi' },
+      { trackId: '363039', name: 'Desert Road', pill: false },
+      { trackId: '362779', name: 'National Park Township', pill: false },
+      { trackId: '362785', name: 'Waiouru Aerodrome', pill: false },
+      { trackId: '363053', name: 'Raetihi', pill: false },
     ],
   },
   cardrona: {
@@ -3914,6 +3918,12 @@ function pwOpenModal(data) {
 function pwRenderPill(trackId) {
   const st = pwState[trackId];
   if (!st || !st.series.length) return;
+  // Profile-only station (see PW_CONFIG's pill:false / showPill above) —
+  // its readings still feed pwProfile via pwState, it just never gets a
+  // marker on the map. Bailing here (rather than at each call site) is the
+  // single choke point every caller goes through, including the "repaint
+  // every pill" loops in renderLiveTempView/pwUpdateTempProfile.
+  if (st.showPill === false) return;
   const lastTs = st.series[st.series.length - 1].ts;
   // pwDisplayTime !== null when scrubbing the live time slider into the past
   const live = pwDisplayTime == null;
@@ -3991,6 +4001,9 @@ async function pwRefresh(attempt = 0) {
         meta: pwParseMeta(tr.t),
         series: pwDecodeSeries(tr.s),
         updated: tile.updated,
+        // false for stations that exist only to anchor the lapse-rate fit
+        // (see PW_CONFIG) — never get a map pill, still feed pwProfile.
+        showPill: s.pill !== false,
       };
       pwRenderPill(trackId);
     }
