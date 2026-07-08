@@ -3323,6 +3323,13 @@ function removeSnowfallMarker() {
 
 // Hourly: persistent pill at the field (no fade). Empty label hides it.
 function showSnowfallMarker(label) {
+  // This pins a single flat "mm/hr" reading to one fixed point (LOC.center)
+  // regardless of where snow actually falls harder or lighter — exactly the
+  // position-blind reading High-Res's precise tap-to-probe replaced. Showing
+  // it there by default (with no tap) both duplicates and contradicts the
+  // whole point of the orographic map. Same reasoning as removing the
+  // "Selected Forecast Hour" drawer from this page earlier.
+  if (isHighResMode) { removeSnowfallMarker(); return; }
   if (!label) { removeSnowfallMarker(); return; }
   if (snowfallFadeTimer) { clearTimeout(snowfallFadeTimer); snowfallFadeTimer = null; }
   ensureSnowfallMarker(LOC.center || [LOC.lon, LOC.lat], label);
