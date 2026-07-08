@@ -1698,9 +1698,13 @@ function initMap() {
         type: 'line',
         source: 'resort-lifts',
         paint: {
-          'line-color': '#e60000',
+          // Pure white lifts on the orographic High-Res map only (they read
+          // clearly against the bold rainbow drape); the usual red everywhere
+          // else. Full opacity on High-Res so white stays truly white rather
+          // than picking up a tint from the colours underneath.
+          'line-color': isHighResMode ? '#ffffff' : '#e60000',
           'line-width': 1.4,
-          'line-opacity': 0.9
+          'line-opacity': isHighResMode ? 1 : 0.9
         }
       });
     }
