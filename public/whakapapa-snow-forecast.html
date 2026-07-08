@@ -2636,7 +2636,7 @@ const CONTOUR_FADE_RADIUS_KM = 40;
 // stronger, fully-controllable falloff directly into the rendered pixels
 // instead of relying on MapLibre's fixed fog math. Used by
 // registerDarkTerrainProtocol and registerOrographicSnowProtocol below.
-const DEPTH_DARKEN_RADIUS_KM = 18;
+const DEPTH_DARKEN_RADIUS_KM = 10;
 function depthDarkenFactor(distKm) {
   // Power >1 keeps the near-resort area essentially untouched, then ramps
   // up increasingly steeply toward the radius — fully black at/beyond it.
