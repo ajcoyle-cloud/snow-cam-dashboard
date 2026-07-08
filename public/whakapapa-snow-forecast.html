@@ -268,6 +268,24 @@
      (.map-settings-menu, 38px circle, right-anchored with the same 20px
      edge margin as this row — see App.css), so the two sit side by side on
      the far right instead of overlapping: 20px edge + 38px cog + 10px gap. */
+  /* Orographic colour-ramp picker (High-Res only) — grey/blur pill matching
+     the other controls, top-left. Hidden until restoreMapSettings shows it. */
+  #ramp-select {
+    display: none;
+    position: absolute; top: 20px; left: 20px; z-index: 45;
+    height: 38px; box-sizing: border-box;
+    background: rgba(54,54,62,0.85); backdrop-filter: blur(14px);
+    border: 1px solid rgba(255,255,255,0.14); color: #fff; border-radius: 999px;
+    padding: 0 34px 0 16px; font-size: 0.78rem; font-weight: 700;
+    cursor: pointer; font-family: inherit; white-space: nowrap;
+    box-shadow: 0 4px 24px rgba(0,0,0,0.3);
+    -webkit-appearance: none; appearance: none;
+    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'><polyline points='6 9 12 15 18 9'/></svg>");
+    background-repeat: no-repeat; background-position: right 14px center;
+  }
+  #ramp-select option { color: #000; }
+  @media (max-width: 700px) { #ramp-select { top: 14px; left: 14px; } }
+
   #model-switch { position: absolute; top: 20px; right: 68px; z-index: 45; }
   /* In fullscreen, #map-close (40px, right:64px) sits under where this
      button would otherwise land — drop it below the icon row instead. */
@@ -727,6 +745,10 @@
   <button id="orographic-toggle" onclick="toggleOrographicSnow()" title="Toggle wind-driven snow overlay">🌬️</button>
   <button id="map-close" onclick="exitFullscreenView()" title="Close fullscreen">✕</button>
   <div id="map-title"></div>
+
+  <!-- Colour-ramp preview picker — High-Res orographic map only (shown +
+       populated by restoreMapSettings when isHighResMode). Hidden otherwise. -->
+  <select id="ramp-select" title="Orographic colour ramp"></select>
 
   <div id="top-controls">
     <div class="pill-group" id="mode-switch">
@@ -2352,23 +2374,37 @@ function toggleSnowOverlay() {
 // end colours of that smooth ramp ever actually appeared — see
 // orographicBoxBlur above, the real fix for that; this is a complementary
 // change making whatever range of hues shows up easier to read at a glance.
-const OROGRAPHIC_RAMP_BANDS = [
-  // Reduced from 6 bands to 4 — the old ramp ran pure red (most lee) opposite
-  // pure blue (most windward), and those two extremes clashed badly wherever
-  // they sat near each other. Dropping the hot red band (orange is now the
-  // hottest) and the redundant cyan band gives a calmer 4-step gradient with
-  // no harsh red-against-blue opposition, while keeping the same lee→windward
-  // warm→cool direction.
-  [230, 130, 35],  // orange — most lee
-  [230, 195, 55],  // yellow
-  [110, 190, 90],  // green
-  [70, 90, 210],   // blue — most windward
+// Selectable colour ramps for the orographic drape, previewable live via the
+// High-Res "Colour ramp" dropdown (see the #ramp-select wiring in
+// restoreMapSettings). Each is a stepped list of RGB bands, lee (t=0) →
+// windward (t=1); band count can differ per ramp (orographicRampColor uses
+// .length). All are sequential/perceptual ramps chosen to avoid the harsh
+// red-against-blue clash of the original rainbow. The active choice persists
+// in localStorage so it survives reloads while testing; once one's locked in
+// we can drop the others and hardcode it.
+const OROGRAPHIC_RAMP_PRESETS = [
+  { key: 'warmcool', label: 'Orange → Blue', bands: [[230,130,35],[230,195,55],[110,190,90],[70,90,210]] },
+  { key: 'viridis',  label: 'Viridis',       bands: [[68,1,84],[59,82,139],[33,145,140],[93,201,99],[253,231,37]] },
+  { key: 'plasma',   label: 'Plasma',        bands: [[13,8,135],[126,3,168],[204,71,120],[248,149,64],[240,249,33]] },
+  { key: 'magma',    label: 'Magma',         bands: [[15,12,40],[81,18,124],[183,55,121],[252,137,97],[252,253,191]] },
+  { key: 'cividis',  label: 'Cividis',       bands: [[0,32,76],[0,67,88],[123,125,120],[188,175,111],[255,233,69]] },
+  { key: 'blues',    label: 'Blues (mono)',  bands: [[222,235,247],[158,202,225],[66,146,198],[8,69,148]] },
+  { key: 'ice',      label: 'Ice (cool)',    bands: [[8,29,88],[34,94,168],[65,182,196],[199,233,180]] },
 ];
+function orographicRampKeyToBands(key) {
+  const p = OROGRAPHIC_RAMP_PRESETS.find((p) => p.key === key);
+  return (p || OROGRAPHIC_RAMP_PRESETS[0]).bands;
+}
+// Active ramp — initialised from the saved choice so the very first tile
+// render already uses it (this runs well before the map/dropdown exist).
+let orographicRampBands = orographicRampKeyToBands(
+  (() => { try { return localStorage.getItem('orographicRampKey'); } catch (e) { return null; } })()
+);
 function orographicRampColor(t) {
   t = t < 0 ? 0 : t > 1 ? 1 : t;
-  const n = OROGRAPHIC_RAMP_BANDS.length;
+  const n = orographicRampBands.length;
   const idx = Math.min(n - 1, Math.floor(t * n));
-  return OROGRAPHIC_RAMP_BANDS[idx];
+  return orographicRampBands[idx];
 }
 
 // ── Hillshade (natural terrain shading) for the orographic drape ────────────
@@ -3054,6 +3090,26 @@ function restoreMapSettings() {
     // orographicSnowActive (starts false) and does the actual layer setup,
     // same call a button click would have made.
     if (!orographicSnowActive) toggleOrographicSnow();
+    // Colour-ramp preview dropdown — populate, show, and select whatever's
+    // saved (orographicRampBands was already initialised from it above, so
+    // the first render matches). Changing it swaps the ramp live and
+    // regenerates the tiles. See OROGRAPHIC_RAMP_PRESETS.
+    const rampSel = document.getElementById('ramp-select');
+    if (rampSel && !rampSel.dataset.wired) {
+      rampSel.innerHTML = OROGRAPHIC_RAMP_PRESETS
+        .map((p) => `<option value="${p.key}">${p.label}</option>`).join('');
+      let savedKey = null;
+      try { savedKey = localStorage.getItem('orographicRampKey'); } catch (e) {}
+      rampSel.value = OROGRAPHIC_RAMP_PRESETS.some((p) => p.key === savedKey)
+        ? savedKey : OROGRAPHIC_RAMP_PRESETS[0].key;
+      rampSel.style.display = 'block';
+      rampSel.dataset.wired = '1';
+      rampSel.addEventListener('change', () => {
+        orographicRampBands = orographicRampKeyToBands(rampSel.value);
+        try { localStorage.setItem('orographicRampKey', rampSel.value); } catch (e) {}
+        refreshOrographicSnow();
+      });
+    }
   } else if (settings.darkMode) {
     setDarkMode(true);
   }
