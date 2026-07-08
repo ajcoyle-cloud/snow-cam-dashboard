@@ -1171,7 +1171,12 @@ function initResortPills() {
 // the same way the main dashboard does it — linear interpolation between a
 // summit and base temperature sample — and they borrow GFS's precip/wind
 // (the only source that has it) rather than going without.
-function buildModelHours(summit, base, gfs) {
+// gfsBaseHourly is always GFS's own base-elevation fetch (windspeed_850hPa/
+// winddirection_850hPa), regardless of which model's summit/base this row
+// otherwise comes from — only GFS requests wind at all (see
+// forecastUrlsFor), same reasoning as the existing `gfs` param for the
+// summit-level (700hPa) wind below.
+function buildModelHours(summit, base, gfs, gfsBaseHourly) {
   if (!summit) return null;
   const useDirectFL = !!summit.freezinglevel_height;
   return summit.time.map((t, i) => {
@@ -1201,7 +1206,14 @@ function buildModelHours(summit, base, gfs) {
       snowfallMm: snowMm,
       freezingLevel: fl,
       windSpeedKmh: gfs?.windspeed_700hPa?.[i] ?? null,
-      windDirDeg: gfs?.winddirection_700hPa?.[i] ?? null
+      windDirDeg: gfs?.winddirection_700hPa?.[i] ?? null,
+      // Base-elevation (850hPa) wind — used to interpolate a base-to-summit
+      // wind gradient in the orographic overlay instead of applying the
+      // summit-level reading uniformly at every elevation. null when
+      // gfsBaseHourly wasn't fetched/available (e.g. demo fallback data);
+      // callers fall back to the summit vector in that case.
+      windSpeedKmhBase: gfsBaseHourly?.windspeed_850hPa?.[i] ?? null,
+      windDirDegBase: gfsBaseHourly?.winddirection_850hPa?.[i] ?? null
     };
   }).filter(r => r.temp != null && r.freezingLevel != null && r.snowfallMm != null);
 }
@@ -1238,7 +1250,9 @@ function buildAverageHours(sources) {
       snowfallMm: median(r => r.snowfallMm),
       freezingLevel: avg(r => r.freezingLevel),
       windSpeedKmh: first.windSpeedKmh,
-      windDirDeg: first.windDirDeg
+      windDirDeg: first.windDirDeg,
+      windSpeedKmhBase: first.windSpeedKmhBase,
+      windDirDegBase: first.windDirDegBase
     };
   }).filter(Boolean).filter(r => r.temp != null && r.freezingLevel != null && r.snowfallMm != null);
 }
@@ -1251,7 +1265,11 @@ function forecastUrlsFor(r) {
   const base = `https://api.open-meteo.com/v1/forecast?latitude=${r.lat}&longitude=${r.lon}&temperature_unit=celsius&timezone=${r.timezone}&forecast_days=16`;
   return {
     gfsSummitUrl: `${base}&wind_speed_unit=kmh&elevation=${r.summitElev}&hourly=temperature_2m,precipitation,snowfall,freezinglevel_height,windspeed_700hPa,winddirection_700hPa&models=gfs_global`,
-    gfsBaseUrl: `${base}&elevation=${r.baseElev}&hourly=temperature_2m&models=gfs_global`,
+    // windspeed_850hPa/winddirection_850hPa (~1500m, roughly base-elevation)
+    // feeds the orographic overlay's base-to-summit wind interpolation (see
+    // buildModelHours/orographicsnow:// protocol) — same field the Forecast
+    // tab's own separate fetch already uses for its base-level wind.
+    gfsBaseUrl: `${base}&wind_speed_unit=kmh&elevation=${r.baseElev}&hourly=temperature_2m,windspeed_850hPa,winddirection_850hPa&models=gfs_global`,
     ecmwfSummitUrl: `${base}&elevation=${r.summitElev}&hourly=temperature_2m,precipitation,snowfall&models=ecmwf_ifs025`,
     ecmwfBaseUrl: `${base}&elevation=${r.baseElev}&hourly=temperature_2m&models=ecmwf_ifs025`,
     aifsSummitUrl: `${base}&elevation=${r.summitElev}&hourly=temperature_2m,precipitation,snowfall&models=ecmwf_aifs025_single`,
@@ -1294,10 +1312,10 @@ async function loadForecast() {
   const ukmoSummit = ukmoSummitJson ? ukmoSummitJson.hourly : null;
   const ukmoBase = ukmoBaseJson ? ukmoBaseJson.hourly : null;
 
-  modelHours.gfs = gfsHourly ? buildModelHours(gfsHourly, gfsBase, gfsHourly) : null;
-  modelHours.ecmwf = ecmwfSummit ? buildModelHours(ecmwfSummit, ecmwfBase, gfsHourly) : null;
-  modelHours.aifs = aifsSummit ? buildModelHours(aifsSummit, aifsBase, gfsHourly) : null;
-  modelHours.ukmo = ukmoSummit ? buildModelHours(ukmoSummit, ukmoBase, gfsHourly) : null;
+  modelHours.gfs = gfsHourly ? buildModelHours(gfsHourly, gfsBase, gfsHourly, gfsBase) : null;
+  modelHours.ecmwf = ecmwfSummit ? buildModelHours(ecmwfSummit, ecmwfBase, gfsHourly, gfsBase) : null;
+  modelHours.aifs = aifsSummit ? buildModelHours(aifsSummit, aifsBase, gfsHourly, gfsBase) : null;
+  modelHours.ukmo = ukmoSummit ? buildModelHours(ukmoSummit, ukmoBase, gfsHourly, gfsBase) : null;
   modelHours.average = buildAverageHours([modelHours.gfs, modelHours.ecmwf, modelHours.aifs, modelHours.ukmo]);
 
   if (!modelHours.gfs && !modelHours.ecmwf && !modelHours.aifs && !modelHours.ukmo) {
@@ -2247,7 +2265,11 @@ function toggleSnowOverlay() {
 // real terrain gradient VECTOR sampled from the same terrain-rgb DEM tiles
 // dark-terrain/contours already use — then scales that hour's snowfall by a
 // tanh-saturating function of w, so windward slopes read heavier and lee
-// slopes lighter. See the standalone proof-of-concept this was validated
+// slopes lighter. The wind vector itself is interpolated between the
+// summit-level (700hPa) and base-level (850hPa) readings by each pixel's
+// own DEM elevation, rather than applying the summit's (usually stronger)
+// wind uniformly all the way down — see buildModelHours' windSpeedKmhBase/
+// windDirDegBase. See the standalone proof-of-concept this was validated
 // against before being wired up here (synthetic terrain + one real forecast
 // hour, both produced the expected windward/lee pattern).
 let orographicSnowActive = false;
@@ -2287,11 +2309,29 @@ function registerOrographicSnowProtocol() {
       const boundary = snowing ? hour.freezingLevel - SNOW_OFFSET : hour.freezingLevel;
       const metersPerPixel = (156543.03392 * Math.cos(tileCenterLatRad(y, z))) / Math.pow(2, z) * (256 / size);
 
-      // Same U/V + tanh-saturation approach as the standalone POC.
-      const windSpeedMs = hour.windSpeedKmh / 3.6;
-      const windToRad = (((hour.windDirDeg + 180) % 360) * Math.PI) / 180;
-      const U = windSpeedMs * Math.sin(windToRad);
-      const V = windSpeedMs * Math.cos(windToRad);
+      // Wind vector at summit level (700hPa, always available) and at base
+      // level (850hPa) — each pixel below interpolates between these two by
+      // its own real DEM elevation, rather than applying the summit's wind
+      // speed/direction uniformly all the way down to the base (real wind
+      // speed increases with height above the surface; this is a first-order
+      // approximation of that shear, not a full boundary-layer profile).
+      // Direction is blended via the vector components (not raw degrees) so
+      // there's no wraparound bug interpolating e.g. 350deg toward 10deg.
+      const windSpeedMsTop = hour.windSpeedKmh / 3.6;
+      const windToRadTop = (((hour.windDirDeg + 180) % 360) * Math.PI) / 180;
+      const U_top = windSpeedMsTop * Math.sin(windToRadTop);
+      const V_top = windSpeedMsTop * Math.cos(windToRadTop);
+      // Falls back to the summit vector (old uniform behaviour) when base-
+      // level wind wasn't fetched/available (e.g. demo fallback data) —
+      // U_base===U_top && V_base===V_top then makes the lerp below a no-op.
+      let U_base = U_top, V_base = V_top;
+      if (hour.windSpeedKmhBase != null && hour.windDirDegBase != null) {
+        const windSpeedMsBase = hour.windSpeedKmhBase / 3.6;
+        const windToRadBase = (((hour.windDirDegBase + 180) % 360) * Math.PI) / 180;
+        U_base = windSpeedMsBase * Math.sin(windToRadBase);
+        V_base = windSpeedMsBase * Math.cos(windToRadBase);
+      }
+      const elevSpan = Math.max(1, LOC.summitElev - LOC.baseElev);
       const W_REF = 1.0, M_RANGE = 0.9;
       // Same dark-mode-aware colour as buildSnowRamp's active-snowfall ramp
       // — near-white-blue by day, darker grey in dark contour mode (see the
@@ -2316,6 +2356,13 @@ function registerOrographicSnowProtocol() {
             out.data[o + 3] = darkTerrainActive ? 38 : 51; // ~0.15 / 0.2 opacity
             continue;
           }
+
+          // Base-to-summit wind gradient: this pixel's own elevation decides
+          // where it sits between the two measured levels (clamped, so
+          // terrain below base or above summit just uses that nearer level).
+          const elevT = Math.max(0, Math.min(1, (elevHere - LOC.baseElev) / elevSpan));
+          const U = U_base + (U_top - U_base) * elevT;
+          const V = V_base + (V_top - V_base) * elevT;
 
           const xm1 = Math.max(0, px - 1), xp1 = Math.min(size - 1, px + 1);
           const dzdx = (elev[py * size + xp1] - elev[py * size + xm1]) / (2 * metersPerPixel);
