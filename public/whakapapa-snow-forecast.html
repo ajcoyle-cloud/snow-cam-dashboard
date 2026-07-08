@@ -3177,8 +3177,14 @@ function openMapView(index) {
   // frame (see startPlay's blendHour loop, which intentionally skips this).
   refreshOrographicSnow();
 
-  currentSnowLine = hour.freezingLevel - SNOW_OFFSET;
-  currentHourCm = hour.snowfallMm / 10;
+  // Must mirror buildSnowRamp's own boundary exactly (see the "Previous
+  // bug" comment there) — this used freezing-300m unconditionally, so on a
+  // non-snowing hour the probe's "above the line" cutoff sat 300m below
+  // where the map actually stops tinting, letting a tap in that gap report
+  // non-zero snowfall for an area showing no shading at all.
+  const hourSnowing = hour.snowfallMm >= SNOWFALL_THRESHOLD_MM;
+  currentSnowLine = hourSnowing ? hour.freezingLevel - SNOW_OFFSET : hour.freezingLevel;
+  currentHourCm = hourSnowing ? hour.snowfallMm / 10 : 0;
 
   document.getElementById('si-time').textContent = fmtTime(hour.time);
   document.getElementById('si-temp').textContent = hour.temp.toFixed(1) + '°C';
@@ -3821,7 +3827,13 @@ function startPlay() {
     const to = forecastHours[currentIndex + 1];
     const blended = blendHour(from, to, t);
     applyRampWhenReady(buildSnowRamp(blended));
-    showSnowfallMarker(blended.snowfallMm >= SNOWFALL_THRESHOLD_MM ? `❄ ${blended.snowfallMm.toFixed(1)} mm/hr` : '');
+    // Keep the tap-to-probe in sync during smooth playback too, not just at
+    // each full-hour tick (openMapView) — same boundary logic as there/
+    // buildSnowRamp, so a tap mid-animation still matches what's rendered.
+    const blendedSnowing = blended.snowfallMm >= SNOWFALL_THRESHOLD_MM;
+    currentSnowLine = blendedSnowing ? blended.freezingLevel - SNOW_OFFSET : blended.freezingLevel;
+    currentHourCm = blendedSnowing ? blended.snowfallMm / 10 : 0;
+    showSnowfallMarker(blendedSnowing ? `❄ ${blended.snowfallMm.toFixed(1)} mm/hr` : '');
 
     if (t >= 1) {
       openMapView(currentIndex + 1);
