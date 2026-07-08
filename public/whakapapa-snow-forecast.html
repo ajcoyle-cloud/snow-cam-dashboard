@@ -2968,6 +2968,10 @@ function setViewMode(mode) {
   document.getElementById('map-screen').classList.toggle('live-mode', mode === 'live');
   document.getElementById('map-screen').classList.toggle('accum-mode', mode === 'accumulated');
   document.getElementById('map-screen').classList.toggle('radar-mode', mode === 'radar');
+  // Radar always shows real station pills regardless of pwVisible (see
+  // pwRenderPill/toggleObsLayer) — keep the icon's lit state honest about
+  // that instead of looking "off" while pills are actually showing.
+  { const obsBtn = document.getElementById('obs-toggle'); if (obsBtn) obsBtn.classList.toggle('active', pwVisible || mode === 'radar'); }
   // Radar is a clean read of live precipitation — clear whatever snow/temp
   // colour drape the previous mode left painted on 'snow-relief' so it isn't
   // still showing through/under the radar image. Leaving radar re-paints the
@@ -3961,7 +3965,11 @@ function pwRenderPill(trackId) {
   }
   el.style.background = pwTempColor(tempC);
   el.classList.toggle('stale', live && ageMin > 90);
-  el.style.display = pwVisible ? '' : 'none';
+  // Radar mode always shows real station pills regardless of the obs-toggle
+  // state — the point of overlaying them there is a live read of actual
+  // conditions alongside live precip, so a pill left off from another view
+  // must not carry over and hide them.
+  el.style.display = (pwVisible || viewMode === 'radar') ? '' : 'none';
   // In HOURLY view the pills are showing forecast (not observed) data, so the
   // click-through to the observation modal would be misleading — make them
   // non-interactive there, matching the pseudo pills. Live/accumulated keep the
@@ -3978,7 +3986,7 @@ function toggleObsLayer() {
   if (btn) btn.classList.toggle('active', pwVisible);
   for (const id in pwState) {
     const el = pwState[id].marker && pwState[id].marker.getElement();
-    if (el) el.style.display = pwVisible ? '' : 'none';
+    if (el) el.style.display = (pwVisible || viewMode === 'radar') ? '' : 'none';
   }
   // Also toggle pseudo pills
   for (const el of document.querySelectorAll('.pseudo-pill')) {
