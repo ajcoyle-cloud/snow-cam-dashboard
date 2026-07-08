@@ -2286,8 +2286,15 @@ function registerContourLinesProtocol() {
 // directly below 'resort-lifts-line' (like radar-layer itself) rather than
 // the absolute top of the stack, so it doesn't bury lift markers/pins.
 function bringContoursAboveRadar() {
-  if (!map || !map.getLayer('dark-terrain-contours-layer')) return;
-  map.moveLayer('dark-terrain-contours-layer', map.getLayer('resort-lifts-line') ? 'resort-lifts-line' : undefined);
+  if (!map) return;
+  const before = map.getLayer('resort-lifts-line') ? 'resort-lifts-line' : undefined;
+  if (map.getLayer('dark-terrain-contours-layer')) map.moveLayer('dark-terrain-contours-layer', before);
+  // Same reasoning for the country outline — low-zoom reference layers that
+  // should stay visible above radar's colour drape if both happen to be on
+  // screen at once (unusual — radar is a close-in regional overlay, the
+  // outline usually only reads at country-scale zoom — but cheap to keep
+  // correct regardless).
+  if (map.getLayer('country-outline-layer')) map.moveLayer('country-outline-layer', before);
 }
 
 function toggleContours() {
@@ -2308,6 +2315,21 @@ function toggleContours() {
 // surfaces can never disagree. Forces darkTerrainShowContours back to true
 // on every enable, overriding whatever the separate Snow-Test-only contour
 // trial button last left it at.
+// Country outline (dark mode only) — the pure elevation-shaded basemap has
+// no visual distinction between ocean and low-lying/coastal land (both read
+// as near-black "base" colour), unlike satellite mode where a real photo
+// makes the coastline obvious. Draws a subtle boundary line from MapLibre's
+// own public demo vector tiles (Natural Earth country polygons, free/no-key,
+// served by the MapLibre project itself for exactly this kind of use —
+// https://github.com/maplibre/demotiles) so there's still a "you are here"
+// reference at low zoom. ADM0_A3 (3-letter ISO code) is the field that
+// source's countries layer is filterable by — confirmed against MapLibre's
+// own demo style.json, not guessed.
+const RESORT_COUNTRY_ISO3 = {
+  ruapehu: 'NZL', cardrona: 'NZL', mtlyford: 'NZL', roundhill: 'NZL', treblecone: 'NZL', mthutt: 'NZL',
+  loveland: 'USA', mtvernon: 'USA',
+};
+
 let darkTerrainActive = false;
 function setDarkMode(enabled) {
   if (!map) return;
@@ -2350,11 +2372,29 @@ function setDarkMode(enabled) {
       map.addLayer({ id: 'dark-terrain-contours-layer', type: 'raster', source: 'dark-terrain-contours' });
     }
     map.setLayoutProperty('dark-terrain-contours-layer', 'visibility', darkTerrainShowContours ? 'visible' : 'none');
+
+    // Country outline — real vector source (not a custom raster protocol
+    // like the two above), MapLibre resolves the TileJSON URL itself.
+    if (!map.getSource('country-boundaries')) {
+      map.addSource('country-boundaries', { type: 'vector', url: 'https://demotiles.maplibre.org/tiles/tiles.json' });
+    }
+    if (!map.getLayer('country-outline-layer')) {
+      map.addLayer({
+        id: 'country-outline-layer', type: 'line', source: 'country-boundaries', 'source-layer': 'countries',
+        filter: ['==', ['get', 'ADM0_A3'], RESORT_COUNTRY_ISO3[resortKey] || 'NZL'],
+        paint: { 'line-color': '#8fa6c9', 'line-width': 1.4, 'line-opacity': 0.75 },
+      });
+    }
+    map.setLayoutProperty('country-outline-layer', 'visibility', 'visible');
+
     bringContoursAboveRadar();
   } else {
     map.setLayoutProperty('satellite', 'visibility', 'visible');
     if (map.getLayer('dark-terrain-layer')) map.setLayoutProperty('dark-terrain-layer', 'visibility', 'none');
     if (map.getLayer('dark-terrain-contours-layer')) map.setLayoutProperty('dark-terrain-contours-layer', 'visibility', 'none');
+    // Satellite is a real photo — the coastline is already obvious there,
+    // no need for the reference outline.
+    if (map.getLayer('country-outline-layer')) map.setLayoutProperty('country-outline-layer', 'visibility', 'none');
   }
   // Fog is bundled into the sky object in this API (see SKY_NIGHT above),
   // not a separate call — SKY_DAY carries no fog-* properties at all, so
