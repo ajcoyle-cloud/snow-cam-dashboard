@@ -897,13 +897,15 @@ if (!isSnowTestMode) {
 }
 // The wind-driven orographic snow overlay is its own dedicated tab
 // (?highres=1, see HighResSnowPage in App.jsx) — deliberately NOT part of
-// Snow Test or the regular Map tab, so it's gated on its own flag rather
-// than isSnowTestMode above.
+// Snow Test or the regular Map tab. There's no manual toggle for it at all
+// (see restoreMapSettings()) — it's the only thing this page does, so the
+// button is hidden unconditionally rather than gated on isHighResMode.
 const isHighResMode = new URLSearchParams(window.location.search).get('highres') === '1';
-if (!isHighResMode) {
+{
   const orographicBtn = document.getElementById('orographic-toggle');
   if (orographicBtn) orographicBtn.style.display = 'none';
-} else {
+}
+if (isHighResMode) {
   // Forecast (Hourly) only — no Live/Accumulated/Radar switching, so the
   // mode-switch/period-switch row has nothing to do here. viewMode stays
   // permanently 'hourly' (see restoreViewMode()'s early return below).
@@ -2829,6 +2831,11 @@ function restoreMapSettings() {
     // dark background is what makes the orographic overlay's colour ramp
     // read clearly, and satellite imagery/contour lines would compete with it.
     setDarkMode(true, false);
+    // The wind-driven overlay is this page's only feature — always on, no
+    // toggle button (see its removal above). toggleOrographicSnow() flips
+    // orographicSnowActive (starts false) and does the actual layer setup,
+    // same call a button click would have made.
+    if (!orographicSnowActive) toggleOrographicSnow();
   } else if (settings.darkMode) {
     setDarkMode(true);
   }
