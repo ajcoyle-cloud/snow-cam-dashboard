@@ -1252,9 +1252,20 @@
      there's a second flex item competing for space, so it's taken out of
      flex flow and centered via absolute positioning against the row
      (position:relative) instead — the cog is the only item left in normal
-     flow, right-aligned via justify-content:flex-end. */
+     flow, right-aligned via justify-content:flex-end.
+     z-index: this row has none at this breakpoint otherwise, unlike the
+     mobile layout below (which explicitly sets 30) — with zero pixels of
+     accidental overlap against the map iframe just after it in the DOM
+     (a real risk here specifically: the row's own height is now
+     determined only by its in-flow child, the settings cog, since the
+     resort-selector was pulled out via absolute positioning above), the
+     iframe can win clicks over it by DOM order alone with no z-index to
+     say otherwise — breaking the switcher on the Map tab only (this row
+     is unused chrome on Webcams/Forecast, which have no iframe to lose
+     the stacking fight against). */
   .map-resort-switch {
     position: relative;
+    z-index: 40;
     justify-content: flex-end !important;
   }
   .map-resort-switch .resort-selector {
