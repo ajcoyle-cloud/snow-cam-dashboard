@@ -198,12 +198,18 @@
   #map-screen.is-fullscreen #map-close { display: block; }
 
   /* ── Click-to-probe popup ──────────────────────────────────────────── */
+  /* A pill floating near the tap with no visual link to the actual tapped
+     point reads as an approximate/vague reading, not a precise one — now a
+     pill+stem+dot stack (same .sf-pill/.sf-stem/.sf-dot language the
+     Accum-mode snowfall marker already used, generalised below so both
+     share it), with the dot landing exactly on the tapped pixel via
+     translate(-50%,-100%) anchoring the whole stack's bottom edge there —
+     the same "anchor:bottom" trick a real MapLibre Marker does internally
+     (this one is plain screen-space CSS, not a geo-anchored Marker, since
+     it's positioned directly from the click event's pixel coordinates). */
   .click-popup {
-    position: absolute; z-index: 30; transform: translate(-50%, -130%);
-    background: rgba(0,0,0,0.88); color: #fff;
-    padding: 8px 16px; border-radius: 999px;
-    font-size: 0.8rem; font-weight: 600; white-space: nowrap;
-    box-shadow: 0 4px 16px rgba(0,0,0,0.4);
+    position: absolute; z-index: 30; transform: translate(-50%, -100%);
+    display: flex; flex-direction: column; align-items: center;
     pointer-events: none;
   }
 
@@ -383,13 +389,18 @@
 
   /* ── Snowfall pin + black pill (hourly + accumulated maps) ──────────────── */
   .snowfall-marker { display: flex; flex-direction: column; align-items: center; pointer-events: none; transition: opacity 0.5s ease; }
-  .snowfall-marker .sf-pill {
+  /* .sf-pill/.sf-stem/.sf-dot: not scoped to .snowfall-marker specifically —
+     also used by .click-popup above, so both the persistent/accumulated
+     snowfall marker and the tap-to-probe popup share the exact same
+     pill+stalk+dot visual language instead of two different look-and-feels
+     for "here's the data point this number came from". */
+  .sf-pill {
     background: #000; color: #fff; font-weight: 700; font-size: 0.8rem; line-height: 1;
     padding: 5px 10px; border-radius: 999px; white-space: nowrap;
     border: 1px solid rgba(255,255,255,0.55); box-shadow: 0 2px 8px rgba(0,0,0,0.55);
   }
-  .snowfall-marker .sf-stem { width: 2px; height: 12px; background: rgba(0,0,0,0.8); }
-  .snowfall-marker .sf-dot {
+  .sf-stem { width: 2px; height: 12px; background: rgba(0,0,0,0.8); }
+  .sf-dot {
     width: 9px; height: 9px; border-radius: 50%; background: #000;
     border: 2px solid #fff; box-shadow: 0 1px 4px rgba(0,0,0,0.5);
   }
@@ -2985,7 +2996,12 @@ function showClickPopup(x, y, text) {
   clickPopupEl.className = 'click-popup';
   clickPopupEl.style.left = x + 'px';
   clickPopupEl.style.top = y + 'px';
-  clickPopupEl.textContent = text;
+  // pill+stem+dot (see .sf-pill/.sf-stem/.sf-dot) — the dot lands exactly on
+  // the tapped pixel (.click-popup's own translate(-50%,-100%) anchors this
+  // whole stack's bottom edge there), so it's visually unambiguous which
+  // point on the map this number actually describes.
+  clickPopupEl.innerHTML = '<div class="sf-pill"></div><div class="sf-stem"></div><div class="sf-dot"></div>';
+  clickPopupEl.querySelector('.sf-pill').textContent = text;
   document.getElementById('map-screen').appendChild(clickPopupEl);
 
   clearTimeout(clickPopupTimer);
