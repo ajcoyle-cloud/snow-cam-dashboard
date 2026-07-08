@@ -2144,9 +2144,9 @@ const DARK_TERRAIN_MAJOR_CONTOUR_RGB = [205, 209, 216];  // bright near-white ma
 // existing major/minor alpha. Complements the dark-mode sky fog rather than
 // replacing it: the sky fog fades by on-screen camera distance (changes
 // with pitch/zoom as you look around), this fades by real-world distance
-// from the mountain regardless of camera. Tried 200km, 100km, 50km live;
-// 30km next per request.
-const CONTOUR_FADE_RADIUS_KM = 30;
+// from the mountain regardless of camera. Tried 200km, 100km, 50km, 30km
+// live; 40km next per request.
+const CONTOUR_FADE_RADIUS_KM = 40;
 
 // Live-adjustable via #contour-toggle — read fresh by the tile protocol on
 // every tile it generates (see registerDarkTerrainProtocol below), same
