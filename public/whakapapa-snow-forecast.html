@@ -2414,9 +2414,10 @@ function orographicMultiplier(U, V, gradEast, gradNorth) {
 // indices the way the raster protocol's own gradient is). offsetM is a
 // similar real-world scale to the box-blur smoothing used when rendering
 // the coloured overlay, so a tap reads the same "local terrain" area a
-// finger-width covers rather than one noisy single point. 10m keeps that
-// local while still averaging over a few DEM pixels, not just one.
-function orographicSampleGradient(lngLat, offsetM = 10) {
+// finger-width covers rather than one noisy single point. 5m keeps that
+// local — close to the width of a single cat track or narrow gully — while
+// still averaging over a couple of DEM pixels, not just one raw sample.
+function orographicSampleGradient(lngLat, offsetM = 5) {
   const latRad = (lngLat.lat * Math.PI) / 180;
   const dLat = offsetM / 111320;
   const dLng = offsetM / (111320 * Math.cos(latRad));
@@ -2466,6 +2467,11 @@ function registerOrographicSnowProtocol() {
     // elevation-band checks below still use the real, unsmoothed elevation.
     const elevSmooth = orographicBoxBlur(elev, size, 2);
 
+    // Same per-column/per-row distance precompute as registerDarkTerrainProtocol,
+    // for the depth-darken fog-alternative effect below.
+    const lonForPx = new Float64Array(size);
+    for (let px = 0; px < size; px++) lonForPx[px] = tilePixelToLonLat(x, y, z, px, 0, size)[0];
+
     // Read live so a timeline scrub (see openMapView's refreshOrographicSnow
     // call) regenerates this against whichever hour is now current, exactly
     // like buildSnowRamp does for the elevation-only layer.
@@ -2489,18 +2495,23 @@ function registerOrographicSnowProtocol() {
 
       for (let py = 0; py < size; py++) {
         const ym1 = Math.max(0, py - 1), yp1 = Math.min(size - 1, py + 1);
+        const rowLat = tilePixelToLonLat(x, y, z, 0, py, size)[1];
+        const cosAvgLatRad = Math.cos(((LOC.lat + rowLat) / 2) * Math.PI / 180);
         for (let px = 0; px < size; px++) {
           const i = py * size + px;
           const o = i * 4;
           const elevHere = elev[i];
           if (elevHere < boundary) { out.data[o + 3] = 0; continue; }
 
+          const distKm = approxDistanceKm(LOC.lat, LOC.lon, rowLat, lonForPx[px], cosAvgLatRad);
+          const darken = 1 - depthDarkenFactor(distKm);
+
           if (!snowing) {
             // No active snowfall — same flat freezing-level tint as
             // buildSnowRamp's non-snowing branch. Wind-driven redistribution
             // only makes physical sense for falling snow, not a static
             // freezing-level highlight.
-            out.data[o] = flR; out.data[o + 1] = flG; out.data[o + 2] = flB;
+            out.data[o] = flR * darken; out.data[o + 1] = flG * darken; out.data[o + 2] = flB * darken;
             out.data[o + 3] = darkTerrainActive ? 38 : 51; // ~0.15 / 0.2 opacity
             continue;
           }
@@ -2522,7 +2533,11 @@ function registerOrographicSnowProtocol() {
           // at a glance for this one hour, not just "more or less faint blue."
           const t = (multiplier - M_LO) / (M_HI - M_LO);
           const [cR, cG, cB] = orographicRampColor(t);
-          out.data[o] = cR; out.data[o + 1] = cG; out.data[o + 2] = cB;
+          // Depth-darken fog alternative (see DEPTH_DARKEN_RADIUS_KM above) —
+          // same resort-distance falloff as the dark-relief base layer, so
+          // the whole scene (base + colour overlay) darkens toward the Alps
+          // together as one consistent depth effect, not just the terrain.
+          out.data[o] = cR * darken; out.data[o + 1] = cG * darken; out.data[o + 2] = cB * darken;
           out.data[o + 3] = 225; // strong, near-constant opacity — bold colours read clearly against the dark relief basemap
         }
       }
@@ -2594,6 +2609,26 @@ const DARK_TERRAIN_MAJOR_CONTOUR_RGB = [205, 209, 216];  // bright near-white ma
 // live; 40km next per request.
 const CONTOUR_FADE_RADIUS_KM = 40;
 
+// Depth "fog": darkens (not fades to transparent — these are opaque base/
+// overlay layers, and alpha-fading them would reveal the green
+// 'background' layer underneath, not a natural black falloff) terrain
+// colour with distance from the resort's own coordinate, so whatever
+// mountain you're actually looking at keeps full colour while everything
+// further out reads as progressively darker — real visual focus, like a
+// camera's depth of field. MapLibre's own built-in Sky fog (SKY_NIGHT's
+// fog-* properties, already at their max range/blend values) wasn't a
+// strong enough effect on its own; this reuses the same resort-distance
+// technique the contour radial fade above already uses, but bakes a much
+// stronger, fully-controllable falloff directly into the rendered pixels
+// instead of relying on MapLibre's fixed fog math. Used by
+// registerDarkTerrainProtocol and registerOrographicSnowProtocol below.
+const DEPTH_DARKEN_RADIUS_KM = 18;
+function depthDarkenFactor(distKm) {
+  // Power >1 keeps the near-resort area essentially untouched, then ramps
+  // up increasingly steeply toward the radius — fully black at/beyond it.
+  return Math.min(1, Math.pow(Math.max(0, distKm) / DEPTH_DARKEN_RADIUS_KM, 1.6));
+}
+
 // Live-adjustable via #contour-toggle — read fresh by the tile protocol on
 // every tile it generates (see registerDarkTerrainProtocol below), same
 // pattern as snowOverlayParams above. Off leaves a plain elevation-shaded
@@ -2630,16 +2665,29 @@ function registerDarkTerrainProtocol() {
     // below it, same as satellite does.
     const baseElev = LOC.baseElev, topElev = LOC.topElev || LOC.summitElev + 200;
     const span = Math.max(1, topElev - baseElev);
+    // Longitude only depends on px, latitude only on py — precompute once
+    // per column/row rather than recomputing per pixel (see
+    // registerContourLinesProtocol below, same technique).
+    const lonForPx = new Float64Array(size);
+    for (let px = 0; px < size; px++) lonForPx[px] = tilePixelToLonLat(x, y, z, px, 0, size)[0];
     const out = ctx.createImageData(size, size);
-    for (let i = 0; i < size * size; i++) {
-      const e = elev[i];
-      const t = Math.min(1, Math.max(0, (e - baseElev) / span));
-      const r = DARK_TERRAIN_BASE_RGB[0] + t * (DARK_TERRAIN_TOP_RGB[0] - DARK_TERRAIN_BASE_RGB[0]);
-      const g = DARK_TERRAIN_BASE_RGB[1] + t * (DARK_TERRAIN_TOP_RGB[1] - DARK_TERRAIN_BASE_RGB[1]);
-      const b = DARK_TERRAIN_BASE_RGB[2] + t * (DARK_TERRAIN_TOP_RGB[2] - DARK_TERRAIN_BASE_RGB[2]);
-      const o = i * 4;
-      out.data[o] = Math.round(r); out.data[o + 1] = Math.round(g); out.data[o + 2] = Math.round(b);
-      out.data[o + 3] = 255;
+    for (let py = 0; py < size; py++) {
+      const rowLat = tilePixelToLonLat(x, y, z, 0, py, size)[1];
+      const cosAvgLatRad = Math.cos(((LOC.lat + rowLat) / 2) * Math.PI / 180);
+      for (let px = 0; px < size; px++) {
+        const i = py * size + px;
+        const e = elev[i];
+        const t = Math.min(1, Math.max(0, (e - baseElev) / span));
+        let r = DARK_TERRAIN_BASE_RGB[0] + t * (DARK_TERRAIN_TOP_RGB[0] - DARK_TERRAIN_BASE_RGB[0]);
+        let g = DARK_TERRAIN_BASE_RGB[1] + t * (DARK_TERRAIN_TOP_RGB[1] - DARK_TERRAIN_BASE_RGB[1]);
+        let b = DARK_TERRAIN_BASE_RGB[2] + t * (DARK_TERRAIN_TOP_RGB[2] - DARK_TERRAIN_BASE_RGB[2]);
+        const distKm = approxDistanceKm(LOC.lat, LOC.lon, rowLat, lonForPx[px], cosAvgLatRad);
+        const darken = 1 - depthDarkenFactor(distKm);
+        r *= darken; g *= darken; b *= darken;
+        const o = i * 4;
+        out.data[o] = Math.round(r); out.data[o + 1] = Math.round(g); out.data[o + 2] = Math.round(b);
+        out.data[o + 3] = 255;
+      }
     }
     ctx.putImageData(out, 0, 0);
 
