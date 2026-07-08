@@ -2107,8 +2107,60 @@ function registerDarkTerrainProtocol() {
       elev[i] = decodeTerrainRGB(src[i * 4], src[i * 4 + 1], src[i * 4 + 2]);
     }
 
+    // Pure elevation-shaded base — no contour lines. Those are a separate
+    // layer/protocol (registerContourLinesProtocol below) so they can be
+    // stacked above the radar overlay while this opaque base basemap stays
+    // below it, same as satellite does.
     const baseElev = LOC.baseElev, topElev = LOC.topElev || LOC.summitElev + 200;
     const span = Math.max(1, topElev - baseElev);
+    const out = ctx.createImageData(size, size);
+    for (let i = 0; i < size * size; i++) {
+      const e = elev[i];
+      const t = Math.min(1, Math.max(0, (e - baseElev) / span));
+      const r = DARK_TERRAIN_BASE_RGB[0] + t * (DARK_TERRAIN_TOP_RGB[0] - DARK_TERRAIN_BASE_RGB[0]);
+      const g = DARK_TERRAIN_BASE_RGB[1] + t * (DARK_TERRAIN_TOP_RGB[1] - DARK_TERRAIN_BASE_RGB[1]);
+      const b = DARK_TERRAIN_BASE_RGB[2] + t * (DARK_TERRAIN_TOP_RGB[2] - DARK_TERRAIN_BASE_RGB[2]);
+      const o = i * 4;
+      out.data[o] = Math.round(r); out.data[o + 1] = Math.round(g); out.data[o + 2] = Math.round(b);
+      out.data[o + 3] = 255;
+    }
+    ctx.putImageData(out, 0, 0);
+
+    const outBlob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/png'));
+    return { data: await outBlob.arrayBuffer() };
+  });
+}
+
+// Contour LINES only — fully transparent everywhere except the line pixels
+// themselves, so this can sit as its own layer stacked *above* the radar
+// colour overlay (unlike the opaque elevation-shaded base above, which
+// stays below radar like any other basemap). Same DEM tiles/decode, same
+// major/minor band-crossing test as the base protocol used to do inline
+// before contours were split out into this separate layer.
+let contourLinesProtocolRegistered = false;
+function registerContourLinesProtocol() {
+  if (contourLinesProtocolRegistered) return;
+  contourLinesProtocolRegistered = true;
+  maplibregl.addProtocol('darkterraincontours', async (params) => {
+    const [z, x, y] = params.url.replace('darkterraincontours://', '').split('/').map(Number);
+    const template = await getDemTileUrlTemplate();
+    const demUrl = template.replace('{z}', z).replace('{x}', x).replace('{y}', y);
+    const res = await fetch(demUrl);
+    const blob = await res.blob();
+    const bitmap = await createImageBitmap(blob);
+    const size = bitmap.width;
+
+    const canvas = document.createElement('canvas');
+    canvas.width = size; canvas.height = size;
+    const ctx = canvas.getContext('2d');
+    ctx.drawImage(bitmap, 0, 0);
+    const src = ctx.getImageData(0, 0, size, size).data;
+
+    const elev = new Float32Array(size * size);
+    for (let i = 0; i < size * size; i++) {
+      elev[i] = decodeTerrainRGB(src[i * 4], src[i * 4 + 1], src[i * 4 + 2]);
+    }
+
     const out = ctx.createImageData(size, size);
     for (let py = 0; py < size; py++) {
       const yp1 = Math.min(size - 1, py + 1);
@@ -2116,40 +2168,21 @@ function registerDarkTerrainProtocol() {
         const i = py * size + px;
         const xp1 = Math.min(size - 1, px + 1);
         const e = elev[i];
-        const t = Math.min(1, Math.max(0, (e - baseElev) / span));
-        let r = DARK_TERRAIN_BASE_RGB[0] + t * (DARK_TERRAIN_TOP_RGB[0] - DARK_TERRAIN_BASE_RGB[0]);
-        let g = DARK_TERRAIN_BASE_RGB[1] + t * (DARK_TERRAIN_TOP_RGB[1] - DARK_TERRAIN_BASE_RGB[1]);
-        let b = DARK_TERRAIN_BASE_RGB[2] + t * (DARK_TERRAIN_TOP_RGB[2] - DARK_TERRAIN_BASE_RGB[2]);
-
-        // A contour line crosses this pixel if it and its right/below
-        // neighbor fall into different elevation bands — checked at both the
-        // regular 100m interval and the "special" 500m major/index interval,
-        // with the major one called out in a brighter colour and taking
-        // priority where the two coincide (every major contour is also a
-        // minor one). Skipped entirely when contours are toggled off, leaving
-        // the plain elevation-shaded r/g/b from above untouched.
-        if (darkTerrainShowContours) {
-          const eRight = elev[py * size + xp1], eDown = elev[yp1 * size + px];
-          const band = Math.floor(e / DARK_TERRAIN_CONTOUR_INTERVAL_M);
-          const isMinorContour = band !== Math.floor(eRight / DARK_TERRAIN_CONTOUR_INTERVAL_M) || band !== Math.floor(eDown / DARK_TERRAIN_CONTOUR_INTERVAL_M);
-          const majorBand = Math.floor(e / DARK_TERRAIN_MAJOR_CONTOUR_INTERVAL_M);
-          const isMajorContour = majorBand !== Math.floor(eRight / DARK_TERRAIN_MAJOR_CONTOUR_INTERVAL_M) || majorBand !== Math.floor(eDown / DARK_TERRAIN_MAJOR_CONTOUR_INTERVAL_M);
-          if (isMajorContour) {
-            const mix = 0.9;
-            r += (DARK_TERRAIN_MAJOR_CONTOUR_RGB[0] - r) * mix;
-            g += (DARK_TERRAIN_MAJOR_CONTOUR_RGB[1] - g) * mix;
-            b += (DARK_TERRAIN_MAJOR_CONTOUR_RGB[2] - b) * mix;
-          } else if (isMinorContour) {
-            const mix = 0.65;
-            r += (DARK_TERRAIN_CONTOUR_RGB[0] - r) * mix;
-            g += (DARK_TERRAIN_CONTOUR_RGB[1] - g) * mix;
-            b += (DARK_TERRAIN_CONTOUR_RGB[2] - b) * mix;
-          }
-        }
-
+        const eRight = elev[py * size + xp1], eDown = elev[yp1 * size + px];
+        const band = Math.floor(e / DARK_TERRAIN_CONTOUR_INTERVAL_M);
+        const isMinorContour = band !== Math.floor(eRight / DARK_TERRAIN_CONTOUR_INTERVAL_M) || band !== Math.floor(eDown / DARK_TERRAIN_CONTOUR_INTERVAL_M);
+        const majorBand = Math.floor(e / DARK_TERRAIN_MAJOR_CONTOUR_INTERVAL_M);
+        const isMajorContour = majorBand !== Math.floor(eRight / DARK_TERRAIN_MAJOR_CONTOUR_INTERVAL_M) || majorBand !== Math.floor(eDown / DARK_TERRAIN_MAJOR_CONTOUR_INTERVAL_M);
         const o = i * 4;
-        out.data[o] = Math.round(r); out.data[o + 1] = Math.round(g); out.data[o + 2] = Math.round(b);
-        out.data[o + 3] = 255;
+        if (isMajorContour) {
+          out.data[o] = DARK_TERRAIN_MAJOR_CONTOUR_RGB[0]; out.data[o + 1] = DARK_TERRAIN_MAJOR_CONTOUR_RGB[1]; out.data[o + 2] = DARK_TERRAIN_MAJOR_CONTOUR_RGB[2];
+          out.data[o + 3] = Math.round(255 * 0.9);
+        } else if (isMinorContour) {
+          out.data[o] = DARK_TERRAIN_CONTOUR_RGB[0]; out.data[o + 1] = DARK_TERRAIN_CONTOUR_RGB[1]; out.data[o + 2] = DARK_TERRAIN_CONTOUR_RGB[2];
+          out.data[o + 3] = Math.round(255 * 0.65);
+        } else {
+          out.data[o + 3] = 0; // fully transparent — the base/satellite/radar below shows through
+        }
       }
     }
     ctx.putImageData(out, 0, 0);
@@ -2159,17 +2192,16 @@ function registerDarkTerrainProtocol() {
   });
 }
 
-// Contour on/off needs the already-rendered tiles regenerated — MapLibre
-// caches tiles by source, so remove+re-add is the reliable way to force
-// every visible tile back through the protocol (same pattern as
-// refreshSnowOverlay above).
-function refreshDarkTerrain() {
-  if (!map || !darkTerrainActive) return;
-  if (map.getLayer('dark-terrain-layer')) map.removeLayer('dark-terrain-layer');
-  if (map.getSource('dark-terrain')) map.removeSource('dark-terrain');
-  map.addSource('dark-terrain', { type: 'raster', tiles: ['darkterrain://{z}/{x}/{y}'], tileSize: 512 });
-  // Same slot as when first added in toggleBasemap — keeps hillshade/snow-relief layered on top.
-  map.addLayer({ id: 'dark-terrain-layer', type: 'raster', source: 'dark-terrain' }, 'depth-shade');
+// Guarantees the contour-lines layer renders above radar-layer regardless
+// of which was added/reordered more recently — MapLibre stacks layers by
+// array position, and whichever of the two was added/moved *last* ends up
+// on top, so this must be re-asserted both when dark mode turns on (here)
+// and whenever radar-layer is (re)created (radarDrawFrame). Positioned
+// directly below 'resort-lifts-line' (like radar-layer itself) rather than
+// the absolute top of the stack, so it doesn't bury lift markers/pins.
+function bringContoursAboveRadar() {
+  if (!map || !map.getLayer('dark-terrain-contours-layer')) return;
+  map.moveLayer('dark-terrain-contours-layer', map.getLayer('resort-lifts-line') ? 'resort-lifts-line' : undefined);
 }
 
 function toggleContours() {
@@ -2179,16 +2211,17 @@ function toggleContours() {
     btn.classList.toggle('active', darkTerrainShowContours);
     btn.title = darkTerrainShowContours ? 'Hide contour lines' : 'Show contour lines';
   }
-  refreshDarkTerrain();
+  if (map.getLayer('dark-terrain-contours-layer')) {
+    map.setLayoutProperty('dark-terrain-contours-layer', 'visibility', darkTerrainShowContours ? 'visible' : 'none');
+  }
 }
 
 // Shared by the raw Snow Test trial toggle (#basemap-toggle) and the
-// settings-cog "Dark mode" toggle further down — one source of
-// truth for switching the basemap + sky together, so the two surfaces can
-// never disagree. Always regenerates the dark-terrain tiles on enable
-// (rather than reusing whatever's cached) so darkTerrainShowContours is
-// guaranteed fresh even if the separate Snow-Test-only contour trial button
-// last left it off.
+// settings-cog "Dark mode" toggle further down — one source of truth for
+// switching the basemap + contours-layer + sky together, so the two
+// surfaces can never disagree. Forces darkTerrainShowContours back to true
+// on every enable, overriding whatever the separate Snow-Test-only contour
+// trial button last left it at.
 let darkTerrainActive = false;
 function setDarkMode(enabled) {
   if (!map) return;
@@ -2199,14 +2232,19 @@ function setDarkMode(enabled) {
     trialBtn.classList.toggle('active', enabled);
     trialBtn.title = enabled ? 'Switch to satellite basemap' : 'Switch to dark terrain basemap (trial)';
   }
+  // Snow-Test-only trial control (contours on/off, independent of dark mode
+  // as a whole) — must never surface on prod's Map tab just because dark
+  // mode got turned on via the settings cog there. isSnowTestMode gates it
+  // exactly like the other trial buttons at the top of this script.
   const contourBtn = document.getElementById('contour-toggle');
   if (contourBtn) {
-    contourBtn.style.display = enabled ? 'flex' : 'none';
+    contourBtn.style.display = (enabled && isSnowTestMode) ? 'flex' : 'none';
     contourBtn.classList.toggle('active', darkTerrainShowContours);
     contourBtn.title = 'Hide contour lines';
   }
   if (enabled) {
     registerDarkTerrainProtocol();
+    registerContourLinesProtocol();
     if (map.getLayer('dark-terrain-layer')) map.removeLayer('dark-terrain-layer');
     if (map.getSource('dark-terrain')) map.removeSource('dark-terrain');
     map.addSource('dark-terrain', { type: 'raster', tiles: ['darkterrain://{z}/{x}/{y}'], tileSize: 512 });
@@ -2215,9 +2253,22 @@ function setDarkMode(enabled) {
     map.addLayer({ id: 'dark-terrain-layer', type: 'raster', source: 'dark-terrain' }, 'depth-shade');
     map.setLayoutProperty('satellite', 'visibility', 'none');
     map.setLayoutProperty('dark-terrain-layer', 'visibility', 'visible');
+
+    // Contour lines: a separate transparent-except-lines layer, added (or
+    // reused) here and immediately re-asserted above any existing radar
+    // layer — see bringContoursAboveRadar().
+    if (!map.getSource('dark-terrain-contours')) {
+      map.addSource('dark-terrain-contours', { type: 'raster', tiles: ['darkterraincontours://{z}/{x}/{y}'], tileSize: 512 });
+    }
+    if (!map.getLayer('dark-terrain-contours-layer')) {
+      map.addLayer({ id: 'dark-terrain-contours-layer', type: 'raster', source: 'dark-terrain-contours' });
+    }
+    map.setLayoutProperty('dark-terrain-contours-layer', 'visibility', darkTerrainShowContours ? 'visible' : 'none');
+    bringContoursAboveRadar();
   } else {
     map.setLayoutProperty('satellite', 'visibility', 'visible');
     if (map.getLayer('dark-terrain-layer')) map.setLayoutProperty('dark-terrain-layer', 'visibility', 'none');
+    if (map.getLayer('dark-terrain-contours-layer')) map.setLayoutProperty('dark-terrain-contours-layer', 'visibility', 'none');
   }
   map.setSky(enabled ? SKY_NIGHT : SKY_DAY);
 }
@@ -2974,6 +3025,11 @@ function radarDrawFrame(i) {
       paint: { 'raster-opacity': RADAR_CALIBRATION.opacity, 'raster-fade-duration': 0 },
       layout: { visibility: viewMode === 'radar' ? 'visible' : 'none' },
     }, map.getLayer('resort-lifts-line') ? 'resort-lifts-line' : undefined);
+    // Dark mode's contour-lines layer (if already on) was inserted at this
+    // same 'before resort-lifts-line' slot earlier — radar-layer just took
+    // that exact spot, which would otherwise leave contours buried
+    // underneath it. Re-assert contours back on top (see setDarkMode).
+    bringContoursAboveRadar();
   } else {
     setTimeout(() => radarDrawFrame(i), 80);
     return;

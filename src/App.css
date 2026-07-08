@@ -1245,8 +1245,12 @@
     display: inline-flex !important;
   }
 
-  /* Desktop map view: location switcher centered */
+  /* Desktop map view: location switcher on the left, settings cog on the
+     right (MapSettingsMenu, added alongside ResortSelector in App.jsx) —
+     was center !important back when the switcher was the row's only
+     child; needs its own !important to beat that specificity now that
+     there's a second item. */
   .map-resort-switch {
-    justify-content: center !important;
+    justify-content: space-between !important;
   }
 }
