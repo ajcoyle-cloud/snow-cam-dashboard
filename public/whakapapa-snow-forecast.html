@@ -2677,9 +2677,11 @@ function buildSnowRamp(hour) {
 
   if (!snowing) {
     // Freezing-level overlay (no active snowfall). Dark contour mode uses a
-    // darker, more subtle blue (and lower opacity) than the daytime tint,
-    // which read as too bright/saturated against the dark relief basemap.
-    const color = darkTerrainActive ? 'rgba(25,55,110,0.15)' : 'rgba(60,130,255,0.2)';
+    // darker blue than the daytime tint (which read as too bright/saturated
+    // against the dark relief basemap), but at 0.15 opacity it disappeared
+    // entirely against the near-black terrain — bumped back up so it's
+    // still visibly darker/less saturated than daytime, just not invisible.
+    const color = darkTerrainActive ? 'rgba(35,85,180,0.35)' : 'rgba(60,130,255,0.2)';
     return [
       'interpolate', ['linear'], ['elevation'],
       line - 1, 'rgba(255,255,255,0)',
