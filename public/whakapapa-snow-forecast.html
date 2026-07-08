@@ -839,34 +839,23 @@ if (!isSnowTestMode) {
 // level so both initMap()'s first map.setSky() call and setDarkMode() can
 // use them.
 const SKY_DAY = { 'sky-color': '#3a82d6', 'horizon-color': '#cfe9fb', 'sky-horizon-blend': 0.8 };
-const SKY_NIGHT = { 'sky-color': '#03050c', 'horizon-color': '#1b2338', 'sky-horizon-blend': 0.7 };
-
-// Depth fog for dark mode — the dense 20m contour lines turn the far
-// distance into visual noise (every band crossing is an equally bright
-// line all the way to the horizon, with nothing to indicate depth), so
-// fade terrain/contours toward black the further they are from the
-// camera. MapLibre's fog (same shape as Mapbox's) works entirely in
-// screen/camera space — it's applied to the whole 3D scene, not any one
-// layer, so it darkens the raster basemap AND the contour-lines layer
-// together as distance increases; it does not touch DOM markers (station
-// pills etc.), which is what we want — those must stay fully legible
-// regardless of distance (see .maplibregl-marker z-index fix above).
-// range/horizon-blend follow Mapbox's own documented terrain+fog example
-// ([-0.5, 2], negative = closer to camera) rather than the wide-landscape
-// defaults ([0.5, 10]) used in most fog demos — this map's zoom (~13) and
-// close mountain-scale view is a completely different scale to those, and
-// a [0.3, 6] range tried first (loosely adapted from the wide-landscape
-// defaults) put the fog's "fully opaque" point so far past the visible
-// horizon that no darkening was visible at all anywhere on screen. Still
-// not verified live (this sandbox can't load MapLibre/DEM tiles) — may
-// need further adjustment once seen for real.
-const DARK_FOG = {
-  range: [-0.5, 2],
-  color: '#05070c',
-  'horizon-blend': 0.3,
-  'high-color': '#03050c',
-  'space-color': '#000000',
-  'star-intensity': 0,
+// Depth fog for dark mode — the dense 20m contours turn the far distance
+// into visual noise (every band crossing is an equally bright line all the
+// way to the horizon, no depth cue at all), so fade terrain/contours
+// toward black with distance from camera. IMPORTANT: unlike Mapbox GL JS,
+// MapLibre has no separate Map#setFog() — a first attempt calling that
+// (Mapbox's API shape: {range, color, 'horizon-blend', 'high-color',
+// 'space-color', 'star-intensity'}) silently did nothing, because that
+// method/shape doesn't exist here at all. MapLibre folds fog into the same
+// Sky spec used for sky-color/horizon-color instead: fog-color (requires
+// 3D terrain — this map has terrain: {source:'terrain'} in its style, so
+// that's satisfied) and fog-ground-blend (0 = map centre, 1 = horizon) are
+// the two properties that actually exist. horizon-fog-blend/fog-ground-
+// blend values below are hand-picked, not derived from anything — still
+// not verified live (this sandbox can't load MapLibre/DEM tiles).
+const SKY_NIGHT = {
+  'sky-color': '#03050c', 'horizon-color': '#1b2338', 'sky-horizon-blend': 0.7,
+  'fog-color': '#05070c', 'fog-ground-blend': 0.65, 'horizon-fog-blend': 0.5,
 };
 
 // ── Other-resort navigation pills (shown when zoomed out) ──────────────────
@@ -2321,12 +2310,10 @@ function setDarkMode(enabled) {
     if (map.getLayer('dark-terrain-layer')) map.setLayoutProperty('dark-terrain-layer', 'visibility', 'none');
     if (map.getLayer('dark-terrain-contours-layer')) map.setLayoutProperty('dark-terrain-contours-layer', 'visibility', 'none');
   }
+  // Fog is bundled into the sky object in this API (see SKY_NIGHT above),
+  // not a separate call — SKY_DAY carries no fog-* properties at all, so
+  // switching back to satellite naturally has none, same as it always did.
   map.setSky(enabled ? SKY_NIGHT : SKY_DAY);
-  // Only fogged in dark mode — the satellite basemap is a real photo, and
-  // fading it to black with distance wasn't asked for and would just look
-  // like a rendering bug there. setFog(null) clears it (MapLibre's own
-  // no-fog signal), same as how satellite has no dark-terrain-layer.
-  map.setFog(enabled ? DARK_FOG : null);
 }
 
 function toggleBasemap() {
