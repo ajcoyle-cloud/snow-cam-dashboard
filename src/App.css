@@ -776,7 +776,7 @@
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition: background 0.15s;
   box-shadow: 0 4px 24px rgba(0, 0, 0, 0.3);
 }
 
@@ -1064,11 +1064,21 @@
     padding-top: 0 !important;
   }
 
+  /* Same grey+blur pill treatment as the iframe's Live/Hourly/Accum/Radar
+     switcher (.pill-group) — mobile previously left this on the plain
+     .resort-button dark-solid style, unlike the desktop override below. */
   .map-resort-switch .resort-button {
     height: 38px;
+    box-sizing: border-box;
     padding: 0 16px;
     display: inline-flex;
     align-items: center;
+    background: rgba(54, 54, 62, 0.85);
+    backdrop-filter: blur(14px);
+    border: 1px solid rgba(255, 255, 255, 0.14);
+  }
+  .map-resort-switch .resort-button:hover {
+    background: rgba(70, 70, 80, 0.9);
   }
 
   .map-resort-switch .elevation-toggle {
