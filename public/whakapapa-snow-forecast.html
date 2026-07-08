@@ -124,7 +124,7 @@
   .speed-btn:hover { color: #fff; }
   .speed-btn.active { background: #333; color: #fff; }
 
-  #map-enlarge, #map-close, #obs-toggle, #rotate-toggle, #snow-toggle, #snow-overlay-toggle, #basemap-toggle {
+  #map-enlarge, #map-close, #obs-toggle, #rotate-toggle, #snow-toggle, #snow-overlay-toggle, #basemap-toggle, #contour-toggle {
     position: absolute; top: 20px; z-index: 20;
     background: rgba(255,255,255,0.12); color: #fff; border: none;
     width: 40px; height: 40px; border-radius: 50%; font-size: 1.1rem; cursor: pointer;
@@ -152,6 +152,12 @@
   #basemap-toggle.active { background: #333; }
   #basemap-toggle:hover { background: rgba(255,255,255,0.25); }
   #basemap-toggle.active:hover { background: #404040; }
+  /* Only meaningful (and only shown — see toggleBasemap()) while the dark
+     terrain basemap itself is on, so it sits right after that toggle. */
+  #contour-toggle { left: 284px; font-size: 0.95rem; display: none; }
+  #contour-toggle.active { background: #333; }
+  #contour-toggle:hover { background: rgba(255,255,255,0.25); }
+  #contour-toggle.active:hover { background: #404040; }
 
   /* Tuning panel for the snow-overlay trial — hidden until that toggle is
      on (see toggleSnowOverlay()). Sits below the icon row, clear of
@@ -448,6 +454,7 @@
     #snow-toggle { top: 60px; left: 106px; }
     #snow-overlay-toggle { top: 60px; left: 152px; }
     #basemap-toggle { top: 60px; left: 198px; }
+    #contour-toggle { top: 60px; left: 244px; }
     #snow-overlay-controls { top: 106px; left: 12px; right: 12px; width: auto; }
     #map-close { top: 14px; right: 14px; }
 
@@ -614,6 +621,10 @@
   <!-- Trial: dark "sci-fi" elevation basemap with 100m contours, swapping out
        the satellite imagery — off by default, see toggleBasemap(). -->
   <button id="basemap-toggle" onclick="toggleBasemap()" title="Toggle dark terrain basemap (trial)">🌑</button>
+  <!-- Only shown while the dark terrain basemap is on (see toggleBasemap()) —
+       lets contour lines be switched off to leave a plain elevation-shaded
+       relief map. See toggleContours(). -->
+  <button id="contour-toggle" class="active" onclick="toggleContours()" title="Toggle contour lines">〰️</button>
   <button id="map-close" onclick="exitFullscreenView()" title="Close fullscreen">✕</button>
   <div id="map-title"></div>
 
@@ -2036,6 +2047,12 @@ const DARK_TERRAIN_TOP_RGB = [55, 58, 65];    // darker summit too — stays a d
 const DARK_TERRAIN_CONTOUR_RGB = [95, 98, 108];        // faded minor (20m) contours
 const DARK_TERRAIN_MAJOR_CONTOUR_RGB = [240, 244, 250];  // bright near-white major (100m) contours
 
+// Live-adjustable via #contour-toggle — read fresh by the tile protocol on
+// every tile it generates (see registerDarkTerrainProtocol below), same
+// pattern as snowOverlayParams above. Off leaves a plain elevation-shaded
+// relief map with no contour lines at all.
+let darkTerrainShowContours = true;
+
 let darkTerrainProtocolRegistered = false;
 function registerDarkTerrainProtocol() {
   if (darkTerrainProtocolRegistered) return;
@@ -2079,22 +2096,25 @@ function registerDarkTerrainProtocol() {
         // regular 100m interval and the "special" 500m major/index interval,
         // with the major one called out in a brighter colour and taking
         // priority where the two coincide (every major contour is also a
-        // minor one).
-        const eRight = elev[py * size + xp1], eDown = elev[yp1 * size + px];
-        const band = Math.floor(e / DARK_TERRAIN_CONTOUR_INTERVAL_M);
-        const isMinorContour = band !== Math.floor(eRight / DARK_TERRAIN_CONTOUR_INTERVAL_M) || band !== Math.floor(eDown / DARK_TERRAIN_CONTOUR_INTERVAL_M);
-        const majorBand = Math.floor(e / DARK_TERRAIN_MAJOR_CONTOUR_INTERVAL_M);
-        const isMajorContour = majorBand !== Math.floor(eRight / DARK_TERRAIN_MAJOR_CONTOUR_INTERVAL_M) || majorBand !== Math.floor(eDown / DARK_TERRAIN_MAJOR_CONTOUR_INTERVAL_M);
-        if (isMajorContour) {
-          const mix = 0.9;
-          r += (DARK_TERRAIN_MAJOR_CONTOUR_RGB[0] - r) * mix;
-          g += (DARK_TERRAIN_MAJOR_CONTOUR_RGB[1] - g) * mix;
-          b += (DARK_TERRAIN_MAJOR_CONTOUR_RGB[2] - b) * mix;
-        } else if (isMinorContour) {
-          const mix = 0.65;
-          r += (DARK_TERRAIN_CONTOUR_RGB[0] - r) * mix;
-          g += (DARK_TERRAIN_CONTOUR_RGB[1] - g) * mix;
-          b += (DARK_TERRAIN_CONTOUR_RGB[2] - b) * mix;
+        // minor one). Skipped entirely when contours are toggled off, leaving
+        // the plain elevation-shaded r/g/b from above untouched.
+        if (darkTerrainShowContours) {
+          const eRight = elev[py * size + xp1], eDown = elev[yp1 * size + px];
+          const band = Math.floor(e / DARK_TERRAIN_CONTOUR_INTERVAL_M);
+          const isMinorContour = band !== Math.floor(eRight / DARK_TERRAIN_CONTOUR_INTERVAL_M) || band !== Math.floor(eDown / DARK_TERRAIN_CONTOUR_INTERVAL_M);
+          const majorBand = Math.floor(e / DARK_TERRAIN_MAJOR_CONTOUR_INTERVAL_M);
+          const isMajorContour = majorBand !== Math.floor(eRight / DARK_TERRAIN_MAJOR_CONTOUR_INTERVAL_M) || majorBand !== Math.floor(eDown / DARK_TERRAIN_MAJOR_CONTOUR_INTERVAL_M);
+          if (isMajorContour) {
+            const mix = 0.9;
+            r += (DARK_TERRAIN_MAJOR_CONTOUR_RGB[0] - r) * mix;
+            g += (DARK_TERRAIN_MAJOR_CONTOUR_RGB[1] - g) * mix;
+            b += (DARK_TERRAIN_MAJOR_CONTOUR_RGB[2] - b) * mix;
+          } else if (isMinorContour) {
+            const mix = 0.65;
+            r += (DARK_TERRAIN_CONTOUR_RGB[0] - r) * mix;
+            g += (DARK_TERRAIN_CONTOUR_RGB[1] - g) * mix;
+            b += (DARK_TERRAIN_CONTOUR_RGB[2] - b) * mix;
+          }
         }
 
         const o = i * 4;
@@ -2109,6 +2129,29 @@ function registerDarkTerrainProtocol() {
   });
 }
 
+// Contour on/off needs the already-rendered tiles regenerated — MapLibre
+// caches tiles by source, so remove+re-add is the reliable way to force
+// every visible tile back through the protocol (same pattern as
+// refreshSnowOverlay above).
+function refreshDarkTerrain() {
+  if (!map || !darkTerrainActive) return;
+  if (map.getLayer('dark-terrain-layer')) map.removeLayer('dark-terrain-layer');
+  if (map.getSource('dark-terrain')) map.removeSource('dark-terrain');
+  map.addSource('dark-terrain', { type: 'raster', tiles: ['darkterrain://{z}/{x}/{y}'], tileSize: 512 });
+  // Same slot as when first added in toggleBasemap — keeps hillshade/snow-relief layered on top.
+  map.addLayer({ id: 'dark-terrain-layer', type: 'raster', source: 'dark-terrain' }, 'depth-shade');
+}
+
+function toggleContours() {
+  darkTerrainShowContours = !darkTerrainShowContours;
+  const btn = document.getElementById('contour-toggle');
+  if (btn) {
+    btn.classList.toggle('active', darkTerrainShowContours);
+    btn.title = darkTerrainShowContours ? 'Hide contour lines' : 'Show contour lines';
+  }
+  refreshDarkTerrain();
+}
+
 let darkTerrainActive = false;
 function toggleBasemap() {
   if (!map) return;
@@ -2118,6 +2161,8 @@ function toggleBasemap() {
     btn.classList.toggle('active', darkTerrainActive);
     btn.title = darkTerrainActive ? 'Switch to satellite basemap' : 'Switch to dark terrain basemap (trial)';
   }
+  const contourBtn = document.getElementById('contour-toggle');
+  if (contourBtn) contourBtn.style.display = darkTerrainActive ? 'flex' : 'none';
   if (darkTerrainActive) {
     registerDarkTerrainProtocol();
     if (!map.getSource('dark-terrain')) {
