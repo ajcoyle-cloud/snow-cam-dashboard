@@ -2391,6 +2391,17 @@ const OROGRAPHIC_RAMP_PRESETS = [
   { key: 'cividis',  label: 'Cividis',       bands: [[0,32,76],[0,67,88],[123,125,120],[188,175,111],[255,233,69]] },
   { key: 'blues',    label: 'Blues (mono)',  bands: [[222,235,247],[158,202,225],[66,146,198],[8,69,148]] },
   { key: 'ice',      label: 'Ice (cool)',    bands: [[8,29,88],[34,94,168],[65,182,196],[199,233,180]] },
+  // Bright/fun set — the ramps above lean cool and muted (viridis/cividis/
+  // blues/ice are deliberately desaturated scientific palettes); these are
+  // vivid, high-saturation "candy" ramps instead. Extremes are still chosen
+  // to avoid the original harsh pure-red-vs-pure-blue clash (see the comment
+  // at the top of this list) — punchy, but no jarring complementary pair.
+  { key: 'tropical', label: 'Tropical Punch', bands: [[255,90,120],[255,170,40],[255,225,60],[80,220,140],[40,200,220]] },
+  { key: 'candy',    label: 'Candy Shop',     bands: [[255,105,180],[255,165,0],[255,235,59],[124,252,0],[64,224,208]] },
+  { key: 'neon',     label: 'Neon Nights',    bands: [[255,0,170],[255,110,0],[255,255,0],[0,255,140],[0,200,255]] },
+  { key: 'bubblegum',label: 'Bubblegum Pop',  bands: [[186,104,255],[255,110,199],[255,159,67],[255,224,102],[111,222,166]] },
+  { key: 'sunset',   label: 'Sunset Fiesta',  bands: [[255,87,87],[255,159,67],[255,206,84],[255,138,205],[186,120,255]] },
+  { key: 'fruit',    label: 'Fruit Salad',    bands: [[255,99,72],[255,183,3],[184,225,53],[46,213,157],[72,219,251]] },
 ];
 function orographicRampKeyToBands(key) {
   const p = OROGRAPHIC_RAMP_PRESETS.find((p) => p.key === key);
