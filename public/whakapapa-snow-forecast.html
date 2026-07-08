@@ -310,10 +310,23 @@
     box-shadow: 0 0 0 2px rgba(255,255,255,0.35); flex-shrink: 0;
   }
   .station-pill.stale { opacity: 0.55; }
-  /* Radar view is its own clean read of live precipitation — every other
-     weather-data overlay (station temp pills, snow/temp colour drape) is
-     turned off rather than drawing on top of/under the radar image. */
-  #map-screen.radar-mode .station-pill { display: none !important; }
+  /* Real live station pills now also show in radar mode (previously
+     display:none !important on ALL .station-pill here, including real
+     ones, on the reasoning that radar should be an otherwise-clean read of
+     precipitation) — real observations reading on top of the radar colour
+     drape is wanted after all. Pseudo pills (interpolated/estimated
+     readings at non-station points, .pseudo-pill — see pwUpdateTempProfile)
+     are a modelled fill-in, not a real reading, so they keep the original
+     radar-clean behaviour; only real ones (pwRenderPill's .station-pill
+     without .pseudo-pill) are exempted below. The whole-mountain snow/temp
+     colour drape overlay is unrelated to pills entirely and keeps its own
+     separate radar-mode-off behaviour untouched (see viewMode === 'radar'
+     checks elsewhere). Pills are DOM markers (.maplibregl-marker), not a
+     WebGL layer, so they already render above radar-layer/dark-terrain-
+     contours-layer/any basemap combination regardless of dark mode — see
+     the .maplibregl-marker z-index rule above, which is what actually
+     guarantees "on top" here, not this rule. */
+  #map-screen.radar-mode .pseudo-pill { display: none !important; }
 
   /* ── Snowfall pin + black pill (hourly + accumulated maps) ──────────────── */
   .snowfall-marker { display: flex; flex-direction: column; align-items: center; pointer-events: none; transition: opacity 0.5s ease; }
@@ -838,13 +851,19 @@ const SKY_NIGHT = { 'sky-color': '#03050c', 'horizon-color': '#1b2338', 'sky-hor
 // together as distance increases; it does not touch DOM markers (station
 // pills etc.), which is what we want — those must stay fully legible
 // regardless of distance (see .maplibregl-marker z-index fix above).
-// range/horizon-blend are hand-tuned by eye for this map's usual pitch
-// (~62-69°) and zoom (~13) — not derived from anything, may need
-// further adjustment once seen live.
+// range/horizon-blend follow Mapbox's own documented terrain+fog example
+// ([-0.5, 2], negative = closer to camera) rather than the wide-landscape
+// defaults ([0.5, 10]) used in most fog demos — this map's zoom (~13) and
+// close mountain-scale view is a completely different scale to those, and
+// a [0.3, 6] range tried first (loosely adapted from the wide-landscape
+// defaults) put the fog's "fully opaque" point so far past the visible
+// horizon that no darkening was visible at all anywhere on screen. Still
+// not verified live (this sandbox can't load MapLibre/DEM tiles) — may
+// need further adjustment once seen for real.
 const DARK_FOG = {
-  range: [0.3, 6],
+  range: [-0.5, 2],
   color: '#05070c',
-  'horizon-blend': 0.15,
+  'horizon-blend': 0.3,
   'high-color': '#03050c',
   'space-color': '#000000',
   'star-intensity': 0,
