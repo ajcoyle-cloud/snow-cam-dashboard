@@ -1881,6 +1881,27 @@ function tileCenterLatRad(y, z) {
   return Math.atan(Math.sinh(Math.PI * (1 - (2 * (y + 0.5)) / n)));
 }
 
+// Web Mercator tile pixel -> [lon, lat] — used by the contour radial-fade
+// (see registerContourLinesProtocol) to know how far a given pixel is from
+// the resort's own coordinate.
+function tilePixelToLonLat(x, y, z, px, py, size) {
+  const n = Math.pow(2, z);
+  const lon = ((x + px / size) / n) * 360 - 180;
+  const latRad = Math.atan(Math.sinh(Math.PI * (1 - (2 * (y + py / size)) / n)));
+  return [lon, (latRad * 180) / Math.PI];
+}
+
+// Equirectangular approximation, not full great-circle — plenty accurate at
+// the tens-of-km scale this is used at (a few km of error over 200km is
+// visually meaningless for a smooth fade), and much cheaper per-pixel than
+// Haversine.
+function approxDistanceKm(lat1, lon1, lat2, lon2, cosAvgLatRad) {
+  const R = 6371;
+  const dLat = ((lat2 - lat1) * Math.PI) / 180;
+  const dLon = (((lon2 - lon1) * Math.PI) / 180) * cosAvgLatRad;
+  return R * Math.sqrt(dLat * dLat + dLon * dLon);
+}
+
 // Deterministic 2D value noise (smoothed integer-lattice hash), used to make
 // the snow/no-snow transition near "Min elevation" break up into shrinking
 // patches instead of fading as a uniform sheet — a real snowline doesn't dim
@@ -2118,6 +2139,19 @@ const DARK_TERRAIN_TOP_RGB = [55, 58, 65];    // darker summit too — stays a d
 const DARK_TERRAIN_CONTOUR_RGB = [95, 98, 108];        // faded minor (20m) contours
 const DARK_TERRAIN_MAJOR_CONTOUR_RGB = [205, 209, 216];  // bright near-white major (100m) contours
 
+// Radial fade — contour lines fade to fully transparent by this distance
+// (km) from the resort's own coordinate (LOC.lat/LOC.lon), on top of the
+// existing major/minor alpha. Complements the dark-mode sky fog rather than
+// replacing it: the sky fog fades by on-screen camera distance (changes
+// with pitch/zoom as you look around), this fades by real-world distance
+// from the mountain regardless of camera. 200km is the requested starting
+// value — worth flagging that at this map's normal close-up zoom (~13) the
+// entire visible frame typically spans well under a handful of km, so a
+// 200km radius may read as imperceptible until seen live and tightened
+// down considerably (same lesson as the sky fog's first, too-generous
+// range attempt).
+const CONTOUR_FADE_RADIUS_KM = 200;
+
 // Live-adjustable via #contour-toggle — read fresh by the tile protocol on
 // every tile it generates (see registerDarkTerrainProtocol below), same
 // pattern as snowOverlayParams above. Off leaves a plain elevation-shaded
@@ -2202,9 +2236,20 @@ function registerContourLinesProtocol() {
       elev[i] = decodeTerrainRGB(src[i * 4], src[i * 4 + 1], src[i * 4 + 2]);
     }
 
+    // Longitude only depends on px (not py) — precompute once per column
+    // rather than recomputing inside the doubly-nested pixel loop below.
+    const lonForPx = new Float64Array(size);
+    for (let px = 0; px < size; px++) {
+      lonForPx[px] = tilePixelToLonLat(x, y, z, px, 0, size)[0];
+    }
+
     const out = ctx.createImageData(size, size);
     for (let py = 0; py < size; py++) {
       const yp1 = Math.min(size - 1, py + 1);
+      // Latitude only depends on py — same reasoning, computed once per row.
+      // cosAvgLatRad likewise only needs LOC.lat + this row's lat, not px.
+      const rowLat = tilePixelToLonLat(x, y, z, 0, py, size)[1];
+      const cosAvgLatRad = Math.cos(((LOC.lat + rowLat) / 2) * Math.PI / 180);
       for (let px = 0; px < size; px++) {
         const i = py * size + px;
         const xp1 = Math.min(size - 1, px + 1);
@@ -2215,12 +2260,16 @@ function registerContourLinesProtocol() {
         const majorBand = Math.floor(e / DARK_TERRAIN_MAJOR_CONTOUR_INTERVAL_M);
         const isMajorContour = majorBand !== Math.floor(eRight / DARK_TERRAIN_MAJOR_CONTOUR_INTERVAL_M) || majorBand !== Math.floor(eDown / DARK_TERRAIN_MAJOR_CONTOUR_INTERVAL_M);
         const o = i * 4;
-        if (isMajorContour) {
-          out.data[o] = DARK_TERRAIN_MAJOR_CONTOUR_RGB[0]; out.data[o + 1] = DARK_TERRAIN_MAJOR_CONTOUR_RGB[1]; out.data[o + 2] = DARK_TERRAIN_MAJOR_CONTOUR_RGB[2];
-          out.data[o + 3] = Math.round(255 * 0.9);
-        } else if (isMinorContour) {
-          out.data[o] = DARK_TERRAIN_CONTOUR_RGB[0]; out.data[o + 1] = DARK_TERRAIN_CONTOUR_RGB[1]; out.data[o + 2] = DARK_TERRAIN_CONTOUR_RGB[2];
-          out.data[o + 3] = Math.round(255 * 0.65);
+        if (isMajorContour || isMinorContour) {
+          const distKm = approxDistanceKm(LOC.lat, LOC.lon, rowLat, lonForPx[px], cosAvgLatRad);
+          const radialFade = Math.max(0, 1 - distKm / CONTOUR_FADE_RADIUS_KM);
+          if (isMajorContour) {
+            out.data[o] = DARK_TERRAIN_MAJOR_CONTOUR_RGB[0]; out.data[o + 1] = DARK_TERRAIN_MAJOR_CONTOUR_RGB[1]; out.data[o + 2] = DARK_TERRAIN_MAJOR_CONTOUR_RGB[2];
+            out.data[o + 3] = Math.round(255 * 0.9 * radialFade);
+          } else {
+            out.data[o] = DARK_TERRAIN_CONTOUR_RGB[0]; out.data[o + 1] = DARK_TERRAIN_CONTOUR_RGB[1]; out.data[o + 2] = DARK_TERRAIN_CONTOUR_RGB[2];
+            out.data[o + 3] = Math.round(255 * 0.65 * radialFade);
+          }
         } else {
           out.data[o + 3] = 0; // fully transparent — the base/satellite/radar below shows through
         }
