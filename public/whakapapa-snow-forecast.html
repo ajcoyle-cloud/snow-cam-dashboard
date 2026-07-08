@@ -210,7 +210,13 @@
   #top-controls {
     position: absolute; top: 20px; left: calc(50% + 8px); z-index: 15;
     display: flex; gap: 10px;
+    /* Safety net for syncTopControlsLayout()'s inline max-width (JS, see
+       below) — on a squeeze, pills scroll into view instead of overlapping
+       the model switch. Scrollbar hidden since this is a compact pill row,
+       not a scroll affordance users are meant to notice. */
+    overflow-x: auto; scrollbar-width: none;
   }
+  #top-controls::-webkit-scrollbar { display: none; }
   /* height:38px + box-sizing:border-box makes this match the resort switcher,
      settings cog, and model switch exactly (all 38px tall) — see App.css
      .map-resort-switch .resort-button / .map-settings-toggle. pill-btn has
@@ -645,7 +651,9 @@
 
 <div id="map-screen">
   <div id="map"></div>
-  <button id="map-enlarge" onclick="enterFullscreenView()" title="Fullscreen">⤢</button>
+  <button id="map-enlarge" onclick="enterFullscreenView()" title="Fullscreen">
+    <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></svg>
+  </button>
   <button id="obs-toggle" class="active" onclick="toggleObsLayer()" title="Toggle live observations">
     <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 4v10.54a4 4 0 1 1-4 0V4a2 2 0 0 1 4 0Z"/></svg>
   </button>
@@ -1302,7 +1310,30 @@ function buildModelMenu() {
       ${MODEL_META[key].label}
     </button>`;
   }).join('');
+  // Label text width just changed, which shifts #model-switch's left edge —
+  // recompute the Live/Hourly/Accum/Radar (+period) group's clearance.
+  syncTopControlsLayout();
 }
+
+// Desktop-only: #top-controls is left-anchored at 50%+8px and grows
+// rightward as the Accum-mode period-switch appears, while #model-switch is
+// independently right-anchored — on narrower desktop/laptop widths (or a
+// wide model label like "ECMWF IFS") there isn't always enough room between
+// them, so cap #top-controls to whatever space is actually free rather than
+// letting it run into the model switch. overflow-x:auto (see CSS) makes the
+// pills scroll into view in that squeezed case instead of overlapping.
+function syncTopControlsLayout() {
+  const topControls = document.getElementById('top-controls');
+  const modelSwitch = document.getElementById('model-switch');
+  if (!topControls || !modelSwitch) return;
+  if (window.innerWidth <= 700) { topControls.style.maxWidth = ''; return; }
+  if (getComputedStyle(modelSwitch).display === 'none') { topControls.style.maxWidth = ''; return; }
+  const gap = 20;
+  const modelLeft = modelSwitch.getBoundingClientRect().left;
+  const topControlsLeft = topControls.getBoundingClientRect().left;
+  topControls.style.maxWidth = Math.max(120, modelLeft - topControlsLeft - gap) + 'px';
+}
+window.addEventListener('resize', syncTopControlsLayout);
 
 function toggleModelMenu() {
   document.getElementById('model-switch').classList.toggle('open');
@@ -2897,6 +2928,7 @@ function setViewMode(mode) {
   // No forecast data backs the Live temperature map or the Radar map (neither
   // has a model to switch), so the model switcher has nothing to do there.
   document.getElementById('model-switch').style.display = (mode === 'live' || mode === 'radar') ? 'none' : 'block';
+  syncTopControlsLayout();
   if (mode === 'live') closeModelMenu();
   document.getElementById('timeline').style.display = mode === 'hourly' ? 'flex' : 'none';
   document.getElementById('speed-select').style.display = mode === 'hourly' ? 'flex' : 'none';
