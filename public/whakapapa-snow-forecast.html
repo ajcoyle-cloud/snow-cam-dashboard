@@ -124,46 +124,48 @@
   .speed-btn:hover { color: #fff; }
   .speed-btn.active { background: #333; color: #fff; }
 
-  /* Same rgba(0,0,0,0.6)+blur dark-pill language as the top-controls row
-     (pill-group/model-switch/resort-switcher/settings cog — all 38px tall)
-     so this icon row reads as one consistent button family instead of the
-     previous lighter translucent-white circles. */
+  /* Same grey+blur pill language as the top-controls row (pill-group/
+     model-switch/resort-switcher/settings cog — all 38px tall). Background
+     is a genuine mid-grey (not a darkened black) with a faint light border
+     so these read clearly against a pure-black dark-mode sky too, not just
+     against the map imagery. .active is brighter still, as a selected cue. */
   #map-enlarge, #map-close, #obs-toggle, #rotate-toggle, #snow-toggle, #snow-overlay-toggle, #basemap-toggle, #contour-toggle {
     position: absolute; top: 20px; z-index: 20;
-    background: rgba(0,0,0,0.6); backdrop-filter: blur(14px); color: #fff; border: none;
+    background: rgba(54,54,62,0.85); backdrop-filter: blur(14px); color: #fff;
+    border: 1px solid rgba(255,255,255,0.14);
     width: 38px; height: 38px; border-radius: 50%; font-size: 1.1rem; cursor: pointer;
     transition: background 0.15s;
     display: flex; align-items: center; justify-content: center;
     box-shadow: 0 4px 24px rgba(0,0,0,0.3);
   }
   #map-enlarge { left: 20px; }
-  #map-enlarge:hover { background: rgba(0,0,0,0.8); }
+  #map-enlarge:hover { background: rgba(70,70,80,0.9); }
   #obs-toggle { left: 64px; }
-  #obs-toggle.active { background: #333; }
-  #obs-toggle:hover { background: rgba(0,0,0,0.8); }
-  #obs-toggle.active:hover { background: #404040; }
+  #obs-toggle.active { background: rgba(92,92,106,0.95); }
+  #obs-toggle:hover { background: rgba(70,70,80,0.9); }
+  #obs-toggle.active:hover { background: rgba(106,106,122,0.95); }
   #rotate-toggle { left: 108px; }
-  #rotate-toggle.active { background: #333; }
-  #rotate-toggle:hover { background: rgba(0,0,0,0.8); }
-  #rotate-toggle.active:hover { background: #404040; }
+  #rotate-toggle.active { background: rgba(92,92,106,0.95); }
+  #rotate-toggle:hover { background: rgba(70,70,80,0.9); }
+  #rotate-toggle.active:hover { background: rgba(106,106,122,0.95); }
   #snow-toggle { left: 152px; }
-  #snow-toggle.active { background: #333; }
-  #snow-toggle:hover { background: rgba(0,0,0,0.8); }
-  #snow-toggle.active:hover { background: #404040; }
+  #snow-toggle.active { background: rgba(92,92,106,0.95); }
+  #snow-toggle:hover { background: rgba(70,70,80,0.9); }
+  #snow-toggle.active:hover { background: rgba(106,106,122,0.95); }
   #snow-overlay-toggle { left: 196px; font-size: 0.95rem; }
-  #snow-overlay-toggle.active { background: #333; }
-  #snow-overlay-toggle:hover { background: rgba(0,0,0,0.8); }
-  #snow-overlay-toggle.active:hover { background: #404040; }
+  #snow-overlay-toggle.active { background: rgba(92,92,106,0.95); }
+  #snow-overlay-toggle:hover { background: rgba(70,70,80,0.9); }
+  #snow-overlay-toggle.active:hover { background: rgba(106,106,122,0.95); }
   #basemap-toggle { left: 240px; font-size: 0.95rem; }
-  #basemap-toggle.active { background: #333; }
-  #basemap-toggle:hover { background: rgba(0,0,0,0.8); }
-  #basemap-toggle.active:hover { background: #404040; }
+  #basemap-toggle.active { background: rgba(92,92,106,0.95); }
+  #basemap-toggle:hover { background: rgba(70,70,80,0.9); }
+  #basemap-toggle.active:hover { background: rgba(106,106,122,0.95); }
   /* Only meaningful (and only shown — see toggleBasemap()) while the dark
      terrain basemap itself is on, so it sits right after that toggle. */
   #contour-toggle { left: 284px; font-size: 0.95rem; display: none; }
-  #contour-toggle.active { background: #333; }
-  #contour-toggle:hover { background: rgba(0,0,0,0.8); }
-  #contour-toggle.active:hover { background: #404040; }
+  #contour-toggle.active { background: rgba(92,92,106,0.95); }
+  #contour-toggle:hover { background: rgba(70,70,80,0.9); }
+  #contour-toggle.active:hover { background: rgba(106,106,122,0.95); }
 
   /* Tuning panel for the snow-overlay trial — hidden until that toggle is
      on (see toggleSnowOverlay()). Sits below the icon row, clear of
@@ -180,7 +182,7 @@
   #snow-overlay-controls input[type="range"] { width: 100%; accent-color: #4d9fff; }
   #snow-overlay-controls span { color: #9fd3ff; font-variant-numeric: tabular-nums; }
   #map-close { right: 64px; display: none; }
-  #map-close:hover { background: rgba(0,0,0,0.8); }
+  #map-close:hover { background: rgba(70,70,80,0.9); }
   #map-screen.is-fullscreen #map-enlarge { display: none; }
   #map-screen.is-fullscreen #map-close { display: block; }
 
@@ -213,10 +215,14 @@
      settings cog, and model switch exactly (all 38px tall) — see App.css
      .map-resort-switch .resort-button / .map-settings-toggle. pill-btn has
      no vertical padding of its own; it stretches to the group's full height
-     (flex default align-items:stretch) and centers its own text/icon. */
+     (flex default align-items:stretch) and centers its own text/icon.
+     Background is a genuine mid-grey (not a darkened black) with a faint
+     light border so it still reads clearly against a pure-black dark-mode
+     sky, not just against the map imagery. */
   .pill-group {
     display: flex; gap: 4px; height: 38px; box-sizing: border-box;
-    background: rgba(0,0,0,0.6); backdrop-filter: blur(14px);
+    background: rgba(54,54,62,0.85); backdrop-filter: blur(14px);
+    border: 1px solid rgba(255,255,255,0.14);
     border-radius: 999px; padding: 4px;
     box-shadow: 0 4px 24px rgba(0,0,0,0.3);
   }
@@ -227,15 +233,15 @@
     cursor: pointer; transition: all 0.15s; font-family: inherit; white-space: nowrap;
   }
   .pill-btn:hover { color: #fff; }
-  .pill-btn.active { background: #333; color: #fff; }
+  .pill-btn.active { background: rgba(92,92,106,0.95); color: #fff; }
   #period-switch { display: none; }
 
   /* ── Model switcher (top-right) — single-select, same visual language as
      the Models dropdown on the forecast table/graph page. ─────────────── */
   /* Desktop: right offset leaves room for the React-layer settings cog
-     (.map-settings-menu, 36px circle, right-anchored with the same 20px
+     (.map-settings-menu, 38px circle, right-anchored with the same 20px
      edge margin as this row — see App.css), so the two sit side by side on
-     the far right instead of overlapping: 20px edge + 36px cog + 12px gap. */
+     the far right instead of overlapping: 20px edge + 38px cog + 10px gap. */
   #model-switch { position: absolute; top: 20px; right: 68px; z-index: 15; }
   /* In fullscreen, #map-close (40px, right:64px) sits under where this
      button would otherwise land — drop it below the icon row instead. */
@@ -243,8 +249,8 @@
   #model-switch-btn {
     display: flex; align-items: center; gap: 8px;
     height: 38px; box-sizing: border-box;
-    background: rgba(0,0,0,0.6); backdrop-filter: blur(14px);
-    color: #fff; border: none; border-radius: 999px;
+    background: rgba(54,54,62,0.85); backdrop-filter: blur(14px);
+    border: 1px solid rgba(255,255,255,0.14); color: #fff; border-radius: 999px;
     padding: 0 16px; font-size: 0.78rem; font-weight: 700;
     cursor: pointer; font-family: inherit; white-space: nowrap;
     box-shadow: 0 4px 24px rgba(0,0,0,0.3);
