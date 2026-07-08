@@ -850,12 +850,14 @@ const SKY_DAY = { 'sky-color': '#3a82d6', 'horizon-color': '#cfe9fb', 'sky-horiz
 // Sky spec used for sky-color/horizon-color instead: fog-color (requires
 // 3D terrain — this map has terrain: {source:'terrain'} in its style, so
 // that's satisfied) and fog-ground-blend (0 = map centre, 1 = horizon) are
-// the two properties that actually exist. horizon-fog-blend/fog-ground-
-// blend values below are hand-picked, not derived from anything — still
-// not verified live (this sandbox can't load MapLibre/DEM tiles).
+// the two properties that actually exist, both in the range [0,1]
+// (default 0.5) — pushed close to the top of that range for a strong,
+// clearly-visible fade rather than a subtle one. fog-color dropped to
+// pure black to match. Confirmed working live; these are the "more fog"
+// values after that first pass read as too weak.
 const SKY_NIGHT = {
   'sky-color': '#03050c', 'horizon-color': '#1b2338', 'sky-horizon-blend': 0.7,
-  'fog-color': '#05070c', 'fog-ground-blend': 0.65, 'horizon-fog-blend': 0.5,
+  'fog-color': '#000000', 'fog-ground-blend': 0.92, 'horizon-fog-blend': 0.9,
 };
 
 // ── Other-resort navigation pills (shown when zoomed out) ──────────────────
