@@ -1245,28 +1245,40 @@
     display: inline-flex !important;
   }
 
-  /* Desktop map view: location switcher stays truly centered in the row
-     (its original design), settings cog (MapSettingsMenu, added alongside
-     ResortSelector in App.jsx) pinned to the right edge independently.
-     Centering the switcher with plain justify-content isn't possible once
-     there's a second flex item competing for space, so it's taken out of
-     flex flow and centered via absolute positioning against the row
-     (position:relative) instead — the cog is the only item left in normal
-     flow, right-aligned via justify-content:flex-end.
-     z-index: this row has none at this breakpoint otherwise, unlike the
-     mobile layout below (which explicitly sets 30) — with zero pixels of
-     accidental overlap against the map iframe just after it in the DOM
-     (a real risk here specifically: the row's own height is now
-     determined only by its in-flow child, the settings cog, since the
-     resort-selector was pulled out via absolute positioning above), the
-     iframe can win clicks over it by DOM order alone with no z-index to
-     say otherwise — breaking the switcher on the Map tab only (this row
-     is unused chrome on Webcams/Forecast, which have no iframe to lose
-     the stacking fight against). */
+  /* Desktop map view: switcher/cog float directly over the map instead of
+     sitting in a separate row that pushes it down — removes the solid
+     black header bar, so the map now extends to the very top of the
+     browser window (same overlay treatment the mobile layout below already
+     used; desktop just never had it). The row itself is taken out of flow
+     (position:absolute) so the iframe wrapper after it — the only other
+     child of .map-3d-wrap, flex:1 — naturally claims the full height once
+     nothing before it reserves space.
+     pointer-events:none on the row + auto on the two actual controls lets
+     clicks fall through to the map anywhere else in that top strip, same
+     pattern as mobile.
+     padding matches the old in-flow row's spacing (10px top/bottom) so the
+     switcher/cog land at the same on-screen position as before, just with
+     transparent space around them instead of a solid black backdrop.
+     Settings cog is pinned right via justify-content:flex-end (the only
+     item left in normal flow); the switcher is pulled out separately and
+     centered against the row via its own absolute positioning below, same
+     technique as before this change, now paired with an overlay row
+     instead of an in-flow one.
+     z-index: needed regardless of overlay vs in-flow — see the earlier fix
+     for why this row can otherwise lose click priority to the iframe. */
   .map-resort-switch {
-    position: relative;
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
     z-index: 40;
+    padding: 10px 20px !important;
     justify-content: flex-end !important;
+    pointer-events: none;
+  }
+  .map-resort-switch .resort-selector,
+  .map-resort-switch .map-settings-menu {
+    pointer-events: auto;
   }
   .map-resort-switch .resort-selector {
     position: absolute;

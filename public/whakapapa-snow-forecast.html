@@ -2382,7 +2382,9 @@ function setDarkMode(enabled) {
       map.addLayer({
         id: 'country-outline-layer', type: 'line', source: 'country-boundaries', 'source-layer': 'countries',
         filter: ['==', ['get', 'ADM0_A3'], RESORT_COUNTRY_ISO3[resortKey] || 'NZL'],
-        paint: { 'line-color': '#8fa6c9', 'line-width': 1.4, 'line-opacity': 0.75 },
+        // Subtle neutral grey, not the blue-ish tint it started as — reads
+        // as a quiet reference line rather than a prominent feature.
+        paint: { 'line-color': '#9a9ea6', 'line-width': 1.2, 'line-opacity': 0.5 },
       });
     }
     map.setLayoutProperty('country-outline-layer', 'visibility', 'visible');
