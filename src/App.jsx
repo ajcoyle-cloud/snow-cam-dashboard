@@ -1,6 +1,6 @@
 // Updated with Loveland ski area and forecast view switcher
 import { useState, useEffect, useRef } from 'react'
-import { Camera, LineChart, Map as MapIcon, Snowflake, Settings, Wind } from 'lucide-react'
+import { Camera, LineChart, Map as MapIcon, Snowflake, Settings, Wind, Newspaper } from 'lucide-react'
 import HLS from 'hls.js'
 import { computeStormArrival, STORM_BAND_LABELS } from './stormArrival'
 import './App.css'
@@ -511,6 +511,106 @@ function SnowReportSummary({ location, expanded, onExpand, onCollapse }) {
         </div>
       )}
     </div>
+  )
+}
+
+// Dedicated "Snow Reports" tab — a row of location pills (same .toggle-btn
+// pill styling used at the top of the Forecast page's Hourly/Fit and
+// Summit/Base switches) instead of SnowReportSummary's compact, collapsible
+// card. Selecting a location shows its full written report plus the same
+// per-location Snow Base/24h/7 Day snowfall cards SnowReportSummary shows at
+// the bottom of the webcam page — same data (SNOW_REPORT_SOURCES/report.json
+// shape), same conditions markup, just as this page's main content rather
+// than a footnote under a camera. Shares the global resort/setResort state
+// so picking a location here stays in sync with the rest of the app.
+function SnowReportsPage({ resort, setResort }) {
+  const source = SNOW_REPORT_SOURCES[RESORTS[resort].name]
+  const [report, setReport] = useState(null)
+  const [loading, setLoading] = useState(false)
+
+  useEffect(() => {
+    setReport(null)
+    if (!source) return
+    setLoading(true)
+    let cancelled = false
+    fetch(source.endpoint)
+      .then((r) => (r.ok ? r.json() : Promise.reject()))
+      .then((data) => { if (!cancelled) setReport(data) })
+      .catch(() => { if (!cancelled) setReport(null) })
+      .finally(() => { if (!cancelled) setLoading(false) })
+    return () => { cancelled = true }
+  }, [resort])
+
+  const paragraphs = report?.summary ? report.summary.split(/\n{2,}/).map((s) => s.trim()).filter(Boolean) : []
+  const hasConditions = report?.conditions?.length > 0
+  const hasContent = paragraphs.length > 0 || hasConditions
+
+  return (
+    <section className="region-section snow-reports-page">
+      <div className="elevation-toggle snow-reports-location-row">
+        {Object.entries(RESORTS).map(([key, r]) => (
+          <button
+            key={key}
+            className={`toggle-btn ${resort === key ? 'active' : ''}`}
+            onClick={() => setResort(key)}
+          >
+            {r.name}
+          </button>
+        ))}
+      </div>
+
+      {loading && (
+        <div className="forecast-loading"><div className="spinner" /></div>
+      )}
+
+      {!loading && !source && (
+        <p className="snow-reports-empty">No official snow report source is set up for {RESORTS[resort].name} yet.</p>
+      )}
+
+      {!loading && source && !hasContent && (
+        <p className="snow-reports-empty">Couldn't load {RESORTS[resort].name}'s snow report right now — try again shortly.</p>
+      )}
+
+      {!loading && source && hasContent && (
+        <div className="snow-reports-content">
+          <h2 className="snow-reports-title">{source.title}</h2>
+          {paragraphs.length > 0 && (
+            <div className="snow-reports-summary">
+              {paragraphs.map((para, i) => <p key={i}>{para}</p>)}
+            </div>
+          )}
+          {hasConditions && (
+            <div className="snow-report-conditions snow-reports-conditions-standalone">
+              {report.conditions.map((c, i) => (
+                <div className="src-location" key={i}>
+                  <div className="src-location-name">{c.location}</div>
+                  <div className="src-stats">
+                    {c.snowBase && (
+                      <div className="src-stat">
+                        <span className="src-stat-label">Snow Base</span>
+                        <span className="src-stat-value">{c.snowBase}</span>
+                      </div>
+                    )}
+                    {c.snowfall24h && (
+                      <div className="src-stat">
+                        <span className="src-stat-label">24h Snowfall</span>
+                        <span className="src-stat-value">{c.snowfall24h}</span>
+                      </div>
+                    )}
+                    {c.snowfall7day && (
+                      <div className="src-stat">
+                        <span className="src-stat-label">7 Day Snowfall</span>
+                        <span className="src-stat-value">{c.snowfall7day}</span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </section>
   )
 }
 
@@ -3022,6 +3122,9 @@ const NAV_ITEMS = [
   // Own tab, deliberately not integrated into the Map tab or Snow Test —
   // see HighResSnowPage above.
   { id: 'highres', label: 'High-Res', Icon: Wind, path: '/highres' },
+  // Full-page version of SnowReportSummary's compact webcam-page card — see
+  // SnowReportsPage above.
+  { id: 'reports', label: 'Snow Reports', Icon: Newspaper, path: '/reports' },
   // 'Snow Test' hidden from prod nav now that its two production-ready
   // trials (slope-aware snow overlay, dark-terrain basemap+contours) have
   // shipped as the settings-cog "Winter snow"/"Elevation Contours" toggles
@@ -3151,6 +3254,10 @@ export default function App() {
           <section className="map-region">
             <HighResSnowPage resort={resort} setResort={setResort} />
           </section>
+        )}
+
+        {activeTab === 'reports' && (
+          <SnowReportsPage resort={resort} setResort={setResort} />
         )}
 
       </main>

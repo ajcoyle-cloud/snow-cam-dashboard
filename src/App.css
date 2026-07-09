@@ -623,6 +623,83 @@
   font-variant-numeric: tabular-nums;
 }
 
+/* ── Snow Reports tab ──────────────────────────────────────────────────── */
+.snow-reports-page {
+  background: #111;
+  padding: 20px;
+  max-width: 720px;
+  margin: 0 auto;
+}
+
+/* Reuses .elevation-toggle's pill-group chrome (same as the Forecast page's
+   Hourly/Fit and Summit/Base switches), but with as many location pills as
+   there are resorts — wrap instead of the toggle's usual fixed 2-button
+   width, and left-align rather than centering a multi-row wrapped group.
+   .elevation-toggle's 24px border-radius reads fine on one row but looks
+   like a misshapen capsule once wrapped to two — a smaller radius here
+   suits a multi-row rectangular block instead. Combined-class selector
+   (not just .snow-reports-location-row) so this reliably outranks
+   .elevation-toggle's own border-radius regardless of which rule happens to
+   come first in the stylesheet — same-specificity cascade order otherwise
+   left the plain single-class override losing to the later .elevation-toggle
+   rule further down this file. */
+.elevation-toggle.snow-reports-location-row {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-start;
+  gap: 4px;
+  margin: 0 0 20px;
+  width: fit-content;
+  border-radius: 10px;
+}
+.snow-reports-location-row .toggle-btn {
+  border-radius: 8px;
+}
+
+.snow-reports-empty {
+  color: rgba(255, 255, 255, 0.5);
+  font-size: 0.95em;
+  padding: 40px 0;
+  text-align: center;
+}
+
+.snow-reports-title {
+  color: #fff;
+  font-size: 1.2em;
+  font-weight: 700;
+  margin: 0 0 12px;
+}
+
+.snow-reports-summary p {
+  color: rgba(255, 255, 255, 0.9);
+  font-size: 0.95em;
+  line-height: 1.6;
+  margin: 0 0 12px;
+}
+
+/* Standalone page gets more visual weight than the same cards do tucked
+   under a webcam (.snow-report-conditions/.src-* base sizing there is
+   tuned for a small collapsible card) — larger type, more breathing room. */
+.snow-reports-conditions-standalone {
+  margin-top: 20px;
+  padding-top: 20px;
+  gap: 12px;
+}
+
+.snow-reports-conditions-standalone .src-location {
+  flex: 1 1 160px;
+  padding: 14px 16px;
+}
+
+.snow-reports-conditions-standalone .src-location-name {
+  font-size: 0.85em;
+  margin-bottom: 8px;
+}
+
+.snow-reports-conditions-standalone .src-stat {
+  font-size: 0.88em;
+}
+
 .forecast-section {
   background: #111;
 }
