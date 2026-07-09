@@ -1869,7 +1869,7 @@ function initMap() {
     }
     const vectors = orographicWindVectorsForHour(hour);
     const { U, V } = orographicWindAtElevation(vectors, elev);
-    const multiplier = orographicMultiplier(U, V, grad.gradEast, grad.gradNorth);
+    const multiplier = orographicMultiplier(U, V, grad.gradEast, grad.gradNorth, elev, boundary);
     const cm = (hour.snowfallMm * multiplier) / 10;
     showClickPopup(e.point.x, e.point.y, `${cm.toFixed(1)}cm`);
   });
@@ -2539,9 +2539,27 @@ function orographicWindAtElevation(vectors, elevHere) {
   };
 }
 
-function orographicMultiplier(U, V, gradEast, gradNorth) {
+// Elevation itself used not to affect this at all — a gentle slope right at
+// the snowline and an identically-angled one at the summit got the exact
+// same multiplier, which read as "same snowfall low as high" (reported bug)
+// even though real orographic lift and colder air generally mean more snow
+// the higher up you go. This is a separate, purely elevation-driven boost —
+// 1x right at the snowline, ramping linearly to
+// (1 + OROGRAPHIC_ELEV_BOOST_MAX)x at the summit — deliberately kept
+// independent of the windward/lee wind-alignment multiplier below rather
+// than folded into its tanh, so "low vs high" and "windward vs lee" stay two
+// separate, composable effects instead of one conflated one.
+const OROGRAPHIC_ELEV_BOOST_MAX = 0.4; // summit: up to 40% more than an identical spot at the snowline
+function orographicElevationFactor(elevHere, boundary) {
+  const span = Math.max(1, LOC.summitElev - boundary);
+  const t = Math.max(0, Math.min(1, (elevHere - boundary) / span));
+  return 1 + OROGRAPHIC_ELEV_BOOST_MAX * t;
+}
+
+function orographicMultiplier(U, V, gradEast, gradNorth, elevHere, boundary) {
   const w = U * gradEast + V * gradNorth; // m/s, +windward / -lee
-  return 1 + OROGRAPHIC_M_RANGE * Math.tanh(w / OROGRAPHIC_W_REF); // ~0.1x - 1.9x
+  const windLeeFactor = 1 + OROGRAPHIC_M_RANGE * Math.tanh(w / OROGRAPHIC_W_REF); // ~0.1x - 1.9x
+  return windLeeFactor * orographicElevationFactor(elevHere, boundary); // ~0.1x - 2.66x
 }
 
 // Sums the wind-redistributed depth (cm) at one point over a list of hours —
@@ -2557,10 +2575,11 @@ function orographicAccumAtPoint(hours, elevHere, gradEast, gradNorth) {
     const hour = hours[i];
     if (hour.snowfallMm == null || hour.snowfallMm < SNOWFALL_THRESHOLD_MM) continue;
     if (hour.freezingLevel == null || hour.windSpeedKmh == null || hour.windDirDeg == null) continue;
-    if (elevHere < hour.freezingLevel - SNOW_OFFSET) continue;
+    const hourBoundary = hour.freezingLevel - SNOW_OFFSET;
+    if (elevHere < hourBoundary) continue;
     const vectors = orographicWindVectorsForHour(hour);
     const { U, V } = orographicWindAtElevation(vectors, elevHere);
-    total += (hour.snowfallMm / 10) * orographicMultiplier(U, V, gradEast, gradNorth);
+    total += (hour.snowfallMm / 10) * orographicMultiplier(U, V, gradEast, gradNorth, elevHere, hourBoundary);
   }
   return total;
 }
@@ -2647,7 +2666,12 @@ function registerOrographicSnowProtocol() {
       // so the number reported on tap always matches the colour rendered
       // at that exact point — one formula, not two that could drift apart.
       const windVectors = orographicWindVectorsForHour(hour);
-      const M_LO = 1 - OROGRAPHIC_M_RANGE, M_HI = 1 + OROGRAPHIC_M_RANGE;
+      // M_HI now also accounts for OROGRAPHIC_ELEV_BOOST_MAX (see
+      // orographicMultiplier) — the summit's extra elevation boost pushes the
+      // true maximum above the old wind-only 1+M_RANGE ceiling, and without
+      // widening this the highest, most-windward terrain would just clip to
+      // the ramp's top band instead of actually reading as the most extreme.
+      const M_LO = 1 - OROGRAPHIC_M_RANGE, M_HI = (1 + OROGRAPHIC_M_RANGE) * (1 + OROGRAPHIC_ELEV_BOOST_MAX);
       const [flR, flG, flB] = darkTerrainActive ? [25, 55, 110] : [60, 130, 255];
 
       for (let py = 0; py < size; py++) {
@@ -2682,7 +2706,7 @@ function registerOrographicSnowProtocol() {
           const dzdx = (elevSmooth[py * size + xp1] - elevSmooth[py * size + xm1]) / (2 * metersPerPixel);
           const dzdyImg = (elevSmooth[yp1 * size + px] - elevSmooth[ym1 * size + px]) / (2 * metersPerPixel);
           const gradEast = dzdx, gradNorth = -dzdyImg;
-          const multiplier = orographicMultiplier(U, V, gradEast, gradNorth); // ~0.1x - 1.9x
+          const multiplier = orographicMultiplier(U, V, gradEast, gradNorth, elevHere, boundary); // ~0.1x - 2.66x
 
           // Colour (not opacity) is the primary signal now — every distinct
           // multiplier value gets a genuinely different hue off the rainbow
@@ -2828,7 +2852,11 @@ function registerOrographicAccumProtocol() {
       }
 
       if (isFinite(minBoundary) && flatTotalCm > 0) {
-        const M_LO = 1 - OROGRAPHIC_M_RANGE, M_HI = 1 + OROGRAPHIC_M_RANGE;
+        // M_HI also accounts for OROGRAPHIC_ELEV_BOOST_MAX, same reasoning
+        // as the hourly protocol's M_HI above — otherwise high, windward
+        // terrain (now genuinely the biggest accumulator, elevation boost
+        // included) would just clip to the ramp's top band.
+        const M_LO = 1 - OROGRAPHIC_M_RANGE, M_HI = (1 + OROGRAPHIC_M_RANGE) * (1 + OROGRAPHIC_ELEV_BOOST_MAX);
         // Same normalisation shape as the hourly ramp (t=0 lee, t=1 windward)
         // but for a summed depth instead of an instantaneous rate: a point
         // that got the flat/unredistributed total over the whole window
