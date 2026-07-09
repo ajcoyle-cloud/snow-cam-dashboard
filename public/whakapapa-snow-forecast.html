@@ -958,7 +958,6 @@ if (isHighResMode) {
         <button class="pill-btn active" data-hrdays="5" onclick="setHiResPeriod(5)">5</button>
         <button class="pill-btn" data-hrdays="10" onclick="setHiResPeriod(10)">10</button>
         <button class="pill-btn" data-hrdays="15" onclick="setHiResPeriod(15)">15</button>
-        <button class="pill-btn" data-hrdays="animate" onclick="setHiResPeriod('animate')">Animate</button>
       </div>`;
   }
   // Live weather-station temp pills don't apply to a forecast-only page —
@@ -1835,9 +1834,9 @@ function initMap() {
     const elevTap = Math.min(rawElevTap, TOP_ELEV);
 
     // Accumulated: same shared math the drape itself sums (orographicAccumAtPoint),
-    // over whichever window is currently showing (static 5/10/15, or
-    // forecastHours-so-far while Animate plays) — full per-point precision,
-    // this is O(hours) for one tap, not O(pixels x hours) like the drape.
+    // over whichever static 5/10/15 day window is currently showing — full
+    // per-point precision, this is O(hours) for one tap, not O(pixels x hours)
+    // like the drape.
     if (hiResViewMode === 'accumulated') {
       const hours = hiResAccumWindow();
       if (hours.length === 0) return;
@@ -2772,7 +2771,7 @@ function toggleOrographicSnow() {
   }
 }
 
-// ── High-Res Accumulated + Animate ───────────────────────────────────────
+// ── High-Res Accumulated ──────────────────────────────────────────────────
 // A second, independent small view-mode state machine, High-Res only. The
 // existing viewMode/setViewMode/setPeriod/renderAccumulatedView machinery
 // drives the *flat*, elevation-band Accumulated view used elsewhere on this
@@ -2781,17 +2780,13 @@ function toggleOrographicSnow() {
 // redistributed accumulation, using the same shared math as the hourly
 // drape), so it gets its own state instead of overloading that one.
 let hiResViewMode = 'hourly'; // 'hourly' | 'accumulated'
-let hiResAccumDays = 5; // 5 | 10 | 15 | 'animate'
-let hiResAnimateIndex = 0; // Animate only: accumulate forecastHours[0..hiResAnimateIndex]
+let hiResAccumDays = 5; // 5 | 10 | 15
 
 // The hour range currently backing the Accumulated drape — the static
 // 5/10/15 day window (closest-to-now start, matching renderAccumulatedView's
-// own window logic) for those, or forecastHours-so-far while Animate plays.
+// own window logic).
 function hiResAccumWindow() {
   if (forecastHours.length === 0) return [];
-  if (hiResAccumDays === 'animate') {
-    return forecastHours.slice(0, Math.min(forecastHours.length, hiResAnimateIndex + 1));
-  }
   const nowMs = Date.now();
   let startIdx = 0, bestDiff = Infinity;
   forecastHours.forEach((r, i) => {
@@ -2871,9 +2866,8 @@ function registerOrographicAccumProtocol() {
         // terrain gradient this feeds is already box-blurred (smoothed over
         // several pixels), so sampling on a coarser grid and filling each
         // block loses negligible real detail while cutting the per-tile
-        // cost by STRIDE^2. Animate only ever sums ONE new hour per frame
-        // (same cost as the hourly drape), so it stays at full resolution.
-        const STRIDE = hiResAccumDays === 'animate' ? 1 : hiResAccumDays >= 15 ? 4 : hiResAccumDays >= 10 ? 3 : 2;
+        // cost by STRIDE^2.
+        const STRIDE = hiResAccumDays >= 15 ? 4 : hiResAccumDays >= 10 ? 3 : 2;
 
         for (let py = 0; py < size; py += STRIDE) {
           const yp1 = Math.min(size - 1, py + 1);
@@ -2975,76 +2969,33 @@ function setHiResViewMode(mode) {
     });
     openMapView(currentIndex < 0 ? 0 : currentIndex);
   } else {
-    if (hiResAccumDays === 'animate') hiResAnimateIndex = 0;
     updateHiResTimelineForAccum();
     renderHiResAccum();
   }
 }
 
-// Second pill-group (5 / 10 / 15 / Animate) — only visible while
-// hiResViewMode is 'accumulated'.
+// Second pill-group (5 / 10 / 15) — only visible while hiResViewMode is
+// 'accumulated'.
 function setHiResPeriod(days) {
   hiResAccumDays = days;
   document.querySelectorAll('#hires-period-switch .pill-btn').forEach((b) => b.classList.toggle('active', b.dataset.hrdays === String(days)));
   stopPlay();
-  if (days === 'animate') hiResAnimateIndex = 0;
   updateHiResTimelineForAccum();
   renderHiResAccum();
 }
 
-// Keeps the one shared #tl-slider/#tl-label in sync while Accumulated is
-// active — for the static 5/10/15 windows there's no single "hour" to show,
-// so the slider/stepper are hidden; Animate reuses them to scrub/show
-// accumulation progress, same widget as hourly playback just repurposed.
+// The static 5/10/15 Day totals have no single "hour" to show — hide the
+// whole play/slider/stepper transport, just leave the label reading
+// "Accumulated". (An earlier Animate mode reused this transport to scrub
+// through a growing accumulation, but recomputing the drape every tick was
+// too slow to feel interactive — dropped in favour of just these static
+// windows.)
 function updateHiResTimelineForAccum() {
-  const slider = document.getElementById('tl-slider');
-  const playBtn = document.getElementById('tl-play');
-  const stepBtns = [document.getElementById('tl-prev'), document.getElementById('tl-next')];
-  if (hiResAccumDays !== 'animate') {
-    // Static 5/10/15 Day totals have nothing to scrub or play — hide the
-    // whole transport, just leave the label reading "Accumulated".
-    if (slider) slider.style.display = 'none';
-    if (playBtn) playBtn.style.display = 'none';
-    stepBtns.forEach((b) => { if (b) b.style.display = 'none'; });
-    document.getElementById('tl-label').textContent = `Accumulated`;
-    return;
-  }
-  if (slider) slider.style.display = '';
-  if (playBtn) playBtn.style.display = '';
-  stepBtns.forEach((b) => { if (b) b.style.display = ''; });
-  if (forecastHours.length === 0) return;
-  slider.max = forecastHours.length - 1;
-  slider.value = hiResAnimateIndex;
-  document.getElementById('tl-prev').disabled = hiResAnimateIndex <= 0;
-  document.getElementById('tl-next').disabled = hiResAnimateIndex >= forecastHours.length - 1;
-  document.getElementById('tl-label').textContent = fmtTime(forecastHours[hiResAnimateIndex].time);
-}
-
-// Animate playback — reuses the same play/pause button, playTimer and
-// playSpeed as the hourly timeline (see startPlay/stopPlay/setSpeed below);
-// startPlay() delegates here when Animate is the active High-Res period.
-// Unlike hourly playback (which blends smoothly between two hours' single
-// rate value), each tick here adds one whole new hour into a growing sum —
-// there's no meaningful way to "blend" a fractional hour into a running
-// accumulation, so this steps whole-hour to whole-hour instead.
-function startHiResAnimate() {
-  if (forecastHours.length === 0) return;
-  if (hiResAnimateIndex >= forecastHours.length - 1) hiResAnimateIndex = 0; // restart from the beginning
-  document.getElementById('tl-play').textContent = '⏸';
-  if (playTimer) cancelAnimationFrame(playTimer);
-  const tickMs = BASE_INTERVAL_MS / playSpeed;
-  let tickStart = performance.now();
-  const frame = (now) => {
-    if (hiResAnimateIndex >= forecastHours.length - 1) { stopPlay(); return; }
-    if (now - tickStart >= tickMs) {
-      hiResAnimateIndex++;
-      renderHiResAccum();
-      updateHiResTimelineForAccum();
-      tickStart = now;
-    }
-    playTimer = requestAnimationFrame(frame);
-  };
-  playTimer = requestAnimationFrame(frame);
+  ['tl-slider', 'tl-play', 'tl-prev', 'tl-next'].forEach((id) => {
+    const el = document.getElementById(id);
+    if (el) el.style.display = 'none';
+  });
+  document.getElementById('tl-label').textContent = 'Accumulated';
 }
 
 // ── Trial: dark "sci-fi" elevation basemap with contour lines ──────────────
@@ -3775,13 +3726,6 @@ function openMapView(index) {
 }
 
 function stepHour(delta) {
-  if (isHighResMode && hiResViewMode === 'accumulated' && hiResAccumDays === 'animate') {
-    stopPlay();
-    hiResAnimateIndex = Math.max(0, Math.min(forecastHours.length - 1, hiResAnimateIndex + delta));
-    renderHiResAccum();
-    updateHiResTimelineForAccum();
-    return;
-  }
   if (currentIndex < 0) return;
   openMapView(currentIndex + delta);
 }
@@ -4351,14 +4295,7 @@ window.addEventListener('resize', () => { if (typeof viewMode !== 'undefined' &&
 // ── Timeline scrubber: drag-to-seek + play/pause autoplay ────────────────────
 document.getElementById('tl-slider').addEventListener('input', (e) => {
   stopPlay();
-  const idx = parseInt(e.target.value, 10);
-  if (isHighResMode && hiResViewMode === 'accumulated' && hiResAccumDays === 'animate') {
-    hiResAnimateIndex = idx;
-    renderHiResAccum();
-    updateHiResTimelineForAccum();
-    return;
-  }
-  openMapView(idx);
+  openMapView(parseInt(e.target.value, 10));
 });
 
 let playTimer = null;
@@ -4381,10 +4318,6 @@ function togglePlay() {
 }
 
 function startPlay() {
-  if (isHighResMode && hiResViewMode === 'accumulated' && hiResAccumDays === 'animate') {
-    startHiResAnimate();
-    return;
-  }
   if (currentIndex < 0) return;
   if (currentIndex >= forecastHours.length - 1) openMapView(0); // restart from the beginning
   document.getElementById('tl-play').textContent = '⏸';
