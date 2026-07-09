@@ -567,6 +567,62 @@
   bottom: 0;
 }
 
+/* Snow Base / 24h / 7 Day snowfall per on-mountain location — appended to
+   the bottom of the snow report summary, scraped from the same official
+   report page's "Conditions" table (see api/whakapapa-report.js). Several
+   locations can be reported (e.g. "Top of Knoll T-bar", "Top of Gondola"),
+   so this wraps into as many compact cards as came back rather than
+   assuming exactly one. */
+.snow-report-conditions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.src-location {
+  flex: 1 1 140px;
+  min-width: 120px;
+  background: rgba(255, 255, 255, 0.04);
+  border-radius: 6px;
+  padding: 8px 10px;
+}
+
+.src-location-name {
+  font-size: 0.66em;
+  font-weight: 700;
+  color: rgba(255, 255, 255, 0.75);
+  margin-bottom: 5px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.src-stats {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.src-stat {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 0.68em;
+}
+
+.src-stat-label {
+  color: rgba(255, 255, 255, 0.55);
+}
+
+.src-stat-value {
+  color: #fff;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
 .forecast-section {
   background: #111;
 }

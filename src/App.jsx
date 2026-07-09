@@ -450,16 +450,17 @@ function SnowReportSummary({ location, expanded, onExpand, onCollapse }) {
     return () => { cancelled = true }
   }, [location])
 
-  if (!source || !report?.summary) return null
+  const hasConditions = report?.conditions?.length > 0
+  if (!source || (!report?.summary && !hasConditions)) return null
 
   // The scraper joins the report's multiple paragraphs with blank lines —
   // split them back out so the expanded view renders each as its own <p>.
-  const paragraphs = report.summary.split(/\n{2,}/).map((s) => s.trim()).filter(Boolean)
+  const paragraphs = report.summary ? report.summary.split(/\n{2,}/).map((s) => s.trim()).filter(Boolean) : []
 
   return (
     <div className={`snow-report-summary ${expanded ? 'expanded' : ''}`}>
       <h4>{source.title}</h4>
-      {expanded ? (
+      {paragraphs.length > 0 && (expanded ? (
         <>
           {paragraphs.map((para, i) => <p key={i}>{para}</p>)}
           <button className="report-toggle-btn" onClick={onCollapse}>See less</button>
@@ -473,6 +474,40 @@ function SnowReportSummary({ location, expanded, onExpand, onCollapse }) {
         <div className="report-summary-clamp-wrap">
           <p className="report-summary-clamped">{paragraphs.join(' ')}</p>
           <button className="report-toggle-btn report-toggle-inline" onClick={onExpand}>See more</button>
+        </div>
+      ))}
+      {/* Snow Base / 24h / 7 Day snowfall per on-mountain location, scraped
+          from the same official report page's "Conditions" table — shown
+          regardless of expand state, unlike the prose above, since it's
+          already compact structured data rather than something that needs
+          clamping. */}
+      {hasConditions && (
+        <div className="snow-report-conditions">
+          {report.conditions.map((c, i) => (
+            <div className="src-location" key={i}>
+              <div className="src-location-name">{c.location}</div>
+              <div className="src-stats">
+                {c.snowBase && (
+                  <div className="src-stat">
+                    <span className="src-stat-label">Snow Base</span>
+                    <span className="src-stat-value">{c.snowBase}</span>
+                  </div>
+                )}
+                {c.snowfall24h && (
+                  <div className="src-stat">
+                    <span className="src-stat-label">24h Snowfall</span>
+                    <span className="src-stat-value">{c.snowfall24h}</span>
+                  </div>
+                )}
+                {c.snowfall7day && (
+                  <div className="src-stat">
+                    <span className="src-stat-label">7 Day Snowfall</span>
+                    <span className="src-stat-value">{c.snowfall7day}</span>
+                  </div>
+                )}
+              </div>
+            </div>
+          ))}
         </div>
       )}
     </div>

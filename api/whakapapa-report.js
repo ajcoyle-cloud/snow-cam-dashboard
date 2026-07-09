@@ -141,6 +141,68 @@ function extractCandidates(html) {
   return candidates;
 }
 
+// Per-location "Conditions" table — Top of Knoll T-bar / Top of Gondola/etc,
+// each with Temperature, Wind, Snow Base, 24 hr Snowfall, 7 day Snowfall.
+// Confirmed live structure (via DevTools on whakapapa.com/report):
+//   <div class="locationRow_HASH">
+//     <div class="locationTitle_HASH">Top of Knoll T-bar</div>
+//     <div class="dataRow_HASH">
+//       <div class="dataCell_HASH">...</div>                 (Temperature)
+//       <div class="twoWrapper_HASH">
+//         <div class="dataCell_HASH">
+//           <div class="dataCellTitle_HASH">Wind</div>
+//           <div class="dataCellContent_HASH">29.2km/h SE</div>
+//         </div>
+//         <div class="dataCell_HASH">
+//           <div class="dataCellTitle_HASH">Snow Base</div>
+//           <div class="dataCellContent_HASH">11CM</div>
+//         </div>
+//       </div>
+//       <div class="twoWrapper_HASH"> ... 24 hr Snowfall / 7 day Snowfall ... </div>
+//     </div>
+//   </div>
+// _HASH is a per-build CSS-module hash (same deal as reportSummary_ above) —
+// matched on the stable prefix. Rather than depend on the exact nesting
+// (which could shift slightly release to release), this scans each
+// locationRow_ block for every dataCellTitle_/dataCellContent_ pair in
+// document order and matches them up by label text — robust to reordering as
+// long as a title stays immediately followed by its own value, which is true
+// of every cell in the confirmed structure above.
+function extractConditions(html) {
+  const locations = [];
+  const rowRe = /class=["']locationRow_[A-Za-z0-9]+["']/g;
+  const rowStarts = [];
+  let rm;
+  while ((rm = rowRe.exec(html)) !== null) rowStarts.push(rm.index);
+
+  for (let i = 0; i < rowStarts.length; i++) {
+    const start = rowStarts[i];
+    const end = i + 1 < rowStarts.length ? rowStarts[i + 1] : Math.min(html.length, start + 6000);
+    const block = html.slice(start, end);
+
+    const titleMatch = block.match(/class=["']locationTitle_[A-Za-z0-9]+["'][^>]*>([\s\S]*?)<\/div>/);
+    const location = titleMatch ? stripTags(titleMatch[1]) : null;
+    if (!location) continue;
+
+    const pairs = {};
+    const pairRe = /class=["']dataCellTitle_[A-Za-z0-9]+["'][^>]*>([\s\S]*?)<\/div>[\s\S]*?class=["']dataCellContent_[A-Za-z0-9]+["'][^>]*>([\s\S]*?)<\/div>/g;
+    let pm;
+    while ((pm = pairRe.exec(block)) !== null) {
+      const label = stripTags(pm[1]).toLowerCase();
+      const value = stripTags(pm[2]);
+      if (label && value) pairs[label] = value;
+    }
+
+    const snowBase = pairs['snow base'] || null;
+    const snowfall24h = pairs['24 hr snowfall'] || pairs['24hr snowfall'] || null;
+    const snowfall7day = pairs['7 day snowfall'] || pairs['7day snowfall'] || null;
+    if (snowBase || snowfall24h || snowfall7day) {
+      locations.push({ location, snowBase, snowfall24h, snowfall7day });
+    }
+  }
+  return locations;
+}
+
 export async function resolveWhakapapaReport({ debug = false } = {}) {
   const attempts = [];
   for (const pageUrl of PAGE_URLS) {
@@ -157,10 +219,17 @@ export async function resolveWhakapapaReport({ debug = false } = {}) {
     }
     const html = await pageResp.text();
     const candidates = extractCandidates(html);
+    const conditions = extractConditions(html);
 
-    if (!debug && candidates.length > 0) {
+    if (!debug && (candidates.length > 0 || conditions.length > 0)) {
       const best = candidates[0];
-      return { summary: best.text, strategy: best.strategy, source: pageUrl, fetchedAt: new Date().toISOString() };
+      return {
+        summary: best ? best.text : null,
+        strategy: best ? best.strategy : null,
+        conditions,
+        source: pageUrl,
+        fetchedAt: new Date().toISOString(),
+      };
     }
 
     // Diagnostic markers: whether the report text/DOM actually exists in the
@@ -174,6 +243,7 @@ export async function resolveWhakapapaReport({ debug = false } = {}) {
       hasDailyReport: /daily-report/i.test(html),
       hasReportSummaryClass: /reportSummary/i.test(html),
       hasLastUpdated: /lastUpdated/i.test(html),
+      hasLocationRow: /locationRow_/i.test(html),
     };
     // If the daily-report anchor IS present, include the surrounding HTML so
     // the real markup/class names can be read off directly.
@@ -182,7 +252,14 @@ export async function resolveWhakapapaReport({ debug = false } = {}) {
     if (anchorIdx !== -1) {
       excerpt = html.slice(anchorIdx, anchorIdx + 1200);
     }
-    attempts.push({ url: pageUrl, status: pageResp.status, candidates, markers, excerpt });
+    // Same idea for the Conditions table, so a debug call shows exactly what
+    // the locationRow_ scan found (or the raw markup around it, if none).
+    let conditionsExcerpt = null;
+    const locRowIdx = html.search(/locationRow_/i);
+    if (locRowIdx !== -1) {
+      conditionsExcerpt = html.slice(locRowIdx, locRowIdx + 2000);
+    }
+    attempts.push({ url: pageUrl, status: pageResp.status, candidates, conditions, markers, excerpt, conditionsExcerpt });
   }
 
   if (debug) {
