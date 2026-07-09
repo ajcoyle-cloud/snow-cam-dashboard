@@ -939,11 +939,28 @@ const isHighResMode = new URLSearchParams(window.location.search).get('highres')
   if (orographicBtn) orographicBtn.style.display = 'none';
 }
 if (isHighResMode) {
-  // Forecast (Hourly) only — no Live/Accumulated/Radar switching, so the
-  // mode-switch/period-switch row has nothing to do here. viewMode stays
-  // permanently 'hourly' (see restoreViewMode()'s early return below).
+  // Live/Radar have no place here (forecast-only page — see restoreViewMode's
+  // early return below, viewMode itself stays permanently 'hourly'), but
+  // Hourly vs Accumulated *does* apply to the orographic drape — reuse
+  // #top-controls' slot/styling with a dedicated pill-group pair
+  // (setHiResViewMode/setHiResPeriod) instead of the general mode-switch,
+  // since the underlying Accumulated calculation here (per-pixel wind-
+  // redistributed sum) is a different thing entirely from the flat
+  // elevation-band one those drive elsewhere on this page.
   const topControls = document.getElementById('top-controls');
-  if (topControls) topControls.style.display = 'none';
+  if (topControls) {
+    topControls.innerHTML = `
+      <div class="pill-group" id="hires-mode-switch">
+        <button class="pill-btn active" data-hrmode="hourly" onclick="setHiResViewMode('hourly')">Hourly</button>
+        <button class="pill-btn" data-hrmode="accumulated" onclick="setHiResViewMode('accumulated')">Accumulated</button>
+      </div>
+      <div class="pill-group" id="hires-period-switch" style="display:none">
+        <button class="pill-btn active" data-hrdays="5" onclick="setHiResPeriod(5)">5</button>
+        <button class="pill-btn" data-hrdays="10" onclick="setHiResPeriod(10)">10</button>
+        <button class="pill-btn" data-hrdays="15" onclick="setHiResPeriod(15)">15</button>
+        <button class="pill-btn" data-hrdays="animate" onclick="setHiResPeriod('animate')">Animate</button>
+      </div>`;
+  }
   // Live weather-station temp pills don't apply to a forecast-only page —
   // no manual toggle for them either, same "one thing this page does"
   // reasoning as the orographic-toggle button above. See pwRenderPill's
@@ -1813,6 +1830,24 @@ function initMap() {
   // above) — so the number always matches the colour under your finger.
   map.on('click', (e) => {
     if (!isHighResMode) return;
+    const rawElevTap = map.queryTerrainElevation(e.lngLat, { exaggerated: false });
+    if (rawElevTap == null || isNaN(rawElevTap)) return;
+    const elevTap = Math.min(rawElevTap, TOP_ELEV);
+
+    // Accumulated: same shared math the drape itself sums (orographicAccumAtPoint),
+    // over whichever window is currently showing (static 5/10/15, or
+    // forecastHours-so-far while Animate plays) — full per-point precision,
+    // this is O(hours) for one tap, not O(pixels x hours) like the drape.
+    if (hiResViewMode === 'accumulated') {
+      const hours = hiResAccumWindow();
+      if (hours.length === 0) return;
+      const grad = orographicSampleGradient(e.lngLat);
+      if (!grad) { showClickPopup(e.point.x, e.point.y, 'Unavailable'); return; }
+      const cm = orographicAccumAtPoint(hours, elevTap, grad.gradEast, grad.gradNorth);
+      showClickPopup(e.point.x, e.point.y, `${cm.toFixed(0)}cm`);
+      return;
+    }
+
     const hour = forecastHours[currentIndex];
     if (!hour || hour.windSpeedKmh == null || hour.windDirDeg == null || hour.freezingLevel == null || hour.snowfallMm == null) return;
     const rawElev = map.queryTerrainElevation(e.lngLat, { exaggerated: false });
@@ -2509,6 +2544,27 @@ function orographicMultiplier(U, V, gradEast, gradNorth) {
   return 1 + OROGRAPHIC_M_RANGE * Math.tanh(w / OROGRAPHIC_W_REF); // ~0.1x - 1.9x
 }
 
+// Sums the wind-redistributed depth (cm) at one point over a list of hours —
+// shared by the High-Res Accumulated raster protocol (registerOrographicAccumProtocol)
+// and its tap-to-probe branch, same one-formula-not-two reasoning as the
+// hourly multiplier above. Each hour independently checks whether elevHere
+// was above THAT hour's own snowline (freezing level moves hour to hour), so
+// a point that was only briefly in the snow zone still gets its (smaller)
+// fair contribution rather than being all-or-nothing for the whole window.
+function orographicAccumAtPoint(hours, elevHere, gradEast, gradNorth) {
+  let total = 0;
+  for (let i = 0; i < hours.length; i++) {
+    const hour = hours[i];
+    if (hour.snowfallMm == null || hour.snowfallMm < SNOWFALL_THRESHOLD_MM) continue;
+    if (hour.freezingLevel == null || hour.windSpeedKmh == null || hour.windDirDeg == null) continue;
+    if (elevHere < hour.freezingLevel - SNOW_OFFSET) continue;
+    const vectors = orographicWindVectorsForHour(hour);
+    const { U, V } = orographicWindAtElevation(vectors, elevHere);
+    total += (hour.snowfallMm / 10) * orographicMultiplier(U, V, gradEast, gradNorth);
+  }
+  return total;
+}
+
 // Local terrain gradient at a real-world lng/lat, for the click-to-probe
 // handler — 4 elevation samples via map.queryTerrainElevation (works at any
 // point already covered by loaded terrain tiles, not tied to raw DEM pixel
@@ -2690,6 +2746,277 @@ function toggleOrographicSnow() {
     if (map.getSource('orographic-snow')) map.removeSource('orographic-snow');
     if (map.getLayer('snow-relief')) map.setLayoutProperty('snow-relief', 'visibility', 'visible');
   }
+}
+
+// ── High-Res Accumulated + Animate ───────────────────────────────────────
+// A second, independent small view-mode state machine, High-Res only. The
+// existing viewMode/setViewMode/setPeriod/renderAccumulatedView machinery
+// drives the *flat*, elevation-band Accumulated view used elsewhere on this
+// page — reusing it here would mean fighting its Live/Radar branches for no
+// reason. This is a different calculation entirely (per-pixel wind-
+// redistributed accumulation, using the same shared math as the hourly
+// drape), so it gets its own state instead of overloading that one.
+let hiResViewMode = 'hourly'; // 'hourly' | 'accumulated'
+let hiResAccumDays = 5; // 5 | 10 | 15 | 'animate'
+let hiResAnimateIndex = 0; // Animate only: accumulate forecastHours[0..hiResAnimateIndex]
+
+// The hour range currently backing the Accumulated drape — the static
+// 5/10/15 day window (closest-to-now start, matching renderAccumulatedView's
+// own window logic) for those, or forecastHours-so-far while Animate plays.
+function hiResAccumWindow() {
+  if (forecastHours.length === 0) return [];
+  if (hiResAccumDays === 'animate') {
+    return forecastHours.slice(0, Math.min(forecastHours.length, hiResAnimateIndex + 1));
+  }
+  const nowMs = Date.now();
+  let startIdx = 0, bestDiff = Infinity;
+  forecastHours.forEach((r, i) => {
+    const diff = Math.abs(new Date(r.time).getTime() - nowMs);
+    if (diff < bestDiff) { bestDiff = diff; startIdx = i; }
+  });
+  return forecastHours.slice(startIdx, startIdx + hiResAccumDays * 24);
+}
+
+let orographicAccumActive = false;
+let orographicAccumProtocolRegistered = false;
+function registerOrographicAccumProtocol() {
+  if (orographicAccumProtocolRegistered) return;
+  orographicAccumProtocolRegistered = true;
+  maplibregl.addProtocol('orographicaccum', async (params) => {
+    const [z, x, y] = params.url.replace('orographicaccum://', '').split('/').map(Number);
+    const template = await getDemTileUrlTemplate();
+    const demUrl = template.replace('{z}', z).replace('{x}', x).replace('{y}', y);
+    const res = await fetch(demUrl);
+    const blob = await res.blob();
+    const bitmap = await createImageBitmap(blob);
+    const size = bitmap.width;
+
+    const canvas = document.createElement('canvas');
+    canvas.width = size; canvas.height = size;
+    const ctx = canvas.getContext('2d');
+    ctx.drawImage(bitmap, 0, 0);
+    const src = ctx.getImageData(0, 0, size, size).data;
+
+    const elev = new Float32Array(size * size);
+    for (let i = 0; i < size * size; i++) {
+      elev[i] = decodeTerrainRGB(src[i * 4], src[i * 4 + 1], src[i * 4 + 2]);
+    }
+    const elevSmooth = orographicBoxBlur(elev, size, 2);
+
+    const lonForPx = new Float64Array(size);
+    for (let px = 0; px < size; px++) lonForPx[px] = tilePixelToLonLat(x, y, z, px, 0, size)[0];
+
+    const out = ctx.createImageData(size, size);
+    const hours = hiResAccumWindow();
+
+    if (hours.length > 0) {
+      const metersPerPixel = (156543.03392 * Math.cos(tileCenterLatRad(y, z))) / Math.pow(2, z) * (256 / size);
+
+      // Cheap, once-per-tile passes over the (small) hour list rather than
+      // per-pixel: the lowest snowline reached during the window (a point is
+      // ever shown if it was above the line for at least one hour — matches
+      // renderAccumulatedView's own "use the minimum, not the average"
+      // reasoning), and the flat, non-redistributed total (ignoring wind) as
+      // a reference scale for the colour ramp below.
+      let minBoundary = Infinity, flatTotalCm = 0;
+      for (let i = 0; i < hours.length; i++) {
+        const h = hours[i];
+        if (h.snowfallMm == null || h.snowfallMm < SNOWFALL_THRESHOLD_MM || h.freezingLevel == null) continue;
+        flatTotalCm += h.snowfallMm / 10;
+        const b = h.freezingLevel - SNOW_OFFSET;
+        if (b < minBoundary) minBoundary = b;
+      }
+
+      if (isFinite(minBoundary) && flatTotalCm > 0) {
+        const M_LO = 1 - OROGRAPHIC_M_RANGE, M_HI = 1 + OROGRAPHIC_M_RANGE;
+        // Same normalisation shape as the hourly ramp (t=0 lee, t=1 windward)
+        // but for a summed depth instead of an instantaneous rate: a point
+        // that got the flat/unredistributed total over the whole window
+        // lands at the ramp's midpoint, one that got the lightest possible
+        // multiplier throughout lands at 0, heaviest throughout at 1.
+        const REF_LO = flatTotalCm * M_LO, REF_HI = flatTotalCm * M_HI;
+        const refSpan = Math.max(0.001, REF_HI - REF_LO);
+
+        // Summing per-hour DEM-scale gradients over a long window is real
+        // work (up to ~360 hours for 15 Day) — computing every pixel at
+        // full resolution would be far too slow to feel interactive. The
+        // terrain gradient this feeds is already box-blurred (smoothed over
+        // several pixels), so sampling on a coarser grid and filling each
+        // block loses negligible real detail while cutting the per-tile
+        // cost by STRIDE^2. Animate only ever sums ONE new hour per frame
+        // (same cost as the hourly drape), so it stays at full resolution.
+        const STRIDE = hiResAccumDays === 'animate' ? 1 : hiResAccumDays >= 15 ? 4 : hiResAccumDays >= 10 ? 3 : 2;
+
+        for (let py = 0; py < size; py += STRIDE) {
+          const yp1 = Math.min(size - 1, py + 1);
+          const ym1 = Math.max(0, py - 1);
+          const rowLat = tilePixelToLonLat(x, y, z, 0, py, size)[1];
+          const cosAvgLatRad = Math.cos(((LOC.lat + rowLat) / 2) * Math.PI / 180);
+          const blockH = Math.min(STRIDE, size - py);
+          for (let px = 0; px < size; px += STRIDE) {
+            const i = py * size + px;
+            const elevHere = elev[i];
+            const blockW = Math.min(STRIDE, size - px);
+            if (elevHere < minBoundary) {
+              for (let dy = 0; dy < blockH; dy++) {
+                const o0 = ((py + dy) * size + px) * 4;
+                for (let dx = 0; dx < blockW; dx++) out.data[o0 + dx * 4 + 3] = 0;
+              }
+              continue;
+            }
+
+            const distKm = approxDistanceKm(LOC.lat, LOC.lon, rowLat, lonForPx[px], cosAvgLatRad);
+            const darken = 1 - depthDarkenFactor(distKm);
+
+            const xm1 = Math.max(0, px - 1), xp1 = Math.min(size - 1, px + 1);
+            const dzdx = (elevSmooth[py * size + xp1] - elevSmooth[py * size + xm1]) / (2 * metersPerPixel);
+            const dzdyImg = (elevSmooth[yp1 * size + px] - elevSmooth[ym1 * size + px]) / (2 * metersPerPixel);
+            const gradEast = dzdx, gradNorth = -dzdyImg;
+            const shade = orographicHillshade(gradEast, gradNorth);
+            const f = shade * darken;
+
+            const accumCm = orographicAccumAtPoint(hours, elevHere, gradEast, gradNorth);
+            const t = (accumCm - REF_LO) / refSpan;
+            const [cR, cG, cB] = orographicRampColor(t);
+            const R = cR * f, G = cG * f, B = cB * f;
+
+            for (let dy = 0; dy < blockH; dy++) {
+              const o0 = ((py + dy) * size + px) * 4;
+              for (let dx = 0; dx < blockW; dx++) {
+                const o = o0 + dx * 4;
+                out.data[o] = R; out.data[o + 1] = G; out.data[o + 2] = B; out.data[o + 3] = 225;
+              }
+            }
+          }
+        }
+      }
+    }
+    ctx.putImageData(out, 0, 0);
+    const outBlob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/png'));
+    return { data: await outBlob.arrayBuffer() };
+  });
+}
+
+// Same remove+re-add-to-force-refresh pattern as refreshOrographicSnow.
+function refreshOrographicAccum() {
+  if (!map) return;
+  if (map.getLayer('orographic-accum-layer')) map.removeLayer('orographic-accum-layer');
+  if (map.getSource('orographic-accum')) map.removeSource('orographic-accum');
+  map.addSource('orographic-accum', { type: 'raster', tiles: ['orographicaccum://{z}/{x}/{y}'], tileSize: 512 });
+  map.addLayer({
+    id: 'orographic-accum-layer', type: 'raster', source: 'orographic-accum',
+  }, map.getLayer('resort-lifts-line') ? 'resort-lifts-line' : undefined);
+  if (map.getLayer('snow-relief')) map.setLayoutProperty('snow-relief', 'visibility', 'none');
+  if (map.getLayer('orographic-snow-layer')) map.setLayoutProperty('orographic-snow-layer', 'visibility', 'none');
+}
+
+function hideOrographicAccum() {
+  orographicAccumActive = false;
+  if (!map) return;
+  if (map.getLayer('orographic-accum-layer')) map.removeLayer('orographic-accum-layer');
+  if (map.getSource('orographic-accum')) map.removeSource('orographic-accum');
+}
+
+function renderHiResAccum() {
+  if (!map) return;
+  orographicAccumActive = true;
+  registerOrographicAccumProtocol();
+  refreshOrographicAccum();
+}
+
+// Top pill-group toggle (see the isHighResMode block above, which injects
+// this markup into #top-controls) — switches between the normal hourly
+// drape and the accumulated one, independent of the general viewMode.
+function setHiResViewMode(mode) {
+  hiResViewMode = mode;
+  document.querySelectorAll('#hires-mode-switch .pill-btn').forEach((b) => b.classList.toggle('active', b.dataset.hrmode === mode));
+  const periodSwitch = document.getElementById('hires-period-switch');
+  if (periodSwitch) periodSwitch.style.display = mode === 'accumulated' ? 'flex' : 'none';
+  stopPlay();
+  if (mode === 'hourly') {
+    hideOrographicAccum();
+    if (orographicSnowActive && map && map.getLayer('orographic-snow-layer')) {
+      map.setLayoutProperty('orographic-snow-layer', 'visibility', 'visible');
+    }
+    // updateHiResTimelineForAccum may have hidden the slider/stepper/play
+    // button (static 5/10/15 has nothing to scrub) — restore them; openMapView
+    // below repopulates their values but never touches .style.display itself.
+    ['tl-slider', 'tl-prev', 'tl-next', 'tl-play'].forEach((id) => {
+      const el = document.getElementById(id);
+      if (el) el.style.display = '';
+    });
+    openMapView(currentIndex < 0 ? 0 : currentIndex);
+  } else {
+    if (hiResAccumDays === 'animate') hiResAnimateIndex = 0;
+    updateHiResTimelineForAccum();
+    renderHiResAccum();
+  }
+}
+
+// Second pill-group (5 / 10 / 15 / Animate) — only visible while
+// hiResViewMode is 'accumulated'.
+function setHiResPeriod(days) {
+  hiResAccumDays = days;
+  document.querySelectorAll('#hires-period-switch .pill-btn').forEach((b) => b.classList.toggle('active', b.dataset.hrdays === String(days)));
+  stopPlay();
+  if (days === 'animate') hiResAnimateIndex = 0;
+  updateHiResTimelineForAccum();
+  renderHiResAccum();
+}
+
+// Keeps the one shared #tl-slider/#tl-label in sync while Accumulated is
+// active — for the static 5/10/15 windows there's no single "hour" to show,
+// so the slider/stepper are hidden; Animate reuses them to scrub/show
+// accumulation progress, same widget as hourly playback just repurposed.
+function updateHiResTimelineForAccum() {
+  const slider = document.getElementById('tl-slider');
+  const playBtn = document.getElementById('tl-play');
+  const stepBtns = [document.getElementById('tl-prev'), document.getElementById('tl-next')];
+  if (hiResAccumDays !== 'animate') {
+    // Static 5/10/15 Day totals have nothing to scrub or play — hide the
+    // whole transport, just leave the label reading "Accumulated".
+    if (slider) slider.style.display = 'none';
+    if (playBtn) playBtn.style.display = 'none';
+    stepBtns.forEach((b) => { if (b) b.style.display = 'none'; });
+    document.getElementById('tl-label').textContent = `Accumulated`;
+    return;
+  }
+  if (slider) slider.style.display = '';
+  if (playBtn) playBtn.style.display = '';
+  stepBtns.forEach((b) => { if (b) b.style.display = ''; });
+  if (forecastHours.length === 0) return;
+  slider.max = forecastHours.length - 1;
+  slider.value = hiResAnimateIndex;
+  document.getElementById('tl-prev').disabled = hiResAnimateIndex <= 0;
+  document.getElementById('tl-next').disabled = hiResAnimateIndex >= forecastHours.length - 1;
+  document.getElementById('tl-label').textContent = fmtTime(forecastHours[hiResAnimateIndex].time);
+}
+
+// Animate playback — reuses the same play/pause button, playTimer and
+// playSpeed as the hourly timeline (see startPlay/stopPlay/setSpeed below);
+// startPlay() delegates here when Animate is the active High-Res period.
+// Unlike hourly playback (which blends smoothly between two hours' single
+// rate value), each tick here adds one whole new hour into a growing sum —
+// there's no meaningful way to "blend" a fractional hour into a running
+// accumulation, so this steps whole-hour to whole-hour instead.
+function startHiResAnimate() {
+  if (forecastHours.length === 0) return;
+  if (hiResAnimateIndex >= forecastHours.length - 1) hiResAnimateIndex = 0; // restart from the beginning
+  document.getElementById('tl-play').textContent = '⏸';
+  if (playTimer) cancelAnimationFrame(playTimer);
+  const tickMs = BASE_INTERVAL_MS / playSpeed;
+  let tickStart = performance.now();
+  const frame = (now) => {
+    if (hiResAnimateIndex >= forecastHours.length - 1) { stopPlay(); return; }
+    if (now - tickStart >= tickMs) {
+      hiResAnimateIndex++;
+      renderHiResAccum();
+      updateHiResTimelineForAccum();
+      tickStart = now;
+    }
+    playTimer = requestAnimationFrame(frame);
+  };
+  playTimer = requestAnimationFrame(frame);
 }
 
 // ── Trial: dark "sci-fi" elevation basemap with contour lines ──────────────
@@ -3420,6 +3747,13 @@ function openMapView(index) {
 }
 
 function stepHour(delta) {
+  if (isHighResMode && hiResViewMode === 'accumulated' && hiResAccumDays === 'animate') {
+    stopPlay();
+    hiResAnimateIndex = Math.max(0, Math.min(forecastHours.length - 1, hiResAnimateIndex + delta));
+    renderHiResAccum();
+    updateHiResTimelineForAccum();
+    return;
+  }
   if (currentIndex < 0) return;
   openMapView(currentIndex + delta);
 }
@@ -3989,7 +4323,14 @@ window.addEventListener('resize', () => { if (typeof viewMode !== 'undefined' &&
 // ── Timeline scrubber: drag-to-seek + play/pause autoplay ────────────────────
 document.getElementById('tl-slider').addEventListener('input', (e) => {
   stopPlay();
-  openMapView(parseInt(e.target.value, 10));
+  const idx = parseInt(e.target.value, 10);
+  if (isHighResMode && hiResViewMode === 'accumulated' && hiResAccumDays === 'animate') {
+    hiResAnimateIndex = idx;
+    renderHiResAccum();
+    updateHiResTimelineForAccum();
+    return;
+  }
+  openMapView(idx);
 });
 
 let playTimer = null;
@@ -4012,6 +4353,10 @@ function togglePlay() {
 }
 
 function startPlay() {
+  if (isHighResMode && hiResViewMode === 'accumulated' && hiResAccumDays === 'animate') {
+    startHiResAnimate();
+    return;
+  }
   if (currentIndex < 0) return;
   if (currentIndex >= forecastHours.length - 1) openMapView(0); // restart from the beginning
   document.getElementById('tl-play').textContent = '⏸';
