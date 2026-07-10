@@ -220,6 +220,13 @@ export async function resolveWhakapapaReport({ debug = false } = {}) {
     const html = await pageResp.text();
     const candidates = extractCandidates(html);
     const conditions = extractConditions(html);
+    // The resort's own "Last updated: 7:08am Thu 9th Jul" stamp — sits in a
+    // <div class="lastUpdated_HASH"> right by the daily-report heading, same
+    // per-build CSS-module-hash class pattern as reportSummary_ above.
+    const luMatch = html.match(/class=["']lastUpdated_[A-Za-z0-9]+["'][^>]*>([\s\S]*?)<\/div>/);
+    const reportUpdated = luMatch
+      ? stripTags(luMatch[1]).replace(/^last\s*updated:?\s*/i, '').trim() || null
+      : null;
 
     if (!debug && (candidates.length > 0 || conditions.length > 0)) {
       const best = candidates[0];
@@ -227,6 +234,7 @@ export async function resolveWhakapapaReport({ debug = false } = {}) {
         summary: best ? best.text : null,
         strategy: best ? best.strategy : null,
         conditions,
+        reportUpdated,
         source: pageUrl,
         fetchedAt: new Date().toISOString(),
       };
@@ -259,7 +267,7 @@ export async function resolveWhakapapaReport({ debug = false } = {}) {
     if (locRowIdx !== -1) {
       conditionsExcerpt = html.slice(locRowIdx, locRowIdx + 2000);
     }
-    attempts.push({ url: pageUrl, status: pageResp.status, candidates, conditions, markers, excerpt, conditionsExcerpt });
+    attempts.push({ url: pageUrl, status: pageResp.status, candidates, conditions, reportUpdated, markers, excerpt, conditionsExcerpt });
   }
 
   if (debug) {

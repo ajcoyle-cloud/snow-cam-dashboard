@@ -223,7 +223,13 @@ function extractFromRenderedText(text, resort) {
     const cleaned = sm[1].replace(/\s+/g, ' ').trim();
     if (cleaned.length >= 40) summary = cleaned;
   }
-  return { summary, conditions };
+  // The resort's own freshness stamp, rendered under the summary as
+  // "Updated by Mountain Manager 6 hours ago" (and separately "Updated 1
+  // hour ago by OPENSNOW" for the figures) — capture the first one in scope.
+  let reportUpdated = null;
+  const um = scope.match(/Updated(?:\s+by\s+[A-Za-z ]{2,30}?)?\s+((?:\d+|an?)\s+(?:minute|min|hour|hr|day)s?\s+ago)/i);
+  if (um) reportUpdated = um[1].replace(/\s+/g, ' ').trim();
+  return { summary, conditions, reportUpdated };
 }
 
 export async function resolveReport(resort, { debug = false } = {}) {
@@ -251,6 +257,7 @@ export async function resolveReport(resort, { debug = false } = {}) {
   // content as text) and scan that instead — same approach as the Mt Hutt
   // scraper. Edge-cached 15min, so the proxy sees little traffic.
   let proxyDebug = null;
+  let reportUpdated = null;
   if (!summary && !conditions) {
     try {
       const proxied = await fetch('https://r.jina.ai/' + PAGE_URL, { headers: { 'Accept': 'text/plain' } });
@@ -259,6 +266,7 @@ export async function resolveReport(resort, { debug = false } = {}) {
         const fromRendered = extractFromRenderedText(text, resort);
         summary = summary || fromRendered.summary;
         conditions = conditions || fromRendered.conditions;
+        reportUpdated = fromRendered.reportUpdated || null;
         proxyDebug = {
           status: proxied.status,
           textLength: text.length,
@@ -331,7 +339,7 @@ export async function resolveReport(resort, { debug = false } = {}) {
     throw { status: 502, body: { error: 'no report found', resort, source: PAGE_URL } };
   }
 
-  return { summary, conditions, source: PAGE_URL, fetchedAt: new Date().toISOString() };
+  return { summary, conditions, reportUpdated, source: PAGE_URL, fetchedAt: new Date().toISOString() };
 }
 
 export const resolveCardronaReport = (opts) => resolveReport('cardrona', opts);
