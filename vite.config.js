@@ -2,7 +2,7 @@ import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import { resolveLyfordCam } from './api/lyford-cam.js'
 import { resolveWhakapapaReport } from './api/whakapapa-report.js'
-import { resolveCardronaReport } from './api/cardrona-report.js'
+import { resolveCardronaReport, resolveTrebleconeReport } from './api/cardrona-report.js'
 
 // Dev parity for the Mt Lyford webcam scraper. In prod, /lyford-cam/<cam> is a
 // Vercel function (api/lyford-cam.js); the Vite dev server doesn't run that, so
@@ -66,6 +66,7 @@ export default defineConfig({
     lyfordCamDev(),
     snowReportDev('/whakapapa-report', resolveWhakapapaReport),
     snowReportDev('/cardrona-report', resolveCardronaReport),
+    snowReportDev('/treblecone-report', resolveTrebleconeReport),
   ],
   server: {
     port: 5173,

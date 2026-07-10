@@ -1,16 +1,30 @@
-// Proxy/scraper for Cardrona's official daily snow report text summary.
+// Proxy/scraper for the Cardrona + Treble Cone official daily snow reports.
 //
-// Confirmed via DevTools inspection of the live page: a
+// Both resorts share ONE site (cardrona-treblecone.com/snow-report) with a
+// client-side Cardrona/Treble Cone tab toggle, so this one module scrapes
+// both: resolveCardronaReport / resolveTrebleconeReport are thin wrappers
+// over resolveReport(resort). Confirmed via DevTools on the live page: an
 //   <h2 ...>Summary</h2>
 // heading followed by a <div> of
 //   <p class="mb-3 overflow-hidden text-ellipsis font-stagSans text-[14px] ...">
-// paragraphs. Unlike Whakapapa's site (see whakapapa-report.js), these are
-// literal Tailwind utility classes rather than per-build CSS-module hashes,
-// so matching on the exact "mb-3" class is stable across deploys.
+// paragraphs. Those are literal Tailwind utility classes (not per-build
+// CSS-module hashes like Whakapapa's site), so matching on "mb-3" is stable.
 //
-// vercel.json rewrites /cardrona-report -> /api/cardrona-report.
+// The written Summary in the raw HTML is whichever tab is server-rendered by
+// default (Cardrona). Treble Cone's own content, and both resorts' snow-base/
+// snowfall FIGURES, are populated client-side from the page's hydration data,
+// so a plain fetch() may not contain them in the DOM — the reliable place to
+// find all of it is that embedded JSON payload (Next.js __NEXT_DATA__ or
+// similar), which this searches first. ?debug=1 returns every strategy's
+// findings plus markers/excerpts so the exact shape can be pinned from prod
+// output (this repo's sandbox can't reach the site to inspect it directly).
+//
+// vercel.json rewrites /cardrona-report -> /api/cardrona-report and
+// /treblecone-report -> /api/treblecone-report.
 
 const PAGE_URL = 'https://www.cardrona-treblecone.com/snow-report';
+
+const RESORT_LABELS = { cardrona: 'Cardrona', treblecone: 'Treble Cone' };
 
 const BROWSER_HEADERS = {
   'User-Agent':
@@ -43,12 +57,106 @@ function isBoilerplate(text) {
   return false;
 }
 
-function extractSummary(html) {
+// Normalise a raw figure value ("11CM", "15 - 60CM", "3 cm") to a tidy string.
+function normaliseCm(raw) {
+  if (raw == null) return null;
+  let s = String(raw).trim();
+  if (s === '') return null;
+  // Already has a unit — just tidy spacing/case.
+  if (/cm/i.test(s)) return s.replace(/\s+/g, ' ').replace(/cm/i, 'cm').trim();
+  // Bare number(s) (e.g. a JSON value) — append cm.
+  if (/^[\d.\s-]+$/.test(s)) return s.replace(/\s+/g, ' ').trim() + 'cm';
+  return s;
+}
+
+// ── Strategy A: embedded hydration JSON (most reliable — has BOTH tabs) ──────
+// Modern React/Next sites keep the full per-resort data in an inline JSON
+// payload even when the DOM only renders the active tab. To avoid pulling
+// the WRONG resort's data (both resorts live in the same payload), this is
+// strictly resort-SCOPED: it only harvests fields out of a JSON object that
+// identifies itself as this resort (a name/title/slug field matching
+// "cardrona" / "treble cone"), plus that object's own nested values — never
+// from an arbitrary first-match anywhere in the tree.
+function resortObjectMatches(obj, resort) {
+  for (const k of ['name', 'title', 'slug', 'resort', 'mountain', 'field', 'id']) {
+    const v = obj[k];
+    if (typeof v !== 'string') continue;
+    const s = v.toLowerCase().replace(/[^a-z]/g, '');
+    if (resort === 'cardrona' && s.includes('cardrona')) return true;
+    if (resort === 'treblecone' && s.includes('treblecone')) return true;
+  }
+  return false;
+}
+
+// Harvest summary/figures from within one already-resort-matched object
+// (shallow-ish: this object and its nested objects/arrays, not the whole tree).
+function harvestResortFields(value, acc, depth = 0) {
+  if (depth > 6) return;
+  if (Array.isArray(value)) {
+    for (const v of value) harvestResortFields(v, acc, depth + 1);
+    return;
+  }
+  if (value && typeof value === 'object') {
+    for (const k of Object.keys(value)) {
+      const v = value[k];
+      if (typeof v === 'string') {
+        const key = k.toLowerCase();
+        const s = v.trim();
+        if (!acc.summary && s.length >= 60 && /summary|report|conditions|description|blurb/.test(key)) acc.summary = s;
+        if (acc.snowBase == null && /base/.test(key) && !/database/.test(key)) acc.snowBase = v;
+        if (acc.snowfall24h == null && /(24h|24hr|24hour|last24|lasttwentyfour|newsnow)/.test(key)) acc.snowfall24h = v;
+        if (acc.snowfall7day == null && /(7day|7d|last7|lastseven|weeksnow)/.test(key)) acc.snowfall7day = v;
+      } else if (v && typeof v === 'object') {
+        harvestResortFields(v, acc, depth + 1);
+      }
+    }
+  }
+}
+
+// Walk the whole tree looking for objects that BELONG to this resort, and
+// harvest only from within them.
+function findResortDataInJson(value, resort, acc, depth = 0) {
+  if (depth > 10) return;
+  if (Array.isArray(value)) {
+    for (const v of value) findResortDataInJson(v, resort, acc, depth + 1);
+    return;
+  }
+  if (value && typeof value === 'object') {
+    if (resortObjectMatches(value, resort)) harvestResortFields(value, acc);
+    for (const k of Object.keys(value)) {
+      if (value[k] && typeof value[k] === 'object') findResortDataInJson(value[k], resort, acc, depth + 1);
+    }
+  }
+}
+
+function extractFromJson(html, resort) {
+  const out = { summary: null, conditions: null, foundJson: false };
+  // Any inline JSON blob: __NEXT_DATA__, __NUXT_DATA__, or a bare
+  // application/json script.
+  const scripts = [...html.matchAll(/<script[^>]*(?:id=["'](?:__NEXT_DATA__|__NUXT_DATA__)["']|type=["']application\/json["'])[^>]*>([\s\S]*?)<\/script>/gi)];
+  for (const m of scripts) {
+    let parsed;
+    try { parsed = JSON.parse(m[1]); } catch { continue; }
+    out.foundJson = true;
+    const acc = {};
+    findResortDataInJson(parsed, resort, acc);
+    if (acc.summary && !out.summary) out.summary = acc.summary;
+    const snowBase = normaliseCm(acc.snowBase);
+    const snowfall24h = normaliseCm(acc.snowfall24h);
+    const snowfall7day = normaliseCm(acc.snowfall7day);
+    if ((snowBase || snowfall24h || snowfall7day) && !out.conditions) {
+      out.conditions = [{ location: RESORT_LABELS[resort], snowBase, snowfall24h, snowfall7day }];
+    }
+    if (out.summary && out.conditions) break;
+  }
+  return out;
+}
+
+// ── Strategy B: DOM Summary heading + mb-3 paragraphs (active tab only) ───────
+function extractSummaryFromDom(html) {
   const headingMatch = html.match(/<h2[^>]*>\s*Summary\s*<\/h2>/i);
   if (!headingMatch) return null;
   const rest = html.slice(headingMatch.index + headingMatch[0].length);
-  // Bound the search to the next heading (or a generous cap) so we don't
-  // bleed into whatever section follows the summary.
   const stopIdx = rest.search(/<h2[^>]*>/i);
   const slice = stopIdx > 0 ? rest.slice(0, stopIdx) : rest.slice(0, 6000);
   const paras = [...slice.matchAll(/<p[^>]*\bclass=["'][^"']*\bmb-3\b[^"']*["'][^>]*>([\s\S]*?)<\/p>/gi)]
@@ -57,32 +165,69 @@ function extractSummary(html) {
   return paras.length ? paras.join('\n\n') : null;
 }
 
-export async function resolveCardronaReport({ debug = false } = {}) {
+// ── Strategy C: label-driven figure scrape from the rendered DOM ─────────────
+// Looks for a "Snow Base" / "24 hr/hour Snowfall" / "7 Day Snowfall" label
+// with a nearby "<n>CM" value. Best-effort fallback for when the figures ARE
+// server-rendered (unlike the Alpine/JS-populated NZSki sites).
+function extractConditionsFromDom(html, resort) {
+  const text = stripTags(html);
+  const pick = (labelRe) => {
+    const m = text.match(labelRe);
+    return m ? normaliseCm(m[1]) : null;
+  };
+  const snowBase = pick(/snow\s*base[^0-9]{0,20}(\d[\d.\s-]*\s*cm)/i);
+  const snowfall24h = pick(/24\s*(?:hr|hour)s?\s*snowfall[^0-9]{0,20}(\d[\d.\s-]*\s*cm)/i);
+  const snowfall7day = pick(/7\s*day\s*snowfall[^0-9]{0,20}(\d[\d.\s-]*\s*cm)/i);
+  if (snowBase || snowfall24h || snowfall7day) {
+    return [{ location: RESORT_LABELS[resort], snowBase, snowfall24h, snowfall7day }];
+  }
+  return null;
+}
+
+export async function resolveReport(resort, { debug = false } = {}) {
   const pageResp = await fetch(PAGE_URL, { headers: BROWSER_HEADERS });
   if (!pageResp.ok) {
     throw { status: 502, body: { error: 'page fetch failed', status: pageResp.status } };
   }
   const html = await pageResp.text();
-  const summary = extractSummary(html);
+
+  const fromJson = extractFromJson(html, resort);
+  const domSummary = extractSummaryFromDom(html);
+  const domConditions = extractConditionsFromDom(html, resort);
+
+  // JSON is preferred (per-resort correct); DOM Summary is the active-tab
+  // fallback — only trust it for Cardrona (the default tab), never attribute
+  // it to Treble Cone where it'd be the wrong resort's text.
+  const summary = fromJson.summary || (resort === 'cardrona' ? domSummary : null);
+  const conditions = fromJson.conditions || domConditions;
 
   if (debug) {
     return {
       debug: {
+        resort,
         source: PAGE_URL,
         status: pageResp.status,
         htmlLength: html.length,
+        foundJson: fromJson.foundJson,
+        jsonSummary: fromJson.summary,
+        jsonConditions: fromJson.conditions,
+        domSummary,
+        domConditions,
         hasSummaryHeading: /<h2[^>]*>\s*Summary\s*<\/h2>/i.test(html),
-        summary,
+        hasTrebleConeText: /treble\s*cone/i.test(html),
       },
     };
   }
 
-  if (!summary) {
-    throw { status: 502, body: { error: 'no summary found', source: PAGE_URL } };
+  if (!summary && !conditions) {
+    throw { status: 502, body: { error: 'no report found', resort, source: PAGE_URL } };
   }
 
-  return { summary, source: PAGE_URL, fetchedAt: new Date().toISOString() };
+  return { summary, conditions, source: PAGE_URL, fetchedAt: new Date().toISOString() };
 }
+
+export const resolveCardronaReport = (opts) => resolveReport('cardrona', opts);
+export const resolveTrebleconeReport = (opts) => resolveReport('treblecone', opts);
 
 export default async function handler(req, res) {
   try {
