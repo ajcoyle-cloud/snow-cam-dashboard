@@ -200,29 +200,42 @@ function pickNearLabel(text, labelRe) {
   const m = text.match(valueBefore) || text.match(valueAfter);
   return m ? normaliseCm(m[1]) : null;
 }
+// The written report from the (markdown) rendered text: everything after the
+// "## Summary" heading up to the next markdown heading — but crucially NOT
+// requiring a downstream heading to exist (an earlier lazy-regex version
+// needed one within 2500 chars, and Treble Cone's long report had neither a
+// heading nor a stop pattern inside the window, so it matched nothing even
+// though the prose was right there). Falls back to a generous char cap.
+function extractRenderedSummary(scope) {
+  // Land on the "## Summary" section specifically, not "## Snow Report".
+  const m = scope.match(/#{0,4}\s*Summary\b[\s:#-]*/i);
+  if (!m) return null;
+  let rest = scope.slice(m.index + m[0].length);
+  // Stop at the next markdown heading, an "Updated by …" credit line, or a
+  // known following section — whichever comes first; else just cap length.
+  const stop = rest.search(/\n#{1,6}\s|\bUpdated\s+(?:by\b|\d|an?\b)|\n\s*(?:Lifts?\b|Road Conditions?|Resort\b|Snow Base\b|Lift Status\b|View Webcams?)/i);
+  if (stop >= 40) rest = rest.slice(0, stop);
+  const cleaned = rest.replace(/\s+/g, ' ').trim();
+  return cleaned.length >= 40 ? cleaned.slice(0, 2500) : null;
+}
+
 function extractFromRenderedText(text, resort) {
   // Treble Cone is the non-default tab — only read a TC-anchored slice, and
   // yield nothing rather than mis-attribute Cardrona's (default tab) data.
+  // Widened to 8000 (TC's report alone runs well past 4000).
   let scope = text;
   if (resort === 'treblecone') {
     const idx = text.search(/treble\s*cone/i);
-    if (idx === -1) return { summary: null, conditions: null };
-    scope = text.slice(idx, idx + 4000);
+    if (idx === -1) return { summary: null, conditions: null, reportUpdated: null };
+    scope = text.slice(idx, idx + 8000);
   }
-  const snowBase = pickNearLabel(scope, 'snow\\s*base|base\\s*depth');
-  const snowfall24h = pickNearLabel(scope, 'last\\s*24\\s*hrs?|last\\s*24\\s*hours?|24\\s*hrs?');
+  const snowBase = pickNearLabel(scope, 'snow\\s*base|base\\s*depth|upper');
+  const snowfall24h = pickNearLabel(scope, 'last\\s*24\\s*hrs?|last\\s*24\\s*hours?|24\\s*hrs?|overnight');
   const snowfall7day = pickNearLabel(scope, 'last\\s*7\\s*days?|7\\s*days?');
   const conditions = (snowBase || snowfall24h || snowfall7day)
     ? [{ location: RESORT_LABELS[resort], snowBase, snowfall24h, snowfall7day }]
     : null;
-  // Written report: the prose under the "Summary" heading (markdown-ish "#
-  // Summary" or a bare "Summary" line), up to the next heading-looking line.
-  let summary = null;
-  const sm = scope.match(/(?:^|\n)#*\s*Summary\s*\n+([\s\S]{40,2500}?)(?=\n#+\s|\n[A-Z][A-Za-z ]{2,40}\n|$)/);
-  if (sm) {
-    const cleaned = sm[1].replace(/\s+/g, ' ').trim();
-    if (cleaned.length >= 40) summary = cleaned;
-  }
+  const summary = extractRenderedSummary(scope);
   // The resort's own freshness stamp, rendered under the summary as
   // "Updated by Mountain Manager 6 hours ago" (and separately "Updated 1
   // hour ago by OPENSNOW" for the figures) — capture the first one in scope.
@@ -365,14 +378,23 @@ export async function resolveReport(resort, { debug = false } = {}) {
         summary = summary || fromRendered.summary;
         conditions = conditions || fromRendered.conditions;
         reportUpdated = fromRendered.reportUpdated || null;
+        // Multiple windows so one paste shows whether the figures exist in
+        // the rendered text at all (the summary clearly does) and where.
+        const win = (re, span = 500) => {
+          const i = text.search(re);
+          return i >= 0 ? text.slice(Math.max(0, i - 120), i + span).replace(/\s+/g, ' ') : null;
+        };
         proxyDebug = {
           status: proxied.status,
           textLength: text.length,
           fromRendered,
-          excerpt: (() => {
-            const i = text.search(/last\s*24|snow\s*base|summary/i);
-            return i >= 0 ? text.slice(Math.max(0, i - 150), i + 700).replace(/\s+/g, ' ') : text.slice(0, 500).replace(/\s+/g, ' ');
-          })(),
+          cmValuesPresent: /\b\d{1,3}\s*cm\b/i.test(text),
+          windows: {
+            summary: win(/#{0,4}\s*Summary\b/i, 900),
+            base: win(/snow\s*base|base\s*depth|\bupper\b/i),
+            twentyFour: win(/last\s*24|24\s*hrs?|overnight/i),
+            sevenDay: win(/last\s*7|7\s*days?/i),
+          },
         };
       } else {
         proxyDebug = { status: proxied.status };
