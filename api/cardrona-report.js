@@ -434,6 +434,41 @@ export async function resolveReport(resort, { debug = false } = {}) {
     }
   }
 
+  // Last-ditch Treble Cone attempt: the render proxy only shows the default
+  // (Cardrona) tab, and the tab doesn't change the URL (pure client state),
+  // so this almost certainly fails — but try rendering the page with a few
+  // resort-hint query params in case the SPA reads one on load. GUARDED
+  // hard: a candidate is only accepted if its report reads as genuine Treble
+  // Cone (mentions a TC lift) and contains NO Cardrona lift name — so if the
+  // param is ignored (and we just get Cardrona's content again) it's
+  // rejected rather than mislabeled as TC.
+  let tcProxyDebug = null;
+  if (!summary && !conditions && resort === 'treblecone') {
+    const CARDRONA_LIFTS = /McDougall|Captains|Whitestar|Valley View|Soho|Willows|Skyline/i;
+    const TC_LIFTS = /Home Basin|Saddle Basin|Learners Platter|Nowhere|Matukituki/i;
+    const tcUrls = [PAGE_URL + '?resort=treble-cone', PAGE_URL + '?mountain=treble-cone'];
+    tcProxyDebug = [];
+    for (const url of tcUrls) {
+      try {
+        const r = await fetch('https://r.jina.ai/' + url, { headers: { 'Accept': 'text/plain' } });
+        if (!r.ok) { tcProxyDebug.push({ url, status: r.status }); continue; }
+        const text = await r.text();
+        // Extract as the active tab (full scope), then validate it's really TC.
+        const cand = extractFromRenderedText(text, 'cardrona');
+        const looksTC = cand.summary && TC_LIFTS.test(cand.summary) && !CARDRONA_LIFTS.test(cand.summary);
+        tcProxyDebug.push({ url, status: r.status, looksTC, summaryStart: cand.summary ? cand.summary.slice(0, 80) : null });
+        if (looksTC) {
+          summary = cand.summary;
+          conditions = cand.conditions ? [{ ...cand.conditions[0], location: 'Treble Cone' }] : null;
+          reportUpdated = cand.reportUpdated || null;
+          break;
+        }
+      } catch (e) {
+        tcProxyDebug.push({ url, error: String((e && e.message) || e) });
+      }
+    }
+  }
+
   if (debug) {
     // Discovery mode. First prod run showed: no <h2>Summary</h2> in the raw
     // HTML (the report DOM is client-rendered — DevTools screenshots show
@@ -470,8 +505,10 @@ export async function resolveReport(resort, { debug = false } = {}) {
         htmlLength: html.length,
         summary,
         conditions,
+        reportUpdated,
         apiDebug,
         proxyDebug,
+        tcProxyDebug,
         jsonBlobs,
         probes: [
           excerptsFor('snow-base', /snow\s*_?-?\s*base/i),
