@@ -128,13 +128,17 @@ function extractFromJsonBlobs(html) {
 }
 
 // ── Strategy C: label-driven text scan (if figures are server-rendered) ──────
-function extractFromText(html) {
-  const text = stripTags(html);
+// Labels tuned to the confirmed live DOM (user's console dump): the base
+// depth renders as "Upper 122cm" (snow.baseMin) near a Snow Base heading,
+// snowfall as "Last 7 Days 97cm" (snow.last7Days) etc. Works on stripped
+// HTML *or* already-plain text (the r.jina.ai fallback below).
+function extractFromText(htmlOrText) {
+  const text = /</.test(htmlOrText) ? stripTags(htmlOrText) : htmlOrText.replace(/\s+/g, ' ');
   const pick = (re) => { const m = text.match(re); return m ? normaliseCm(m[1]) : null; };
   return {
-    snowBase: pick(/snow\s*base[^0-9]{0,30}(\d[\d.\s-]*\s*cm)/i),
-    snowfall24h: pick(/(?:24\s*(?:hr|hour)s?|overnight)[^0-9]{0,40}(\d[\d.\s-]*\s*cm)/i),
-    snowfall7day: pick(/7\s*day[^0-9]{0,40}(\d[\d.\s-]*\s*cm)/i),
+    snowBase: pick(/snow\s*base[^0-9]{0,40}(\d[\d.\s-]*\s*cm)/i) || pick(/\bupper\b[^0-9]{0,15}(\d[\d.\s-]*\s*cm)/i),
+    snowfall24h: pick(/(?:(?:last\s*)?24\s*(?:hr|hour)s?|overnight)[^0-9]{0,40}(\d[\d.\s-]*\s*cm)/i),
+    snowfall7day: pick(/(?:last\s*)?7\s*days?[^0-9]{0,40}(\d[\d.\s-]*\s*cm)/i),
   };
 }
 
@@ -200,6 +204,44 @@ export async function resolveMthuttReport({ debug = false } = {}) {
         excerptsFor('api-endpoints', /["'](https?:\/\/[^"']*(?:api|feed|data|graphql)[^"']*)["']/i, 5, 300),
       ],
     });
+  }
+
+  // Last resort: mthutt.co.nz's WAF 403s direct fetches from hosting IPs
+  // (confirmed in prod even with a full browser-fingerprint header set).
+  // r.jina.ai is a public fetch-and-render proxy — it loads the page from
+  // its own infrastructure (running the page's JS, so Alpine's x-text
+  // bindings are filled in) and returns the rendered content as plain text,
+  // which the label-driven text scan can read directly. Slower than a
+  // direct fetch but this endpoint is edge-cached 15min, so the proxy is
+  // hit a handful of times a day at most.
+  try {
+    const proxied = await fetch('https://r.jina.ai/' + PAGE_URLS[0], {
+      headers: { 'Accept': 'text/plain', 'X-Return-Format': 'text' },
+    });
+    if (proxied.ok) {
+      const text = await proxied.text();
+      const fromText = extractFromText(text);
+      const conditions = (fromText.snowBase || fromText.snowfall24h || fromText.snowfall7day)
+        ? [{ location: 'Mt Hutt', snowBase: fromText.snowBase, snowfall24h: fromText.snowfall24h, snowfall7day: fromText.snowfall7day }]
+        : null;
+      if (!debug && conditions) {
+        return { summary: null, conditions, source: PAGE_URLS[0] + ' (via render proxy)', fetchedAt: new Date().toISOString() };
+      }
+      attempts.push({
+        url: 'https://r.jina.ai/' + PAGE_URLS[0],
+        status: proxied.status,
+        textLength: text.length,
+        fromText,
+        textExcerpt: (() => {
+          const i = text.search(/snow\s*base|last\s*7|\d{1,3}\s*cm/i);
+          return i >= 0 ? text.slice(Math.max(0, i - 100), i + 500).replace(/\s+/g, ' ') : text.slice(0, 400).replace(/\s+/g, ' ');
+        })(),
+      });
+    } else {
+      attempts.push({ url: 'https://r.jina.ai/' + PAGE_URLS[0], status: proxied.status });
+    }
+  } catch (e) {
+    attempts.push({ url: 'https://r.jina.ai/' + PAGE_URLS[0], error: String((e && e.message) || e) });
   }
 
   if (debug) return { debug: { attempts } };
