@@ -189,6 +189,43 @@ function extractConditionsFromDom(html, resort) {
   return null;
 }
 
+// Rendered-text extraction for the r.jina.ai fallback below. Labels match
+// the confirmed live DOM (DevTools screenshot): each figure renders as a
+// value div immediately followed by its label div ("0" then "Last 24hrs"),
+// so linearised text reads value-before-label — but scan label-before-value
+// too in case other figures are laid out the other way round.
+function pickNearLabel(text, labelRe) {
+  const valueBefore = new RegExp(`(\\d[\\d.]*\\s*(?:cm)?)\\s{0,4}(?:${labelRe})`, 'i');
+  const valueAfter = new RegExp(`(?:${labelRe})[^0-9]{0,30}(\\d[\\d.]*\\s*(?:cm)?)`, 'i');
+  const m = text.match(valueBefore) || text.match(valueAfter);
+  return m ? normaliseCm(m[1]) : null;
+}
+function extractFromRenderedText(text, resort) {
+  // Treble Cone is the non-default tab — only read a TC-anchored slice, and
+  // yield nothing rather than mis-attribute Cardrona's (default tab) data.
+  let scope = text;
+  if (resort === 'treblecone') {
+    const idx = text.search(/treble\s*cone/i);
+    if (idx === -1) return { summary: null, conditions: null };
+    scope = text.slice(idx, idx + 4000);
+  }
+  const snowBase = pickNearLabel(scope, 'snow\\s*base|base\\s*depth');
+  const snowfall24h = pickNearLabel(scope, 'last\\s*24\\s*hrs?|last\\s*24\\s*hours?|24\\s*hrs?');
+  const snowfall7day = pickNearLabel(scope, 'last\\s*7\\s*days?|7\\s*days?');
+  const conditions = (snowBase || snowfall24h || snowfall7day)
+    ? [{ location: RESORT_LABELS[resort], snowBase, snowfall24h, snowfall7day }]
+    : null;
+  // Written report: the prose under the "Summary" heading (markdown-ish "#
+  // Summary" or a bare "Summary" line), up to the next heading-looking line.
+  let summary = null;
+  const sm = scope.match(/(?:^|\n)#*\s*Summary\s*\n+([\s\S]{40,2500}?)(?=\n#+\s|\n[A-Z][A-Za-z ]{2,40}\n|$)/);
+  if (sm) {
+    const cleaned = sm[1].replace(/\s+/g, ' ').trim();
+    if (cleaned.length >= 40) summary = cleaned;
+  }
+  return { summary, conditions };
+}
+
 export async function resolveReport(resort, { debug = false } = {}) {
   const pageResp = await fetch(PAGE_URL, { headers: BROWSER_HEADERS });
   if (!pageResp.ok) {
@@ -203,8 +240,41 @@ export async function resolveReport(resort, { debug = false } = {}) {
   // JSON is preferred (per-resort correct); DOM Summary is the active-tab
   // fallback — only trust it for Cardrona (the default tab), never attribute
   // it to Treble Cone where it'd be the wrong resort's text.
-  const summary = fromJson.summary || (resort === 'cardrona' ? domSummary : null);
-  const conditions = fromJson.conditions || domConditions;
+  let summary = fromJson.summary || (resort === 'cardrona' ? domSummary : null);
+  let conditions = fromJson.conditions || domConditions;
+
+  // Prod discovery established that NONE of the daily data (prose or
+  // figures) is in the served HTML — zero cm-values in 445KB, nothing in
+  // the 317KB Next.js payload; the browser builds it all client-side. So
+  // when direct extraction comes up empty, render the page via r.jina.ai
+  // (fetch-and-render proxy: executes the page's JS, returns the rendered
+  // content as text) and scan that instead — same approach as the Mt Hutt
+  // scraper. Edge-cached 15min, so the proxy sees little traffic.
+  let proxyDebug = null;
+  if (!summary && !conditions) {
+    try {
+      const proxied = await fetch('https://r.jina.ai/' + PAGE_URL, { headers: { 'Accept': 'text/plain' } });
+      if (proxied.ok) {
+        const text = await proxied.text();
+        const fromRendered = extractFromRenderedText(text, resort);
+        summary = summary || fromRendered.summary;
+        conditions = conditions || fromRendered.conditions;
+        proxyDebug = {
+          status: proxied.status,
+          textLength: text.length,
+          fromRendered,
+          excerpt: (() => {
+            const i = text.search(/last\s*24|snow\s*base|summary/i);
+            return i >= 0 ? text.slice(Math.max(0, i - 150), i + 700).replace(/\s+/g, ' ') : text.slice(0, 500).replace(/\s+/g, ' ');
+          })(),
+        };
+      } else {
+        proxyDebug = { status: proxied.status };
+      }
+    } catch (e) {
+      proxyDebug = { error: String((e && e.message) || e) };
+    }
+  }
 
   if (debug) {
     // Discovery mode. First prod run showed: no <h2>Summary</h2> in the raw
@@ -240,6 +310,9 @@ export async function resolveReport(resort, { debug = false } = {}) {
         source: PAGE_URL,
         status: pageResp.status,
         htmlLength: html.length,
+        summary,
+        conditions,
+        proxyDebug,
         jsonBlobs,
         probes: [
           excerptsFor('snow-base', /snow\s*_?-?\s*base/i),
@@ -269,8 +342,10 @@ export default async function handler(req, res) {
     const result = await resolveCardronaReport({ debug: !!req.query.debug });
     res.status(200);
     res.setHeader('Content-Type', 'application/json');
-    // The report is refreshed a few times a day at most.
-    res.setHeader('Cache-Control', 'public, max-age=900');
+    // The report is refreshed a few times a day at most — but debug output
+    // must always be fresh (stale cached copies repeatedly derailed the
+    // discovery loop this endpoint's debug mode exists for).
+    res.setHeader('Cache-Control', result.debug ? 'no-store' : 'public, max-age=900');
     res.json(result.debug ? result.debug : result);
   } catch (e) {
     if (e && typeof e.status === 'number') {

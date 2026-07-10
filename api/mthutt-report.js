@@ -253,7 +253,7 @@ export default async function handler(req, res) {
     const result = await resolveMthuttReport({ debug: !!req.query.debug });
     res.status(200);
     res.setHeader('Content-Type', 'application/json');
-    res.setHeader('Cache-Control', 'public, max-age=900');
+    res.setHeader('Cache-Control', result.debug ? 'no-store' : 'public, max-age=900');
     res.json(result.debug ? result.debug : result);
   } catch (e) {
     if (e && typeof e.status === 'number') {
