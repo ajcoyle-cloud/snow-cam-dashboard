@@ -576,17 +576,22 @@ function SnowReportsPage({ resort, setResort }) {
       {!loading && source && hasContent && (
         <div className="snow-reports-content">
           <h2 className="snow-reports-title">{source.title}</h2>
-          {/* When WE pulled this from the resort's site (the API's fetchedAt,
-              within the endpoint's 15-min edge cache) — so a 7am check makes
-              clear whether these are last night's numbers or this morning's.
-              Full weekday+date+time, since "yesterday vs today" is the whole
-              point; the resort's own authoring time isn't available. */}
-          {report.fetchedAt && (
+          {/* Freshness line — the whole point is a 7am check making clear
+              whether these are last night's numbers or this morning's.
+              reportUpdated is the resort's OWN "last updated" stamp (e.g.
+              "Today, 5:03pm" — currently only Mt Hutt's page publishes one
+              scrapably); fetchedAt is when our scraper pulled the page
+              (within the endpoint's 15-min edge cache). Show both when we
+              have both — the resort stamp is the meaningful one, the fetch
+              time proves the pull is current. */}
+          {(report.reportUpdated || report.fetchedAt) && (
             <div className="snow-reports-fetched">
-              Data fetched {new Date(report.fetchedAt).toLocaleString('en-NZ', {
+              {report.reportUpdated ? `Report updated ${report.reportUpdated}` : ''}
+              {report.reportUpdated && report.fetchedAt ? ' · ' : ''}
+              {report.fetchedAt ? `Data fetched ${new Date(report.fetchedAt).toLocaleString('en-NZ', {
                 weekday: 'short', day: 'numeric', month: 'short',
                 hour: 'numeric', minute: '2-digit', hour12: true,
-              })}
+              })}` : ''}
             </div>
           )}
           {paragraphs.length > 0 && (

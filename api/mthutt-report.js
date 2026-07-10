@@ -136,10 +136,42 @@ function extractFromText(htmlOrText) {
   const text = /</.test(htmlOrText) ? stripTags(htmlOrText) : htmlOrText.replace(/\s+/g, ' ');
   const pick = (re) => { const m = text.match(re); return m ? normaliseCm(m[1]) : null; };
   return {
-    snowBase: pick(/snow\s*base[^0-9]{0,40}(\d[\d.\s-]*\s*cm)/i) || pick(/base\s*depth[^0-9]{0,40}(\d[\d.\s-]*\s*cm)/i) || pick(/\bupper\b[^0-9]{0,15}(\d[\d.\s-]*\s*cm)/i),
+    // Confirmed rendered shape (prod debug): "Snow depth Upper122cm
+    // Lower76cm Last 7 Days 97cm Season Snowfall 158cm" — note NO space in
+    // "Upper122cm" (a \b between the label and digits never matches), and
+    // the label is Snow DEPTH. Upper+Lower both reported when present.
+    snowBase: (() => {
+      const ul = text.match(/upper\s*(\d[\d.]*)\s*cm[^0-9]{0,20}lower\s*(\d[\d.]*)\s*cm/i);
+      if (ul) return `Upper ${ul[1]}cm / Lower ${ul[2]}cm`;
+      return pick(/snow\s*(?:base|depth)[^0-9]{0,40}(\d[\d.\s-]*\s*cm)/i) || pick(/\bupper\s*(\d[\d.]*\s*cm)/i);
+    })(),
+    // Mt Hutt's page publishes no 24h figure (Snow depth / Last 7 Days /
+    // Season only) — these patterns are kept for if one ever appears.
     snowfall24h: pick(/(?:(?:last\s*)?24\s*(?:hr|hour)s?|overnight|new\s*snow)[^0-9]{0,40}(\d[\d.\s-]*\s*cm)/i),
     snowfall7day: pick(/(?:last\s*)?7\s*days?[^0-9]{0,40}(\d[\d.\s-]*\s*cm)/i),
   };
+}
+
+// Written daily report + the resort's own "last updated" stamp, from the
+// rendered page text. Confirmed shape (prod debug): "... REPORT LAST UPDATED
+// Today, 5:03pm ... MOUNTAIN CLOSED Powder Matariki! Its 5pm and Mt Hutt is
+// now closed for the day. [prose] ... SUPERPASS ..." — the prose sits
+// between the MOUNTAIN OPEN/CLOSED status marker and the next promo/section
+// block, so capture that span and prefix the status itself.
+function extractRenderedSummary(text) {
+  const m = text.match(/MOUNTAIN\s+(OPEN|CLOSED|CLOSING|ON\s*HOLD)\s+([\s\S]{40,2000}?)(?=\s*(?:SUPERPASS|WHAT'S HAPPENING|GRAB YOUR|Snow depth|$))/i);
+  if (!m) return null;
+  const status = m[1].toUpperCase() === 'CLOSED' ? 'Mountain closed' : m[1].toUpperCase() === 'OPEN' ? 'Mountain open' : `Mountain ${m[1].toLowerCase()}`;
+  const prose = m[2].replace(/\s+/g, ' ').trim();
+  return `${status} — ${prose}`;
+}
+function extractReportUpdated(text) {
+  // Deliberately NOT case-insensitive: under /i a negated [^A-Z] class also
+  // rejects lowercase (so "5:03pm" lost its "pm"), and the page's LAST
+  // UPDATED label is reliably all-caps anyway. The capture runs up to the
+  // next ALL-CAPS nav label (WEBCAMS etc.).
+  const m = text.match(/(?:REPORT\s+)?LAST\s+UPDATED\s*:?\s*((?:[A-Z][a-z]+|today|yesterday)[^A-Z]{0,25})/);
+  return m ? m[1].replace(/\s+/g, ' ').trim().replace(/[,\s]+$/, '') : null;
 }
 
 export async function resolveMthuttReport({ debug = false } = {}) {
@@ -221,11 +253,16 @@ export async function resolveMthuttReport({ debug = false } = {}) {
     if (proxied.ok) {
       const text = await proxied.text();
       const fromText = extractFromText(text);
+      const summary = extractRenderedSummary(text);
+      const reportUpdated = extractReportUpdated(text);
       const conditions = (fromText.snowBase || fromText.snowfall24h || fromText.snowfall7day)
         ? [{ location: 'Mt Hutt', snowBase: fromText.snowBase, snowfall24h: fromText.snowfall24h, snowfall7day: fromText.snowfall7day }]
         : null;
-      if (!debug && conditions) {
-        return { summary: null, conditions, source: PAGE_URLS[0] + ' (via render proxy)', fetchedAt: new Date().toISOString() };
+      if (!debug && (summary || conditions)) {
+        // reportUpdated is the resort's OWN "REPORT LAST UPDATED" stamp
+        // (e.g. "Today, 5:03pm") — more meaningful freshness than our
+        // fetchedAt, which only says when this scraper last pulled the page.
+        return { summary, conditions, reportUpdated, source: PAGE_URLS[0] + ' (via render proxy)', fetchedAt: new Date().toISOString() };
       }
       // Multiple windows over the rendered text (not one) — the first prod
       // run only landed snowfall7day, so the base/24h labels and the written
