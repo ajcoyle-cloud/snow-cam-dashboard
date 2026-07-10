@@ -136,8 +136,8 @@ function extractFromText(htmlOrText) {
   const text = /</.test(htmlOrText) ? stripTags(htmlOrText) : htmlOrText.replace(/\s+/g, ' ');
   const pick = (re) => { const m = text.match(re); return m ? normaliseCm(m[1]) : null; };
   return {
-    snowBase: pick(/snow\s*base[^0-9]{0,40}(\d[\d.\s-]*\s*cm)/i) || pick(/\bupper\b[^0-9]{0,15}(\d[\d.\s-]*\s*cm)/i),
-    snowfall24h: pick(/(?:(?:last\s*)?24\s*(?:hr|hour)s?|overnight)[^0-9]{0,40}(\d[\d.\s-]*\s*cm)/i),
+    snowBase: pick(/snow\s*base[^0-9]{0,40}(\d[\d.\s-]*\s*cm)/i) || pick(/base\s*depth[^0-9]{0,40}(\d[\d.\s-]*\s*cm)/i) || pick(/\bupper\b[^0-9]{0,15}(\d[\d.\s-]*\s*cm)/i),
+    snowfall24h: pick(/(?:(?:last\s*)?24\s*(?:hr|hour)s?|overnight|new\s*snow)[^0-9]{0,40}(\d[\d.\s-]*\s*cm)/i),
     snowfall7day: pick(/(?:last\s*)?7\s*days?[^0-9]{0,40}(\d[\d.\s-]*\s*cm)/i),
   };
 }
@@ -227,15 +227,25 @@ export async function resolveMthuttReport({ debug = false } = {}) {
       if (!debug && conditions) {
         return { summary: null, conditions, source: PAGE_URLS[0] + ' (via render proxy)', fetchedAt: new Date().toISOString() };
       }
+      // Multiple windows over the rendered text (not one) — the first prod
+      // run only landed snowfall7day, so the base/24h labels and the written
+      // report's location in the text all still need pinning.
+      const windowAround = (re, span = 600) => {
+        const i = text.search(re);
+        return i >= 0 ? text.slice(Math.max(0, i - 150), i + span).replace(/\s+/g, ' ') : null;
+      };
       attempts.push({
         url: 'https://r.jina.ai/' + PAGE_URLS[0],
         status: proxied.status,
         textLength: text.length,
         fromText,
-        textExcerpt: (() => {
-          const i = text.search(/snow\s*base|last\s*7|\d{1,3}\s*cm/i);
-          return i >= 0 ? text.slice(Math.max(0, i - 100), i + 500).replace(/\s+/g, ' ') : text.slice(0, 400).replace(/\s+/g, ' ');
-        })(),
+        textWindows: {
+          start: text.slice(0, 800).replace(/\s+/g, ' '),
+          aroundBase: windowAround(/base|upper|lower/i),
+          around24h: windowAround(/24|overnight|new\s*snow/i),
+          around7day: windowAround(/last\s*7|7\s*day/i),
+          aroundReport: windowAround(/report|comment|update[ds]?\b/i, 900),
+        },
       });
     } else {
       attempts.push({ url: 'https://r.jina.ai/' + PAGE_URLS[0], status: proxied.status });

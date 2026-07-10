@@ -576,6 +576,19 @@ function SnowReportsPage({ resort, setResort }) {
       {!loading && source && hasContent && (
         <div className="snow-reports-content">
           <h2 className="snow-reports-title">{source.title}</h2>
+          {/* When WE pulled this from the resort's site (the API's fetchedAt,
+              within the endpoint's 15-min edge cache) — so a 7am check makes
+              clear whether these are last night's numbers or this morning's.
+              Full weekday+date+time, since "yesterday vs today" is the whole
+              point; the resort's own authoring time isn't available. */}
+          {report.fetchedAt && (
+            <div className="snow-reports-fetched">
+              Data fetched {new Date(report.fetchedAt).toLocaleString('en-NZ', {
+                weekday: 'short', day: 'numeric', month: 'short',
+                hour: 'numeric', minute: '2-digit', hour12: true,
+              })}
+            </div>
+          )}
           {paragraphs.length > 0 && (
             <div className="snow-reports-summary">
               {paragraphs.map((para, i) => <p key={i}>{para}</p>)}
