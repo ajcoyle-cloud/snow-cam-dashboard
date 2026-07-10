@@ -13,10 +13,13 @@
 //
 // vercel.json rewrites /mthutt-report -> /api/mthutt-report.
 
+// The confirmed real page URL (user's own address bar) is /weather-report
+// with no trailing slash — try both slash variants since WAF/redirect rules
+// can differ between them; the old /snow-report/ and nzski.com guesses are
+// gone (403'd and 404'd respectively on the first prod run).
 const PAGE_URLS = [
-  'https://www.mthutt.co.nz/weather-report/snow-report/',
+  'https://www.mthutt.co.nz/weather-report',
   'https://www.mthutt.co.nz/weather-report/',
-  'https://www.nzski.com/mt-hutt/the-mountain/snow-report',
 ];
 
 // First prod run got 403 from www.mthutt.co.nz with the plain UA+Accept set
