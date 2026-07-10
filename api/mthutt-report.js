@@ -19,11 +19,25 @@ const PAGE_URLS = [
   'https://www.nzski.com/mt-hutt/the-mountain/snow-report',
 ];
 
+// First prod run got 403 from www.mthutt.co.nz with the plain UA+Accept set
+// the other scrapers use — their WAF wants a fuller browser fingerprint.
+// This fuller Chrome-like set (Sec-Fetch-*, sec-ch-ua, Referer) passes some
+// WAF configurations; if it still 403s, the fallback plan is the underlying
+// data API the page itself calls (being pinned via the user's Network tab).
 const BROWSER_HEADERS = {
   'User-Agent':
-    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15',
-  'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
+  'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
   'Accept-Language': 'en-NZ,en;q=0.9',
+  'Referer': 'https://www.google.com/',
+  'Upgrade-Insecure-Requests': '1',
+  'Sec-Fetch-Dest': 'document',
+  'Sec-Fetch-Mode': 'navigate',
+  'Sec-Fetch-Site': 'cross-site',
+  'Sec-Fetch-User': '?1',
+  'sec-ch-ua': '"Not/A)Brand";v="8", "Chromium";v="126", "Google Chrome";v="126"',
+  'sec-ch-ua-mobile': '?0',
+  'sec-ch-ua-platform': '"macOS"',
 };
 
 function decodeEntities(str) {
