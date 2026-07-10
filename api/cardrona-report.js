@@ -232,10 +232,108 @@ function extractFromRenderedText(text, resort) {
   return { summary, conditions, reportUpdated };
 }
 
+// ── The site's own snow-report API (found via the user's Network tab) ───────
+// Serves the daily data for BOTH resorts — the clean source the page itself
+// uses, which the HTML/hydration payload never contained. Response shape is
+// parsed flexibly (resort located by matching key names or name-fields, then
+// fields harvested from within that subtree only) since it can't be
+// inspected from this repo's sandbox; ?debug=1 includes the raw JSON so the
+// shape can be pinned exactly if this misses anything.
+const API_URL = 'https://cardrona-treblecone.com/api/snowreport/get-snow-report';
+
+function formatMaybeIsoDate(v) {
+  const s = String(v);
+  if (!/\d{4}-\d{2}-\d{2}|GMT|Z$/.test(s)) return s; // already human text
+  const d = new Date(s);
+  if (isNaN(d.getTime())) return s;
+  return d.toLocaleString('en-NZ', {
+    weekday: 'short', day: 'numeric', month: 'short',
+    hour: 'numeric', minute: '2-digit', hour12: true, timeZone: 'Pacific/Auckland',
+  });
+}
+
+function extractFromApiJson(data, resort) {
+  // Locate this resort's subtree: a top-level-ish key named for the resort
+  // ({ cardrona: {...}, trebleCone: {...} }), or failing that any object
+  // whose own name/title/slug field matches (resortObjectMatches).
+  const wanted = resort === 'cardrona' ? /cardrona/i : /treble/i;
+  let subtree = null;
+  const findByKey = (obj, depth = 0) => {
+    if (!obj || typeof obj !== 'object' || depth > 4 || subtree) return;
+    if (!Array.isArray(obj)) {
+      for (const k of Object.keys(obj)) {
+        if (wanted.test(k) && obj[k] && typeof obj[k] === 'object') { subtree = obj[k]; return; }
+      }
+    }
+    for (const k of Object.keys(obj)) findByKey(obj[k], depth + 1);
+  };
+  findByKey(data);
+  if (!subtree) {
+    const findByName = (v, depth = 0) => {
+      if (!v || typeof v !== 'object' || depth > 8 || subtree) return;
+      if (!Array.isArray(v) && resortObjectMatches(v, resort)) { subtree = v; return; }
+      for (const k of Object.keys(v)) findByName(v[k], depth + 1);
+    };
+    findByName(data);
+  }
+  if (!subtree) return { summary: null, conditions: null, reportUpdated: null };
+
+  const acc = {};
+  // Dedicated snow-report API — 'description'/'comment' keys are report
+  // prose here, unlike the page's hydration payload where description was
+  // an image-alt false positive.
+  const harvest = (value, depth = 0) => {
+    if (depth > 6 || !value || typeof value !== 'object') return;
+    if (Array.isArray(value)) { for (const v of value) harvest(v, depth + 1); return; }
+    for (const k of Object.keys(value)) {
+      const v = value[k];
+      const key = k.toLowerCase();
+      if (typeof v === 'string' || typeof v === 'number') {
+        const s = String(v).trim();
+        if (typeof v === 'string' && !acc.summary && s.length >= 40 && /summary|report|comment|description|blurb|message/.test(key) && !/updated|date|time|url|image/.test(key)) acc.summary = s;
+        if (acc.snowBase == null && /base|depth/.test(key) && !/database/.test(key)) acc.snowBase = s;
+        if (acc.snowfall24h == null && /(24h|24hr|24hour|last24|twentyfour|overnight|newsnow|new_?snow)/.test(key)) acc.snowfall24h = s;
+        if (acc.snowfall7day == null && /(7day|7d|last7|seven_?day|lastseven|weeksnow|week_?snow)/.test(key)) acc.snowfall7day = s;
+        if (!acc.reportUpdated && /updated|publish|modified/.test(key) && !/by$/.test(key)) acc.reportUpdated = formatMaybeIsoDate(s);
+      } else if (v && typeof v === 'object') {
+        harvest(v, depth + 1);
+      }
+    }
+  };
+  harvest(subtree);
+
+  const snowBase = normaliseCm(acc.snowBase);
+  const snowfall24h = normaliseCm(acc.snowfall24h);
+  const snowfall7day = normaliseCm(acc.snowfall7day);
+  const conditions = (snowBase || snowfall24h || snowfall7day)
+    ? [{ location: RESORT_LABELS[resort], snowBase, snowfall24h, snowfall7day }]
+    : null;
+  return { summary: acc.summary || null, conditions, reportUpdated: acc.reportUpdated || null };
+}
+
 export async function resolveReport(resort, { debug = false } = {}) {
+  // Primary: the site's own API. Everything below (HTML scrape + render
+  // proxy) is retained as the fallback chain should this route ever move.
+  let apiDebug = null;
+  try {
+    const apiResp = await fetch(API_URL, { headers: { ...BROWSER_HEADERS, 'Accept': 'application/json' } });
+    if (apiResp.ok) {
+      const data = await apiResp.json();
+      const fromApi = extractFromApiJson(data, resort);
+      if (!debug && (fromApi.summary || fromApi.conditions)) {
+        return { ...fromApi, source: API_URL, fetchedAt: new Date().toISOString() };
+      }
+      apiDebug = { status: apiResp.status, fromApi, raw: JSON.stringify(data).slice(0, 5000) };
+    } else {
+      apiDebug = { status: apiResp.status };
+    }
+  } catch (e) {
+    apiDebug = { error: String((e && e.message) || e) };
+  }
+
   const pageResp = await fetch(PAGE_URL, { headers: BROWSER_HEADERS });
   if (!pageResp.ok) {
-    throw { status: 502, body: { error: 'page fetch failed', status: pageResp.status } };
+    throw { status: 502, body: { error: 'page fetch failed', status: pageResp.status, apiDebug } };
   }
   const html = await pageResp.text();
 
@@ -320,6 +418,7 @@ export async function resolveReport(resort, { debug = false } = {}) {
         htmlLength: html.length,
         summary,
         conditions,
+        apiDebug,
         proxyDebug,
         jsonBlobs,
         probes: [
