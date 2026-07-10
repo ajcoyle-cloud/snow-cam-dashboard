@@ -327,21 +327,46 @@ function extractFromApiJson(data, resort) {
 export async function resolveReport(resort, { debug = false } = {}) {
   // Primary: the site's own API. Everything below (HTML scrape + render
   // proxy) is retained as the fallback chain should this route ever move.
+  // The API 401'd with a plain request. Since it's the site's own
+  // same-origin route serving a public page, the gate is most likely an
+  // Origin/Referer check rather than user auth — send those (plus a couple
+  // of resort-param spellings, since the route takes no path segment and the
+  // browser may pass ?resort=… or ?mountain=…). This is the ONLY path that
+  // yields Treble Cone: the render proxy below only ever gets the default
+  // (Cardrona) tab, so TC's data lives solely behind this API.
   let apiDebug = null;
+  const apiCandidates = [
+    API_URL,
+    `${API_URL}?resort=${resort}`,
+    `${API_URL}?mountain=${resort}`,
+    `${API_URL}?slug=${resort}`,
+  ];
+  const apiHeaders = {
+    ...BROWSER_HEADERS,
+    'Accept': 'application/json, text/plain, */*',
+    'Origin': 'https://www.cardrona-treblecone.com',
+    'Referer': PAGE_URL,
+    'X-Requested-With': 'XMLHttpRequest',
+  };
   try {
-    const apiResp = await fetch(API_URL, { headers: { ...BROWSER_HEADERS, 'Accept': 'application/json' } });
-    if (apiResp.ok) {
+    let apiResp = null, apiUrlUsed = null;
+    for (const url of apiCandidates) {
+      const r = await fetch(url, { headers: apiHeaders });
+      if (r.ok) { apiResp = r; apiUrlUsed = url; break; }
+      if (!apiDebug) apiDebug = { firstStatus: r.status, firstUrl: url };
+    }
+    if (apiResp && apiResp.ok) {
       const data = await apiResp.json();
       const fromApi = extractFromApiJson(data, resort);
       if (!debug && (fromApi.summary || fromApi.conditions)) {
-        return { ...fromApi, source: API_URL, fetchedAt: new Date().toISOString() };
+        return { ...fromApi, source: apiUrlUsed, fetchedAt: new Date().toISOString() };
       }
-      apiDebug = { status: apiResp.status, fromApi, raw: JSON.stringify(data).slice(0, 5000) };
-    } else {
-      apiDebug = { status: apiResp.status };
+      apiDebug = { status: apiResp.status, url: apiUrlUsed, fromApi, raw: JSON.stringify(data).slice(0, 5000) };
     }
+    // else: no candidate returned ok — apiDebug already holds the first
+    // failing status/url from the loop above.
   } catch (e) {
-    apiDebug = { error: String((e && e.message) || e) };
+    apiDebug = { ...(apiDebug || {}), error: String((e && e.message) || e) };
   }
 
   const pageResp = await fetch(PAGE_URL, { headers: BROWSER_HEADERS });
@@ -367,9 +392,14 @@ export async function resolveReport(resort, { debug = false } = {}) {
   // (fetch-and-render proxy: executes the page's JS, returns the rendered
   // content as text) and scan that instead — same approach as the Mt Hutt
   // scraper. Edge-cached 15min, so the proxy sees little traffic.
+  // Render-proxy fallback is CARDRONA-ONLY: r.jina.ai can't click the tab,
+  // so it only ever renders the default (Cardrona) tab. Running it for
+  // Treble Cone would extract Cardrona's report and mislabel it as TC —
+  // worse than showing nothing. TC therefore depends entirely on the API
+  // above; if that 401s, TC legitimately returns no data.
   let proxyDebug = null;
   let reportUpdated = null;
-  if (!summary && !conditions) {
+  if (!summary && !conditions && resort === 'cardrona') {
     try {
       const proxied = await fetch('https://r.jina.ai/' + PAGE_URL, { headers: { 'Accept': 'text/plain' } });
       if (proxied.ok) {
