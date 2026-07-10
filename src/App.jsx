@@ -425,6 +425,7 @@ const SNOW_REPORT_SOURCES = {
   Whakapapa: { endpoint: '/whakapapa-report', title: 'Whakapapa Snow Report' },
   Cardrona: { endpoint: '/cardrona-report', title: 'Cardrona Snow Report' },
   'Treble Cone': { endpoint: '/treblecone-report', title: 'Treble Cone Snow Report' },
+  'Mt Hutt': { endpoint: '/mthutt-report', title: 'Mt Hutt Snow Report' },
 }
 
 // Text summary from a resort's official daily snow report. Renders nothing

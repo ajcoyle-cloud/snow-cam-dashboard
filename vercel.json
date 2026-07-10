@@ -57,6 +57,10 @@
       "destination": "/api/treblecone-report"
     },
     {
+      "source": "/mthutt-report",
+      "destination": "/api/mthutt-report"
+    },
+    {
       "source": "/((?!whakapapa-snow-forecast\\.html|radar-map\\.html|radar-test|assets|api).*)",
       "destination": "/index.html"
     }

@@ -1,0 +1,206 @@
+// Proxy/scraper for Mt Hutt's official daily snow report (NZSki site).
+//
+// The figures on the live page are bound client-side via Alpine.js
+// (x-text="snow.last7Days" etc., confirmed via DevTools) — but Alpine's
+// x-data payload is typically server-rendered inline as an element
+// attribute, so a plain fetch CAN usually see the underlying object even
+// though the rendered numbers aren't in the HTML as text. That inline
+// x-data JSON is the primary extraction target; inline application/json
+// blobs and a label-driven text scan are fallbacks. Like the other report
+// scrapers, this sandbox can't reach the site, so ?debug=1 returns
+// keyword-anchored excerpts + JSON/x-data inventories to pin the real
+// shape from prod output.
+//
+// vercel.json rewrites /mthutt-report -> /api/mthutt-report.
+
+const PAGE_URLS = [
+  'https://www.mthutt.co.nz/weather-report/snow-report/',
+  'https://www.mthutt.co.nz/weather-report/',
+  'https://www.nzski.com/mt-hutt/the-mountain/snow-report',
+];
+
+const BROWSER_HEADERS = {
+  'User-Agent':
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15',
+  'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+  'Accept-Language': 'en-NZ,en;q=0.9',
+};
+
+function decodeEntities(str) {
+  return str
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&amp;/g, '&')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&#x27;/g, "'")
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>');
+}
+
+function stripTags(html) {
+  return decodeEntities(html.replace(/<[^>]+>/g, ' ')).replace(/\s+/g, ' ').trim();
+}
+
+function normaliseCm(raw) {
+  if (raw == null) return null;
+  let s = String(raw).trim();
+  if (s === '') return null;
+  if (/cm/i.test(s)) return s.replace(/\s+/g, ' ').replace(/cm/i, 'cm').trim();
+  if (/^[\d.\s-]+$/.test(s)) return s.replace(/\s+/g, ' ').trim() + 'cm';
+  return s;
+}
+
+// Harvest snow figures + summary prose from any parsed JSON-ish object.
+// Single-resort site, so unlike the Cardrona/Treble Cone shared payload
+// there's no cross-resort scoping needed.
+function harvestFields(value, acc, depth = 0) {
+  if (depth > 8) return;
+  if (Array.isArray(value)) {
+    for (const v of value) harvestFields(v, acc, depth + 1);
+    return;
+  }
+  if (value && typeof value === 'object') {
+    for (const k of Object.keys(value)) {
+      const v = value[k];
+      const key = k.toLowerCase();
+      if (typeof v === 'string' || typeof v === 'number') {
+        const s = String(v).trim();
+        if (typeof v === 'string' && !acc.summary && s.length >= 60 && /summary|report|comment/.test(key)) acc.summary = s;
+        if (acc.snowBase == null && /base/.test(key) && !/database/.test(key)) acc.snowBase = s;
+        if (acc.snowfall24h == null && /(24h|24hr|24hour|last24|overnight|newsnow)/.test(key)) acc.snowfall24h = s;
+        if (acc.snowfall7day == null && /(7day|7d|last7|lastseven|weeksnow)/.test(key)) acc.snowfall7day = s;
+      } else if (v && typeof v === 'object') {
+        harvestFields(v, acc, depth + 1);
+      }
+    }
+  }
+}
+
+// ── Strategy A: inline Alpine x-data attribute JSON ──────────────────────────
+// Alpine renders x-data='{"snow": {...}}' (or single-quoted) directly in the
+// HTML. Collect every x-data attribute that parses as JSON and looks snow-ish.
+function extractFromXData(html) {
+  const acc = {};
+  const attrs = [...html.matchAll(/x-data=("([^"]*)"|'([^']*)')/gi)]
+    .map((m) => decodeEntities(m[2] != null ? m[2] : m[3]))
+    .filter((s) => /snow|base|report/i.test(s));
+  for (const raw of attrs) {
+    let parsed = null;
+    try { parsed = JSON.parse(raw); } catch {
+      // Alpine often uses a JS object literal, not strict JSON — a light
+      // repair pass (quote bare keys) covers the common case.
+      try { parsed = JSON.parse(raw.replace(/([{,]\s*)([A-Za-z_][A-Za-z0-9_]*)\s*:/g, '$1"$2":').replace(/'/g, '"')); } catch { continue; }
+    }
+    harvestFields(parsed, acc);
+    if (acc.snowBase != null || acc.snowfall24h != null || acc.snowfall7day != null) break;
+  }
+  return acc;
+}
+
+// ── Strategy B: inline application/json blobs ────────────────────────────────
+function extractFromJsonBlobs(html) {
+  const acc = {};
+  const scripts = [...html.matchAll(/<script[^>]*type=["']application\/json["'][^>]*>([\s\S]*?)<\/script>/gi)];
+  for (const m of scripts) {
+    let parsed;
+    try { parsed = JSON.parse(m[1]); } catch { continue; }
+    harvestFields(parsed, acc);
+    if ((acc.snowBase != null || acc.snowfall24h != null) && acc.summary) break;
+  }
+  return acc;
+}
+
+// ── Strategy C: label-driven text scan (if figures are server-rendered) ──────
+function extractFromText(html) {
+  const text = stripTags(html);
+  const pick = (re) => { const m = text.match(re); return m ? normaliseCm(m[1]) : null; };
+  return {
+    snowBase: pick(/snow\s*base[^0-9]{0,30}(\d[\d.\s-]*\s*cm)/i),
+    snowfall24h: pick(/(?:24\s*(?:hr|hour)s?|overnight)[^0-9]{0,40}(\d[\d.\s-]*\s*cm)/i),
+    snowfall7day: pick(/7\s*day[^0-9]{0,40}(\d[\d.\s-]*\s*cm)/i),
+  };
+}
+
+export async function resolveMthuttReport({ debug = false } = {}) {
+  const attempts = [];
+  for (const pageUrl of PAGE_URLS) {
+    let pageResp;
+    try {
+      pageResp = await fetch(pageUrl, { headers: BROWSER_HEADERS, redirect: 'follow' });
+    } catch (e) {
+      attempts.push({ url: pageUrl, error: String((e && e.message) || e) });
+      continue;
+    }
+    if (!pageResp.ok) {
+      attempts.push({ url: pageUrl, status: pageResp.status });
+      continue;
+    }
+    const html = await pageResp.text();
+
+    const fromXData = extractFromXData(html);
+    const fromJson = extractFromJsonBlobs(html);
+    const fromText = extractFromText(html);
+
+    const snowBase = normaliseCm(fromXData.snowBase ?? fromJson.snowBase) || fromText.snowBase;
+    const snowfall24h = normaliseCm(fromXData.snowfall24h ?? fromJson.snowfall24h) || fromText.snowfall24h;
+    const snowfall7day = normaliseCm(fromXData.snowfall7day ?? fromJson.snowfall7day) || fromText.snowfall7day;
+    const summary = fromXData.summary || fromJson.summary || null;
+
+    const conditions = (snowBase || snowfall24h || snowfall7day)
+      ? [{ location: 'Mt Hutt', snowBase, snowfall24h, snowfall7day }]
+      : null;
+
+    if (!debug && (summary || conditions)) {
+      return { summary, conditions, source: pageUrl, fetchedAt: new Date().toISOString() };
+    }
+
+    // Discovery diagnostics — same pattern as the Cardrona/Treble Cone
+    // scraper's debug mode: keyword-anchored excerpts + payload inventories,
+    // enough to pin the real data shape from one prod paste.
+    const excerptsFor = (label, re, count = 3, span = 400) => {
+      const found = [];
+      let m;
+      const g = new RegExp(re.source, re.flags.includes('g') ? re.flags : re.flags + 'g');
+      while ((m = g.exec(html)) !== null && found.length < count) {
+        found.push(html.slice(Math.max(0, m.index - 60), m.index + span).replace(/\s+/g, ' '));
+        g.lastIndex = m.index + 1;
+      }
+      return { label, matches: found.length, excerpts: found };
+    };
+    attempts.push({
+      url: pageUrl,
+      status: pageResp.status,
+      htmlLength: html.length,
+      fromXData,
+      fromJson,
+      fromText,
+      probes: [
+        excerptsFor('x-data-snow', /x-data=["'][^"']*snow/i),
+        excerptsFor('x-text-snow', /x-text=["']snow\./i, 5, 200),
+        excerptsFor('snow-base', /snow\s*_?-?\s*base/i),
+        excerptsFor('7day', /last7|7\s*day/i),
+        excerptsFor('cm-values', /\b\d{1,3}\s*cm\b/i, 5, 250),
+        excerptsFor('api-endpoints', /["'](https?:\/\/[^"']*(?:api|feed|data|graphql)[^"']*)["']/i, 5, 300),
+      ],
+    });
+  }
+
+  if (debug) return { debug: { attempts } };
+  throw { status: 502, body: { error: 'no report found from any source', attempts } };
+}
+
+export default async function handler(req, res) {
+  try {
+    const result = await resolveMthuttReport({ debug: !!req.query.debug });
+    res.status(200);
+    res.setHeader('Content-Type', 'application/json');
+    res.setHeader('Cache-Control', 'public, max-age=900');
+    res.json(result.debug ? result.debug : result);
+  } catch (e) {
+    if (e && typeof e.status === 'number') {
+      res.status(e.status).json(e.body);
+      return;
+    }
+    res.status(502).json({ error: 'mthutt-report proxy failed', detail: String((e && e.message) || e) });
+  }
+}

@@ -102,7 +102,12 @@ function harvestResortFields(value, acc, depth = 0) {
       if (typeof v === 'string') {
         const key = k.toLowerCase();
         const s = v.trim();
-        if (!acc.summary && s.length >= 60 && /summary|report|conditions|description|blurb/.test(key)) acc.summary = s;
+        // 'description'/'blurb' deliberately NOT accepted for the summary:
+        // prod debug showed the only such match is an image's alt-style
+        // description ("A towering, snow-covered mountain peak…"), not the
+        // report. Until the discovery probes pin the real field name, only
+        // explicitly report-ish keys qualify.
+        if (!acc.summary && s.length >= 60 && /summary|report|conditions/.test(key)) acc.summary = s;
         if (acc.snowBase == null && /base/.test(key) && !/database/.test(key)) acc.snowBase = v;
         if (acc.snowfall24h == null && /(24h|24hr|24hour|last24|lasttwentyfour|newsnow)/.test(key)) acc.snowfall24h = v;
         if (acc.snowfall7day == null && /(7day|7d|last7|lastseven|weeksnow)/.test(key)) acc.snowfall7day = v;
@@ -202,19 +207,49 @@ export async function resolveReport(resort, { debug = false } = {}) {
   const conditions = fromJson.conditions || domConditions;
 
   if (debug) {
+    // Discovery mode. First prod run showed: no <h2>Summary</h2> in the raw
+    // HTML (the report DOM is client-rendered — DevTools screenshots show
+    // the rendered DOM, not this source), and the only jsonSummary match was
+    // an image's alt/description false positive. So instead of reporting
+    // what the strategies guessed, dump the raw material needed to pin where
+    // the real data actually lives: keyword-anchored excerpts of the raw
+    // HTML, and an inventory of every inline JSON blob with its top-level
+    // shape. Excerpts are capped so the response stays pasteable.
+    const excerptsFor = (label, re, count = 3, span = 400) => {
+      const found = [];
+      let m;
+      const g = new RegExp(re.source, re.flags.includes('g') ? re.flags : re.flags + 'g');
+      while ((m = g.exec(html)) !== null && found.length < count) {
+        found.push(html.slice(Math.max(0, m.index - 60), m.index + span).replace(/\s+/g, ' '));
+        g.lastIndex = m.index + 1;
+      }
+      return { label, matches: found.length, excerpts: found };
+    };
+    const jsonBlobs = [...html.matchAll(/<script[^>]*(?:id=["']([^"']*)["'])?[^>]*type=["']application\/json["'][^>]*>([\s\S]*?)<\/script>/gi)]
+      .map((m) => {
+        let topKeys = null, len = m[2].length;
+        try {
+          const parsed = JSON.parse(m[2]);
+          topKeys = Array.isArray(parsed) ? `array(${parsed.length})` : Object.keys(parsed).slice(0, 20);
+        } catch { topKeys = 'unparseable'; }
+        return { id: m[1] || null, length: len, topKeys };
+      });
     return {
       debug: {
         resort,
         source: PAGE_URL,
         status: pageResp.status,
         htmlLength: html.length,
-        foundJson: fromJson.foundJson,
-        jsonSummary: fromJson.summary,
-        jsonConditions: fromJson.conditions,
-        domSummary,
-        domConditions,
-        hasSummaryHeading: /<h2[^>]*>\s*Summary\s*<\/h2>/i.test(html),
-        hasTrebleConeText: /treble\s*cone/i.test(html),
+        jsonBlobs,
+        probes: [
+          excerptsFor('snow-base', /snow\s*_?-?\s*base/i),
+          excerptsFor('24hr-snowfall', /24\s*_?(hr|hour|h)[\s_]*snowfall|snowfall[\s_]*24|last24/i),
+          excerptsFor('7day-snowfall', /7\s*_?day[\s_]*snowfall|snowfall[\s_]*7|last7/i),
+          excerptsFor('summary-keyword', /["'>]\s*Summary\s*[<"']/i),
+          excerptsFor('report-field', /reportSummary|snow_?report|dailyReport|snowReport/i),
+          excerptsFor('cm-values', /\b\d{1,3}\s*cm\b/i, 5, 250),
+          excerptsFor('api-endpoints', /["'](https?:\/\/[^"']*(?:api|cms|content|graphql)[^"']*)["']/i, 5, 300),
+        ],
       },
     };
   }
