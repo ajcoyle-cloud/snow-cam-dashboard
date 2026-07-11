@@ -325,46 +325,46 @@ function extractFromApiJson(data, resort) {
 }
 
 export async function resolveReport(resort, { debug = false } = {}) {
-  // Primary: the site's own API. Everything below (HTML scrape + render
-  // proxy) is retained as the fallback chain should this route ever move.
-  // The API 401'd with a plain request. Since it's the site's own
-  // same-origin route serving a public page, the gate is most likely an
-  // Origin/Referer check rather than user auth — send those (plus a couple
-  // of resort-param spellings, since the route takes no path segment and the
-  // browser may pass ?resort=… or ?mountain=…). This is the ONLY path that
-  // yields Treble Cone: the render proxy below only ever gets the default
-  // (Cardrona) tab, so TC's data lives solely behind this API.
-  let apiDebug = null;
-  const apiCandidates = [
-    API_URL,
-    `${API_URL}?resort=${resort}`,
-    `${API_URL}?mountain=${resort}`,
-    `${API_URL}?slug=${resort}`,
+  // Primary: the site's own API — a POST (the earlier 401 was from sending a
+  // GET) taking a small JSON body naming the resort (Content-Length 38 in the
+  // real request). Exact body key unknown from this sandbox, so try a few
+  // spellings; spoof same-origin (Origin/Referer/Sec-Fetch-Site) and send no
+  // cookies. If the endpoint is genuinely AWS-WAF-gated (an aws-waf-token
+  // cookie is present in the browser) this still fails and TC falls through
+  // to no-data, but a wrong-method 401 is the more likely culprit. This is
+  // the ONLY server-reachable source for Treble Cone (the render proxy only
+  // ever renders the default Cardrona tab).
+  const apiSlug = resort === 'cardrona' ? 'cardrona' : 'treble-cone';
+  const bodyCandidates = [
+    { resort: apiSlug }, { mountain: apiSlug }, { slug: apiSlug },
+    { resort: apiSlug, lang: 'en-NZ' }, { mountainSlug: apiSlug }, { resortSlug: apiSlug },
   ];
   const apiHeaders = {
-    ...BROWSER_HEADERS,
-    'Accept': 'application/json, text/plain, */*',
-    'Origin': 'https://www.cardrona-treblecone.com',
+    'User-Agent': BROWSER_HEADERS['User-Agent'],
+    'Accept': '*/*',
+    'Accept-Language': 'en-NZ,en;q=0.9',
+    'Content-Type': 'application/json',
+    'Origin': 'https://cardrona-treblecone.com',
     'Referer': PAGE_URL,
-    'X-Requested-With': 'XMLHttpRequest',
+    'Sec-Fetch-Dest': 'empty',
+    'Sec-Fetch-Mode': 'cors',
+    'Sec-Fetch-Site': 'same-origin',
   };
+  let apiDebug = null;
   try {
-    let apiResp = null, apiUrlUsed = null;
-    for (const url of apiCandidates) {
-      const r = await fetch(url, { headers: apiHeaders });
-      if (r.ok) { apiResp = r; apiUrlUsed = url; break; }
-      if (!apiDebug) apiDebug = { firstStatus: r.status, firstUrl: url };
-    }
-    if (apiResp && apiResp.ok) {
-      const data = await apiResp.json();
+    let matched = null;
+    for (const body of bodyCandidates) {
+      const r = await fetch(API_URL, { method: 'POST', headers: apiHeaders, body: JSON.stringify(body) });
+      if (!r.ok) { if (!apiDebug) apiDebug = { firstStatus: r.status, firstBody: body }; continue; }
+      const data = await r.json();
       const fromApi = extractFromApiJson(data, resort);
-      if (!debug && (fromApi.summary || fromApi.conditions)) {
-        return { ...fromApi, source: apiUrlUsed, fetchedAt: new Date().toISOString() };
-      }
-      apiDebug = { status: apiResp.status, url: apiUrlUsed, fromApi, raw: JSON.stringify(data).slice(0, 5000) };
+      if (fromApi.summary || fromApi.conditions) { matched = { data, fromApi, body }; break; }
+      if (!apiDebug) apiDebug = { status: r.status, body, note: 'ok but nothing extracted', raw: JSON.stringify(data).slice(0, 3000) };
     }
-    // else: no candidate returned ok — apiDebug already holds the first
-    // failing status/url from the loop above.
+    if (matched) {
+      if (!debug) return { ...matched.fromApi, source: API_URL, fetchedAt: new Date().toISOString() };
+      apiDebug = { status: 200, body: matched.body, fromApi: matched.fromApi, raw: JSON.stringify(matched.data).slice(0, 5000) };
+    }
   } catch (e) {
     apiDebug = { ...(apiDebug || {}), error: String((e && e.message) || e) };
   }
