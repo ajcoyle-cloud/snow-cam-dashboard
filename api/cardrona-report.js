@@ -325,48 +325,42 @@ function extractFromApiJson(data, resort) {
 }
 
 export async function resolveReport(resort, { debug = false } = {}) {
-  // Primary: the site's own API — a POST (the earlier 401 was from sending a
-  // GET) taking a small JSON body naming the resort (Content-Length 38 in the
-  // real request). Exact body key unknown from this sandbox, so try a few
-  // spellings; spoof same-origin (Origin/Referer/Sec-Fetch-Site) and send no
-  // cookies. If the endpoint is genuinely AWS-WAF-gated (an aws-waf-token
-  // cookie is present in the browser) this still fails and TC falls through
-  // to no-data, but a wrong-method 401 is the more likely culprit. This is
-  // the ONLY server-reachable source for Treble Cone (the render proxy only
-  // ever renders the default Cardrona tab).
+  // The site's own POST API (get-snow-report) is confirmed AWS-WAF-gated:
+  // even a correct POST body + spoofed same-origin headers returns 401 in
+  // prod (the browser passes an aws-waf-token cookie we can't reproduce).
+  // So the LIVE path skips it entirely — those doomed attempts were adding
+  // seconds of latency per request. It's exercised only under ?debug=1, in
+  // case the WAF is ever dropped and the route becomes usable again.
   const apiSlug = resort === 'cardrona' ? 'cardrona' : 'treble-cone';
-  const bodyCandidates = [
-    { resort: apiSlug }, { mountain: apiSlug }, { slug: apiSlug },
-    { resort: apiSlug, lang: 'en-NZ' }, { mountainSlug: apiSlug }, { resortSlug: apiSlug },
-  ];
-  const apiHeaders = {
-    'User-Agent': BROWSER_HEADERS['User-Agent'],
-    'Accept': '*/*',
-    'Accept-Language': 'en-NZ,en;q=0.9',
-    'Content-Type': 'application/json',
-    'Origin': 'https://cardrona-treblecone.com',
-    'Referer': PAGE_URL,
-    'Sec-Fetch-Dest': 'empty',
-    'Sec-Fetch-Mode': 'cors',
-    'Sec-Fetch-Site': 'same-origin',
-  };
   let apiDebug = null;
-  try {
-    let matched = null;
-    for (const body of bodyCandidates) {
-      const r = await fetch(API_URL, { method: 'POST', headers: apiHeaders, body: JSON.stringify(body) });
-      if (!r.ok) { if (!apiDebug) apiDebug = { firstStatus: r.status, firstBody: body }; continue; }
-      const data = await r.json();
-      const fromApi = extractFromApiJson(data, resort);
-      if (fromApi.summary || fromApi.conditions) { matched = { data, fromApi, body }; break; }
-      if (!apiDebug) apiDebug = { status: r.status, body, note: 'ok but nothing extracted', raw: JSON.stringify(data).slice(0, 3000) };
+  if (debug) {
+    const bodyCandidates = [
+      { resort: apiSlug }, { mountain: apiSlug }, { slug: apiSlug },
+      { resort: apiSlug, lang: 'en-NZ' }, { mountainSlug: apiSlug }, { resortSlug: apiSlug },
+    ];
+    const apiHeaders = {
+      'User-Agent': BROWSER_HEADERS['User-Agent'],
+      'Accept': '*/*',
+      'Accept-Language': 'en-NZ,en;q=0.9',
+      'Content-Type': 'application/json',
+      'Origin': 'https://cardrona-treblecone.com',
+      'Referer': PAGE_URL,
+      'Sec-Fetch-Dest': 'empty',
+      'Sec-Fetch-Mode': 'cors',
+      'Sec-Fetch-Site': 'same-origin',
+    };
+    try {
+      for (const body of bodyCandidates) {
+        const r = await fetch(API_URL, { method: 'POST', headers: apiHeaders, body: JSON.stringify(body) });
+        if (!r.ok) { if (!apiDebug) apiDebug = { firstStatus: r.status, firstBody: body }; continue; }
+        const data = await r.json();
+        const fromApi = extractFromApiJson(data, resort);
+        apiDebug = { status: 200, body, fromApi, raw: JSON.stringify(data).slice(0, 5000) };
+        break;
+      }
+    } catch (e) {
+      apiDebug = { ...(apiDebug || {}), error: String((e && e.message) || e) };
     }
-    if (matched) {
-      if (!debug) return { ...matched.fromApi, source: API_URL, fetchedAt: new Date().toISOString() };
-      apiDebug = { status: 200, body: matched.body, fromApi: matched.fromApi, raw: JSON.stringify(matched.data).slice(0, 5000) };
-    }
-  } catch (e) {
-    apiDebug = { ...(apiDebug || {}), error: String((e && e.message) || e) };
   }
 
   const pageResp = await fetch(PAGE_URL, { headers: BROWSER_HEADERS });
@@ -442,8 +436,11 @@ export async function resolveReport(resort, { debug = false } = {}) {
   // Cone (mentions a TC lift) and contains NO Cardrona lift name — so if the
   // param is ignored (and we just get Cardrona's content again) it's
   // rejected rather than mislabeled as TC.
+  // Confirmed in prod that the SPA ignores these URL params (both candidates
+  // returned Cardrona's content), so run it only under ?debug=1 — a live TC
+  // call fails fast instead of making two slow, doomed render-proxy fetches.
   let tcProxyDebug = null;
-  if (!summary && !conditions && resort === 'treblecone') {
+  if (debug && !summary && !conditions && resort === 'treblecone') {
     const CARDRONA_LIFTS = /McDougall|Captains|Whitestar|Valley View|Soho|Willows|Skyline/i;
     const TC_LIFTS = /Home Basin|Saddle Basin|Learners Platter|Nowhere|Matukituki/i;
     const tcUrls = [PAGE_URL + '?resort=treble-cone', PAGE_URL + '?mountain=treble-cone'];

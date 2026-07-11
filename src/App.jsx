@@ -424,7 +424,15 @@ function NzSkiCamera({ manifest, cameraKey, angle = 'Angle1', alt, onError, styl
 const SNOW_REPORT_SOURCES = {
   Whakapapa: { endpoint: '/whakapapa-report', title: 'Whakapapa Snow Report' },
   Cardrona: { endpoint: '/cardrona-report', title: 'Cardrona Snow Report' },
-  'Treble Cone': { endpoint: '/treblecone-report', title: 'Treble Cone Snow Report' },
+  // Treble Cone deliberately omitted: it shares Cardrona's site, but its
+  // daily data is only reachable through a POST API gated by AWS WAF (a
+  // browser-issued aws-waf-token we can't reproduce server-side), the render
+  // proxy only ever gets the default Cardrona tab, and the tab is pure
+  // client state (URL doesn't change / isn't read on load). Confirmed dead
+  // end via prod ?debug=1 (401 on the API with a correct POST body + spoofed
+  // same-origin). The /treblecone-report endpoint is kept in api/ in case
+  // the site ever drops the WAF or exposes TC differently, just not wired up
+  // here — so the frontend doesn't hammer their WAF on every page load.
   'Mt Hutt': { endpoint: '/mthutt-report', title: 'Mt Hutt Snow Report' },
 }
 
@@ -527,21 +535,36 @@ function SnowReportSummary({ location, expanded, onExpand, onCollapse }) {
 // so picking a location here stays in sync with the rest of the app.
 function SnowReportsPage({ resort, setResort }) {
   const source = SNOW_REPORT_SOURCES[RESORTS[resort].name]
-  const [report, setReport] = useState(null)
-  const [loading, setLoading] = useState(false)
+  // Only resorts we can actually pull a report for get a pill — the row is
+  // meant to be "locations with reports", not every resort (several have no
+  // scrapable source). Order follows RESORTS.
+  const sourcedResorts = Object.entries(RESORTS).filter(([, r]) => SNOW_REPORT_SOURCES[r.name])
 
+  // Prefetch EVERY sourced resort's report in parallel on mount and cache the
+  // results by resort key, so switching pills is instant instead of firing a
+  // fresh (multi-second, proxy-backed) fetch each time. Each entry is
+  // { status: 'loading' | 'done' | 'error', data }. Runs once — the reports
+  // barely change through a day and the endpoints are edge-cached anyway.
+  const [reportsByResort, setReportsByResort] = useState({})
   useEffect(() => {
-    setReport(null)
-    if (!source) return
-    setLoading(true)
     let cancelled = false
-    fetch(source.endpoint)
-      .then((r) => (r.ok ? r.json() : Promise.reject()))
-      .then((data) => { if (!cancelled) setReport(data) })
-      .catch(() => { if (!cancelled) setReport(null) })
-      .finally(() => { if (!cancelled) setLoading(false) })
+    for (const [key, r] of Object.entries(RESORTS)) {
+      const src = SNOW_REPORT_SOURCES[r.name]
+      if (!src) continue
+      setReportsByResort((prev) => (prev[key] ? prev : { ...prev, [key]: { status: 'loading' } }))
+      fetch(src.endpoint)
+        .then((resp) => (resp.ok ? resp.json() : Promise.reject()))
+        .then((data) => { if (!cancelled) setReportsByResort((prev) => ({ ...prev, [key]: { status: 'done', data } })) })
+        .catch(() => { if (!cancelled) setReportsByResort((prev) => ({ ...prev, [key]: { status: 'error' } })) })
+    }
     return () => { cancelled = true }
-  }, [resort])
+  }, [])
+
+  const entry = reportsByResort[resort]
+  const report = entry?.status === 'done' ? entry.data : null
+  // "Loading" only while a fetch is genuinely in flight for the current
+  // resort (started but not resolved) — not for an unsourced resort.
+  const loading = !!source && (!entry || entry.status === 'loading')
 
   const paragraphs = report?.summary ? report.summary.split(/\n{2,}/).map((s) => s.trim()).filter(Boolean) : []
   const hasConditions = report?.conditions?.length > 0
@@ -550,7 +573,7 @@ function SnowReportsPage({ resort, setResort }) {
   return (
     <section className="region-section snow-reports-page">
       <div className="elevation-toggle snow-reports-location-row">
-        {Object.entries(RESORTS).map(([key, r]) => (
+        {sourcedResorts.map(([key, r]) => (
           <button
             key={key}
             className={`toggle-btn ${resort === key ? 'active' : ''}`}
@@ -565,8 +588,11 @@ function SnowReportsPage({ resort, setResort }) {
         <div className="forecast-loading"><div className="spinner" /></div>
       )}
 
+      {/* Current global resort has no report (e.g. arrived here with Loveland
+          selected from another tab) — nudge toward a location that does,
+          rather than a dead "no source" message. */}
       {!loading && !source && (
-        <p className="snow-reports-empty">No official snow report source is set up for {RESORTS[resort].name} yet.</p>
+        <p className="snow-reports-empty">Pick a location above to see its snow report.</p>
       )}
 
       {!loading && source && !hasContent && (
