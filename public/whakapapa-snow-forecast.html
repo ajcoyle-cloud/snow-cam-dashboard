@@ -3479,6 +3479,27 @@ let currentAccumTotalCm = 0;
 // renderAccumulatedView() whenever the period/model/resort changes.
 let elevationBandTotals = null;
 
+// Same idea as elevationBandTotals but for one specific hour's snowfall
+// RATE rather than a summed window — the Hourly map's equivalent. Set by
+// openMapView() for the currently scrubbed hour; explicitly nulled during
+// startPlay()'s smooth blend between two hours (see there for why).
+let currentHourBandRates = null;
+
+// Piecewise-linear interpolation shared by both elevationBandTotals (a
+// window total) and currentHourBandRates (a single hour's rate) — same
+// { elev, cm } shape either way, so one function serves both.
+function interpolateBandArray(bands, elev) {
+  if (elev <= bands[0].elev) return bands[0].cm;
+  if (elev >= bands[bands.length - 1].elev) return bands[bands.length - 1].cm;
+  for (let i = 0; i < bands.length - 1; i++) {
+    const lo = bands[i], hi = bands[i + 1];
+    if (elev >= lo.elev && elev <= hi.elev) {
+      const t = (elev - lo.elev) / (hi.elev - lo.elev);
+      return lo.cm + (hi.cm - lo.cm) * t;
+    }
+  }
+}
+
 // Sums each fetched elevation band's own snowfall over [startIdx, startIdx+count)
 // — the identical window renderAccumulatedView just sliced for totalCm — then
 // scales the result so the top (summit) band matches totalCm exactly. That
@@ -3513,21 +3534,32 @@ function computeElevationBandTotals(startTime, count, totalCm) {
   return raw.map((b) => ({ elev: b.elev, cm: b.cm * scale }));
 }
 
+// Hourly counterpart of computeElevationBandTotals — one hour's rate at each
+// band instead of a summed window, matched by timestamp and scaled so the
+// summit band matches targetSummitCm (this hour's own resort-level rate,
+// whichever model is selected), same reasoning as above.
+function computeElevationBandRates(time, targetSummitCm) {
+  if (!elevationBandHours || time == null) return null;
+  const raw = elevationBandHours
+    .filter(Boolean)
+    .map((b) => {
+      const h = b.hours.find((hh) => hh.time === time);
+      return { elev: b.elev, cm: h ? h.snowCm : 0 };
+    })
+    .sort((a, b) => a.elev - b.elev);
+  if (raw.length < 2) return null;
+  const topCm = raw[raw.length - 1].cm;
+  if (!(topCm > 0) || !(targetSummitCm > 0)) return null;
+  const scale = targetSummitCm / topCm;
+  return raw.map((b) => ({ elev: b.elev, cm: b.cm * scale }));
+}
+
 function getDepthAtElevation(elev) {
   if (currentSnowLine == null || elev < currentSnowLine) return 0;
-  if (viewMode === 'hourly') return currentHourCm;
-  if (elevationBandTotals) {
-    const bands = elevationBandTotals;
-    if (elev <= bands[0].elev) return bands[0].cm;
-    if (elev >= bands[bands.length - 1].elev) return bands[bands.length - 1].cm;
-    for (let i = 0; i < bands.length - 1; i++) {
-      const lo = bands[i], hi = bands[i + 1];
-      if (elev >= lo.elev && elev <= hi.elev) {
-        const t = (elev - lo.elev) / (hi.elev - lo.elev);
-        return lo.cm + (hi.cm - lo.cm) * t;
-      }
-    }
+  if (viewMode === 'hourly') {
+    return currentHourBandRates ? interpolateBandArray(currentHourBandRates, elev) : currentHourCm;
   }
+  if (elevationBandTotals) return interpolateBandArray(elevationBandTotals, elev);
   // Fallback: the old straight-line taper, used when the band fetch failed
   // or hasn't landed yet rather than showing nothing.
   const frac = Math.min(1, (elev - currentSnowLine) / (TOP_ELEV - currentSnowLine));
@@ -3575,6 +3607,14 @@ const DEPTH_BANDS = [
 // flat blue tint from the snow line up when there's no active snowfall, or the
 // intensity-scaled blue→white gradient (scaled by snowfall amount) when there is.
 const SNOWFALL_THRESHOLD_MM = 0.1;
+
+// Linearly blends two "r,g,b" strings — used by buildSnowRamp to keep its
+// hue blend smooth while sampling opacity independently at each elevation.
+function lerpRgbStr(a, b, t) {
+  const [ar, ag, ab] = a.split(',').map(Number);
+  const [br, bg, bb] = b.split(',').map(Number);
+  return `${Math.round(ar + (br - ar) * t)},${Math.round(ag + (bg - ag) * t)},${Math.round(ab + (bb - ab) * t)}`;
+}
 
 function buildSnowRamp(hour) {
   // A malformed/missing hour would otherwise produce a garbage 'interpolate'
@@ -3625,26 +3665,43 @@ function buildSnowRamp(hour) {
     ];
   }
 
-  // Intensity scales the colour/opacity with forecasted snowfall amount (mm).
-  const intensity = Math.max(0.65, Math.min(1, hour.snowfallMm / 14));
-  const a1 = (0.85 * intensity).toFixed(2);
-  const a2 = (0.97 * intensity).toFixed(2);
-  const a3 = (1 * intensity).toFixed(2);
   const midPoint = Math.min(line + 100, TOP_ELEV - 1);
 
   // Dark contour mode: darker grey instead of the near-white daytime tint —
-  // white read as blown-out against the dark relief basemap.
+  // white read as blown-out against the dark relief basemap. This hue blend
+  // (low tone -> mid tone -> high tone by POSITION) is a purely visual style
+  // choice, unchanged — "closer to the summit looks brighter" isn't meant to
+  // imply more snow. Actual snowfall amount is opacity, below.
   const [c0, c1, c2] = darkTerrainActive
     ? ['90,95,105', '110,115,125', '130,135,145']
     : ['205,225,255', '225,240,255', '248,251,255'];
+  const hueAt = (elev) => (elev <= midPoint
+    ? lerpRgbStr(c0, c1, (elev - line) / Math.max(1, midPoint - line))
+    : lerpRgbStr(c1, c2, (elev - midPoint) / Math.max(1, TOP_ELEV - midPoint)));
 
-  return [
-    'interpolate', ['linear'], ['elevation'],
-    line - 1, `rgba(${c0},0)`,
-    line, `rgba(${c0},${a1})`,
-    midPoint, `rgba(${c1},${a2})`,
-    TOP_ELEV, `rgba(${c2},${a3})`
-  ];
+  // Opacity — what actually reads as "how much snow" — now comes from the
+  // REAL per-elevation rate (currentHourBandRates, scaled to match this
+  // hour's own resort-level snowfallMm; see computeElevationBandRates)
+  // sampled at fixed steps up the mountain, instead of one flat intensity
+  // applied everywhere. Previously a spot right at the snow line and a spot
+  // at the summit looked identically solid as long as both were "snowing
+  // this hour" — now a spot with genuinely more forecast snow reads more
+  // solid. Falls back to the old flat intensity (uniform hour.snowfallMm)
+  // when band data isn't available — e.g. mid-frame during startPlay's
+  // smooth blend between two hours, which intentionally skips real
+  // per-elevation data for a purely decorative animation frame.
+  const rateAt = (elev) => (currentHourBandRates
+    ? interpolateBandArray(currentHourBandRates, elev)
+    : hour.snowfallMm / 10) * 10; // cm -> mm
+  const alphaAt = (elev) => Math.max(0.65, Math.min(1, rateAt(elev) / 14)).toFixed(2);
+
+  const SNOW_RAMP_SAMPLE_STEP_M = 80;
+  const stops = ['interpolate', ['linear'], ['elevation'], line - 1, `rgba(${c0},0)`];
+  for (let elev = line; elev < TOP_ELEV; elev += SNOW_RAMP_SAMPLE_STEP_M) {
+    stops.push(elev, `rgba(${hueAt(elev)},${alphaAt(elev)})`);
+  }
+  stops.push(TOP_ELEV, `rgba(${hueAt(TOP_ELEV)},${alphaAt(TOP_ELEV)})`);
+  return stops;
 }
 
 // The 'snow-relief' layer isn't guaranteed to exist the instant the map is
@@ -3740,13 +3797,6 @@ function openMapView(index) {
   currentIndex = Math.max(0, Math.min(index, forecastHours.length - 1));
   const hour = forecastHours[currentIndex];
 
-  applyRampWhenReady(buildSnowRamp(hour));
-  // Regenerating orographic-snow-layer's tiles is real per-pixel DEM work,
-  // unlike buildSnowRamp's cheap interpolation array — only worth doing on
-  // an actual hour change (here), not on every smooth-playback animation
-  // frame (see startPlay's blendHour loop, which intentionally skips this).
-  refreshOrographicSnow();
-
   // Must mirror buildSnowRamp's own boundary exactly (see the "Previous
   // bug" comment there) — this used freezing-300m unconditionally, so on a
   // non-snowing hour the probe's "above the line" cutoff sat 300m below
@@ -3755,6 +3805,19 @@ function openMapView(index) {
   const hourSnowing = hour.snowfallMm >= SNOWFALL_THRESHOLD_MM;
   currentSnowLine = hourSnowing ? hour.freezingLevel - SNOW_OFFSET : hour.freezingLevel;
   currentHourCm = hourSnowing ? hour.snowfallMm / 10 : 0;
+  // Real per-elevation rate for this exact hour (see computeElevationBandRates)
+  // — assigned before buildSnowRamp runs, since it now reads this to vary
+  // opacity by real elevation instead of one flat intensity. null when not
+  // snowing (buildSnowRamp's non-snowing branch is a flat freezing-level
+  // tint, unrelated to snowfall amount) or when band data isn't available.
+  currentHourBandRates = hourSnowing ? computeElevationBandRates(hour.time, currentHourCm) : null;
+
+  applyRampWhenReady(buildSnowRamp(hour));
+  // Regenerating orographic-snow-layer's tiles is real per-pixel DEM work,
+  // unlike buildSnowRamp's cheap interpolation array — only worth doing on
+  // an actual hour change (here), not on every smooth-playback animation
+  // frame (see startPlay's blendHour loop, which intentionally skips this).
+  refreshOrographicSnow();
 
   document.getElementById('si-time').textContent = fmtTime(hour.time);
   document.getElementById('si-temp').textContent = hour.temp.toFixed(1) + '°C';
@@ -4415,6 +4478,13 @@ function startPlay() {
     const from = forecastHours[currentIndex];
     const to = forecastHours[currentIndex + 1];
     const blended = blendHour(from, to, t);
+    // blended is a synthetic in-between hour with no real timestamp, so
+    // there's no elevation-band data to look up for it (computing a blend of
+    // two real hours' band arrays too was more complexity than a purely
+    // decorative animation frame warrants) — null falls back to the flat,
+    // pre-fix intensity/depth cleanly, and gets replaced with real data the
+    // instant playback lands on the next actual hour (openMapView below).
+    currentHourBandRates = null;
     applyRampWhenReady(buildSnowRamp(blended));
     // Keep the tap-to-probe in sync during smooth playback too, not just at
     // each full-hour tick (openMapView) — same boundary logic as there/
