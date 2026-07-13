@@ -7,6 +7,11 @@ import './App.css'
 
 const METEOBLUE_API_KEY = import.meta.env.VITE_METEOBLUE_API_KEY || 'DEMO'
 
+// Forecast tab's "AI summary" icon button — temporarily hidden (Gemini's
+// free-tier daily request quota kept getting exhausted during testing).
+// Flip to true to bring it back; no other change needed.
+const AI_SUMMARY_ENABLED = false
+
 // whakapapa-snow-forecast.html is a plain public/ file (no content-hashed
 // filename like the bundled JS/CSS get), so nothing forces the browser to
 // fetch a fresh copy after a deploy — iOS Safari in particular will happily
@@ -2498,6 +2503,11 @@ function SnowfallForecast({ resort, setResort }) {
   // generate+speak a fresh summary; speaking -> stop; loading -> disabled
   // spinner.
   const renderAiSummaryButton = (extraClassName) => {
+    // Hidden for now — Gemini's free-tier daily request quota kept getting
+    // exhausted during testing. Flip AI_SUMMARY_ENABLED back to true (below,
+    // near the top of the file) to bring the button back; nothing else needs
+    // to change.
+    if (!AI_SUMMARY_ENABLED) return null
     const busy = aiLoading || ttsLoading
     const label = isSpeaking ? 'Stop reading forecast summary' : 'AI summary of the next 7 days, read aloud'
     return (
