@@ -53,6 +53,10 @@
       "destination": "/api/forecast-summary"
     },
     {
+      "source": "/elevenlabs-tts",
+      "destination": "/api/elevenlabs-tts"
+    },
+    {
       "source": "/cardrona-report",
       "destination": "/api/cardrona-report"
     },

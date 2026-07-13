@@ -1,6 +1,6 @@
 // Updated with Loveland ski area and forecast view switcher
 import { useState, useEffect, useRef } from 'react'
-import { Camera, LineChart, Map as MapIcon, Snowflake, Settings, Wind, Newspaper } from 'lucide-react'
+import { Camera, LineChart, Map as MapIcon, Snowflake, Settings, Wind, Newspaper, Volume2, Square, Loader2 } from 'lucide-react'
 import HLS from 'hls.js'
 import { computeStormArrival, STORM_BAND_LABELS } from './stormArrival'
 import './App.css'
@@ -1390,8 +1390,11 @@ function SnowfallForecast({ resort, setResort }) {
   const [aiLoading, setAiLoading] = useState(false)
   const [aiError, setAiError] = useState(null)
   const [isSpeaking, setIsSpeaking] = useState(false)
+  const [ttsLoading, setTtsLoading] = useState(false)
   const speechTimerRef = useRef(null)
   const voicesRef = useRef([])
+  const audioRef = useRef(null)
+  const audioUrlRef = useRef(null)
   // Default to GFS/ECMWF/AIFS on the chart; once the user ticks/unticks anything
   // in the Models dropdown, remember their choice for next visit.
   const DEFAULT_SHOW_FREEZING = { gfs: true, ecmwf: true, aifs: true, ukmo: false, metservice: false, average: false }
@@ -1825,18 +1828,14 @@ function SnowfallForecast({ resort, setResort }) {
   useEffect(() => {
     setAiSummary(null)
     setAiError(null)
-    if (typeof window !== 'undefined' && window.speechSynthesis) {
-      window.speechSynthesis.cancel()
-    }
-    setIsSpeaking(false)
+    stopSpeaking()
   }, [resort])
 
-  // Never leave the browser talking after the tab unmounts.
+  // Never leave the browser talking (or the audio element playing) after the
+  // tab unmounts.
   useEffect(() => () => {
-    if (typeof window !== 'undefined' && window.speechSynthesis) {
-      window.speechSynthesis.cancel()
-    }
-    if (speechTimerRef.current) { clearInterval(speechTimerRef.current); speechTimerRef.current = null }
+    stopSpeaking()
+    if (audioUrlRef.current) { URL.revokeObjectURL(audioUrlRef.current); audioUrlRef.current = null }
   }, [])
 
   // Voice lists load asynchronously; cache them so pickVoice() has them ready.
@@ -1904,14 +1903,25 @@ function SnowfallForecast({ resort, setResort }) {
   }
 
   const handleGenerateSummary = async () => {
-    // Prime speech synthesis synchronously inside the click gesture. iOS Safari
-    // only allows speech that starts from a user gesture, and our auto-play fires
-    // after an async fetch — this silent utterance unlocks it so playback works
-    // when the summary lands (the manual Play button is a direct gesture anyway).
+    // Prime both speech engines synchronously inside the click gesture. iOS
+    // Safari only allows audio/speech that starts from a user gesture, and our
+    // auto-play fires after async fetches — these silent/muted primers unlock
+    // playback for when the summary lands.
     if (typeof window !== 'undefined' && window.speechSynthesis) {
       try {
         window.speechSynthesis.resume()
         window.speechSynthesis.speak(new SpeechSynthesisUtterance(''))
+      } catch (e) {}
+    }
+    if (typeof window !== 'undefined' && typeof Audio !== 'undefined') {
+      try {
+        if (!audioRef.current) audioRef.current = new Audio()
+        audioRef.current.muted = true
+        audioRef.current.play().then(() => {
+          audioRef.current.pause()
+          audioRef.current.currentTime = 0
+          audioRef.current.muted = false
+        }).catch(() => { audioRef.current.muted = false })
       } catch (e) {}
     }
     setAiLoading(true)
@@ -1935,7 +1945,47 @@ function SnowfallForecast({ resort, setResort }) {
     }
   }
 
-  const speak = (text) => {
+  // "winds" is a heteronym — many TTS engines (browser and cloud alike) read
+  // it as rhyming with "finds" (the verb, "the road winds") instead of moving
+  // air. The prompt already steers Gemini away from the bare word, but this
+  // is a guaranteed fallback regardless of what the model actually returns.
+  const makeSpeakable = (text) => text.replace(/\bwinds\b/gi, 'wind speeds')
+
+  // Try the natural ElevenLabs voice first; any failure (not configured, free
+  // quota exhausted, network error) resolves false so the caller falls back
+  // to the browser's built-in voice instead of surfacing an error.
+  const speakViaElevenLabs = async (text) => {
+    if (typeof window === 'undefined' || typeof Audio === 'undefined') return false
+    try {
+      const res = await fetch('/elevenlabs-tts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text }),
+      })
+      if (!res.ok) return false
+      const blob = await res.blob()
+      if (!blob || blob.size === 0) return false
+
+      if (audioUrlRef.current) { URL.revokeObjectURL(audioUrlRef.current); audioUrlRef.current = null }
+      const url = URL.createObjectURL(blob)
+      audioUrlRef.current = url
+
+      if (!audioRef.current) audioRef.current = new Audio()
+      const audio = audioRef.current
+      audio.muted = false
+      audio.src = url
+      audio.onended = () => setIsSpeaking(false)
+      audio.onerror = () => setIsSpeaking(false)
+
+      await audio.play()
+      setIsSpeaking(true)
+      return true
+    } catch (e) {
+      return false
+    }
+  }
+
+  const speakWithWebSpeech = (text) => {
     if (typeof window === 'undefined' || !window.speechSynthesis) {
       setAiError('Text-to-speech is not supported in this browser.')
       return
@@ -1946,17 +1996,11 @@ function SnowfallForecast({ resort, setResort }) {
 
     const voice = pickVoice()
 
-    // "winds" is a heteronym — many TTS engines read it as rhyming with
-    // "finds" (the verb, "the road winds") instead of moving air. The prompt
-    // already steers Gemini away from the bare word, but this is a guaranteed
-    // fallback regardless of what the model actually returns.
-    const speakableText = text.replace(/\bwinds\b/gi, 'wind speeds')
-
     // Chrome silently stops long utterances after ~15s. Splitting the summary
     // into sentence-sized chunks and queueing them keeps each utterance short,
     // and the keep-alive interval below nudges the engine so the queue doesn't
     // stall between chunks.
-    const chunks = (speakableText.match(/[^.!?]+[.!?]*/g) || [speakableText])
+    const chunks = (text.match(/[^.!?]+[.!?]*/g) || [text])
       .map(s => s.trim())
       .filter(Boolean)
 
@@ -1981,6 +2025,17 @@ function SnowfallForecast({ resort, setResort }) {
     })
 
     setIsSpeaking(true)
+  }
+
+  // Orchestrator: ElevenLabs (natural voice) first, browser speech as an
+  // automatic, silent fallback — see speakViaElevenLabs()'s doc comment.
+  const speak = async (rawText) => {
+    stopSpeaking()
+    const text = makeSpeakable(rawText)
+    setTtsLoading(true)
+    const spoke = await speakViaElevenLabs(text)
+    setTtsLoading(false)
+    if (!spoke) speakWithWebSpeech(text)
   }
 
   // Prefer the most natural-sounding English voice the device offers, biased to
@@ -2010,6 +2065,10 @@ function SnowfallForecast({ resort, setResort }) {
   }
 
   const stopSpeaking = () => {
+    if (audioRef.current) {
+      audioRef.current.pause()
+      audioRef.current.currentTime = 0
+    }
     if (typeof window !== 'undefined' && window.speechSynthesis) {
       window.speechSynthesis.cancel()
     }
@@ -2401,6 +2460,27 @@ function SnowfallForecast({ resort, setResort }) {
   // Renders the models (freezing-level visibility) dropdown — used twice: once
   // in the desktop controls row, once at the far right of the mobile top bar.
   // Kept as one function so the two spots can't drift out of sync.
+  // Small circular icon button (matches .map-settings-toggle's 38px pill
+  // language used by the other top controls). Click behaviour: idle/ready ->
+  // generate+speak a fresh summary; speaking -> stop; loading -> disabled
+  // spinner.
+  const renderAiSummaryButton = (extraClassName) => {
+    const busy = aiLoading || ttsLoading
+    const label = isSpeaking ? 'Stop reading forecast summary' : 'AI summary of the next 7 days, read aloud'
+    return (
+      <button
+        type="button"
+        className={`ai-summary-toggle ${extraClassName} ${isSpeaking ? 'active' : ''}`}
+        onClick={isSpeaking ? stopSpeaking : handleGenerateSummary}
+        disabled={busy}
+        aria-label={label}
+        title={label}
+      >
+        {busy ? <Loader2 size={17} className="ai-summary-spin" /> : isSpeaking ? <Square size={15} /> : <Volume2 size={18} />}
+      </button>
+    )
+  }
+
   const renderModelsMenu = (menuRef, className) => (
     <div className={`resort-selector ${className}`} ref={menuRef} style={{ paddingTop: 0 }}>
       <button
@@ -2526,6 +2606,7 @@ function SnowfallForecast({ resort, setResort }) {
               Day
             </button>
           </div>
+          {renderAiSummaryButton('ai-summary-toggle-mobile')}
           {renderModelsMenu(modelMenuMobileRef, 'forecast-models-mobile')}
         </div>
       </div>
@@ -2580,40 +2661,24 @@ function SnowfallForecast({ resort, setResort }) {
             mobile (forecast-models-desktop); the mobile top bar gets its own
             copy at the far right instead — see forecast-top-bar above. */}
         <div className="forecast-right-column">
+          {renderAiSummaryButton('ai-summary-toggle-desktop')}
           {renderModelsMenu(modelMenuRef, 'forecast-models-desktop')}
         </div>
       </div>
 
-      {/* AI 7-day spoken summary (Gemini + Web Speech) */}
-      <div className="ai-summary">
-        <div className="ai-summary-actions">
-          <button
-            className="ai-summary-btn"
-            onClick={handleGenerateSummary}
-            disabled={aiLoading}
-          >
-            {aiLoading
-              ? 'Summarising…'
-              : aiSummary
-                ? `Refresh 7-day summary`
-                : `AI summary of the next 7 days`}
-          </button>
-          {aiSummary && !aiLoading && (
-            isSpeaking ? (
-              <button className="ai-summary-speak" onClick={stopSpeaking} aria-label="Stop reading">
-                ◼ Stop
-              </button>
-            ) : (
-              <button className="ai-summary-speak" onClick={() => speak(aiSummary)} aria-label="Read aloud">
-                🔊 Play
-              </button>
-            )
-          )}
+      {/* AI 7-day spoken summary (Gemini + ElevenLabs, falling back to Web
+          Speech) — the trigger icon itself lives up in the top bar/controls
+          row (see renderAiSummaryButton), matching the other circular icon
+          controls up there. This panel only shows the resulting text. */}
+      {(aiLoading || ttsLoading || aiError || aiSummary) && (
+        <div className="ai-summary">
+          {aiLoading && <div className="ai-summary-status">Summarising the next 7 days…</div>}
+          {!aiLoading && ttsLoading && <div className="ai-summary-status">Loading voice…</div>}
+          {aiError && <div className="ai-summary-error">Couldn’t generate summary: {aiError}</div>}
+          {aiSummary && <p className="ai-summary-text">{aiSummary}</p>}
+          {aiSummary && <div className="ai-summary-meta">Generated by AI from forecast models · verify against official reports</div>}
         </div>
-        {aiError && <div className="ai-summary-error">Couldn’t generate summary: {aiError}</div>}
-        {aiSummary && <p className="ai-summary-text">{aiSummary}</p>}
-        {aiSummary && <div className="ai-summary-meta">Generated by AI from forecast models · verify against official reports</div>}
-      </div>
+      )}
 
       {/* Snowfall chart */}
       <div className="forecast-chart" ref={chartRef}>

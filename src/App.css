@@ -859,6 +859,14 @@
   display: inline-block;
 }
 
+/* The Models button's own padding/font-size override (see renderModelsMenu)
+   made it a touch shorter than the other 38px top-row controls (elevation
+   toggle pill, ai-summary-toggle circle) — pin it to match. */
+.forecast-right-column .resort-button {
+  height: 38px;
+  box-sizing: border-box;
+}
+
 .resort-button:hover .dropdown-arrow {
   transform: translateY(1px);
 }
@@ -1289,6 +1297,12 @@
     display: none !important;
   }
 
+  /* Same treatment for the AI-summary icon button's desktop copy — the
+     mobile top bar already has its own (.ai-summary-toggle-mobile). */
+  .ai-summary-toggle-desktop {
+    display: none !important;
+  }
+
   /* Item 1: the switcher (left) and the view-mode toggle (right) sit on the same
      horizontal line with equal heights. */
   .forecast-top-bar-left .resort-button,
@@ -1508,61 +1522,57 @@
   }
 }
 
-/* AI 7-day spoken summary (Gemini + Web Speech) */
+/* AI 7-day spoken summary (Gemini + ElevenLabs, falling back to Web Speech).
+   The trigger is a small circular icon button living in the top controls row
+   — same 38px grey+blur pill language as .map-settings-toggle. */
+.ai-summary-toggle {
+  width: 38px;
+  height: 38px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: rgba(54, 54, 62, 0.85);
+  backdrop-filter: blur(14px);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  color: #fff;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background 0.15s;
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.3);
+  padding: 0;
+}
+.ai-summary-toggle:hover:not(:disabled) {
+  background: rgba(70, 70, 80, 0.9);
+}
+.ai-summary-toggle:disabled {
+  cursor: default;
+  opacity: 0.75;
+}
+.ai-summary-toggle.active {
+  background: rgba(92, 92, 106, 0.95);
+  border-color: rgba(255, 255, 255, 0.24);
+}
+.ai-summary-spin {
+  animation: spin 0.8s linear infinite;
+}
+
 .ai-summary {
   max-width: 900px;
   margin: 4px auto 10px;
   padding: 0 16px;
 }
-.ai-summary-actions {
-  display: flex;
-  gap: 8px;
-  flex-wrap: wrap;
-  align-items: center;
-}
-.ai-summary-btn {
-  padding: 9px 16px;
-  border: 1px solid rgba(120, 140, 200, 0.5);
-  border-radius: 20px;
-  background: rgba(70, 90, 150, 0.18);
-  color: #cdd7f2;
+.ai-summary-status {
+  color: #999;
   font-size: 0.85em;
-  font-weight: 600;
-  cursor: pointer;
-  transition: all 0.25s ease;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto';
-}
-.ai-summary-btn:hover:not(:disabled) {
-  background: rgba(70, 90, 150, 0.32);
-  color: #fff;
-}
-.ai-summary-btn:disabled {
-  opacity: 0.6;
-  cursor: default;
-}
-.ai-summary-speak {
-  padding: 9px 14px;
-  border: 1px solid rgba(120, 120, 130, 0.4);
-  border-radius: 20px;
-  background: transparent;
-  color: #bbb;
-  font-size: 0.85em;
-  font-weight: 500;
-  cursor: pointer;
-  transition: all 0.25s ease;
-}
-.ai-summary-speak:hover {
-  background: rgba(92, 92, 106, 0.4);
-  color: #fff;
 }
 .ai-summary-text {
-  margin: 12px 0 4px;
+  margin: 0 0 4px;
   color: #e6e6e6;
   font-size: 0.98em;
   line-height: 1.6;
 }
 .ai-summary-error {
-  margin-top: 10px;
   color: #e39191;
   font-size: 0.85em;
 }
