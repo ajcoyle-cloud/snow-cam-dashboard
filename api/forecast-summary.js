@@ -59,7 +59,16 @@ export default async function handler(req, res) {
       },
       body: JSON.stringify({
         contents: [{ parts: [{ text: prompt }] }],
-        generationConfig: { temperature: 0.4, maxOutputTokens: 500 },
+        generationConfig: {
+          temperature: 0.4,
+          // gemini-flash-latest is a "thinking" model — it spends invisible
+          // reasoning tokens before the visible answer, and those come out of
+          // the same maxOutputTokens budget. A weather-summary rewrite needs no
+          // reasoning, so thinking is disabled outright; maxOutputTokens is set
+          // generously as a safety margin rather than a tight cap.
+          thinkingConfig: { thinkingBudget: 0 },
+          maxOutputTokens: 1024,
+        },
       }),
     });
 
@@ -71,13 +80,18 @@ export default async function handler(req, res) {
       return;
     }
 
-    const text = data?.candidates?.[0]?.content?.parts
+    const candidate = data?.candidates?.[0];
+    const text = candidate?.content?.parts
       ?.map((p) => p.text || '')
       .join('')
       .trim();
 
     if (!text) {
-      res.status(502).json({ error: 'empty_response', detail: 'Gemini returned no text.' });
+      const reason = candidate?.finishReason;
+      const detail = reason === 'MAX_TOKENS'
+        ? 'Gemini ran out of output tokens before writing a response.'
+        : `Gemini returned no text${reason ? ` (finishReason: ${reason})` : ''}.`;
+      res.status(502).json({ error: 'empty_response', detail });
       return;
     }
 
