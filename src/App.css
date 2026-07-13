@@ -771,6 +771,12 @@
   gap: 6px;
 }
 
+.forecast-right-column {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
 .forecast-controls-toggles {
   display: flex;
   flex: 1;
