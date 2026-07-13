@@ -1053,11 +1053,52 @@ let forecastHours = [];
 let modelHours = { gfs: null, ecmwf: null, aifs: null, ukmo: null, average: null };
 let selectedModel = 'average';
 
+// Raw per-elevation-band hourly series (see elevationBandsFor above) — an
+// array of { elev, hours: [{ time, snowCm }] }, or null until loadForecast's
+// fetch resolves. Kept separate from modelHours since these are always GFS
+// regardless of selectedModel; computeElevationBandTotals derives the
+// per-band totals for whatever window/model is currently showing from this.
+let elevationBandHours = null;
+
 // GFS occasionally spits out a spurious single-hour precip/snow spike at a
 // given grid cell (a model artifact, especially near steep terrain). Cap any
 // one hour's snowfall so a single glitchy reading can't blow out the
 // multi-day accumulated total.
 const MAX_HOURLY_SNOWFALL_MM = 60; // ~6cm/hr, generous even for a true storm pulse
+
+// ── Elevation-band snowfall sampling ────────────────────────────────────────
+// The flat Accumulated view used to taper depth as a straight line between
+// "0cm at the snow line" and "the summit's total" — a made-up gradient, not
+// real data (a tapped point partway down the mountain got an arbitrary
+// fraction of the summit total, regardless of what was actually forecast
+// there). This instead fetches real GFS snowfall at several elevations in
+// between and interpolates between actual sampled points — see
+// computeElevationBandTotals/getDepthAtElevation below.
+//
+// GFS-only (not all 4 models): this is a supplementary curve-shaping dataset,
+// not a full multi-model blend, so it reuses whichever model's fields are
+// richest and already gets extra timeout/retry budget (see loadForecast)
+// instead of quadrupling the request count for every resort.
+const ELEVATION_BAND_COUNT = 5;
+// How far below each resort's own base elevation the lowest sample sits.
+// Deliberately resort-relative rather than a flat absolute floor: a fixed
+// low number (e.g. 1000m) makes sense for Whakapapa (base 1630m, so
+// 1630-600=1030m — capturing the real ~921m snow-line dips found during
+// testing) but would sample nonsense terrain far below Loveland/Mt Vernon,
+// whose bases already sit above 1800m.
+const ELEVATION_BAND_FLOOR_MARGIN = 600;
+function elevationBandsFor(r) {
+  const floor = Math.max(0, r.baseElev - ELEVATION_BAND_FLOOR_MARGIN);
+  const top = r.summitElev;
+  const step = (top - floor) / (ELEVATION_BAND_COUNT - 1);
+  return Array.from({ length: ELEVATION_BAND_COUNT }, (_, i) => Math.round(floor + step * i));
+}
+function elevationBandUrlsFor(r) {
+  return elevationBandsFor(r).map((elev) => ({
+    elev,
+    url: `https://api.open-meteo.com/v1/forecast?latitude=${r.lat}&longitude=${r.lon}&temperature_unit=celsius&timezone=${r.timezone}&forecast_days=16&elevation=${elev}&hourly=temperature_2m,precipitation,snowfall&models=gfs_global`,
+  }));
+}
 
 // A fetch that never rejects — resolves to null on any network-level failure
 // (not just a bad status) instead of taking down the whole Promise.all, since
@@ -1154,7 +1195,10 @@ async function prefetchOtherResorts() {
   otherResortsPrefetched = true;
   for (const key of Object.keys(RESORT_CONFIG)) {
     if (key === resortKey) continue;
-    const urls = Object.values(forecastUrlsFor(RESORT_CONFIG[key]));
+    const urls = [
+      ...Object.values(forecastUrlsFor(RESORT_CONFIG[key])),
+      ...elevationBandUrlsFor(RESORT_CONFIG[key]).map((b) => b.url),
+    ];
     for (const url of urls) {
       if (forecastCacheGet(url)) continue;
       await fetchJsonCached(url);
@@ -1350,6 +1394,12 @@ async function loadForecast() {
     aifsSummitUrl, aifsBaseUrl, ukmoSummitUrl, ukmoBaseUrl
   } = forecastUrlsFor(LOC);
 
+  // Kicked off here (not awaited yet) so it runs concurrently with the main
+  // 8-request Promise.all below rather than adding serial latency — see
+  // elevationBandUrlsFor's doc comment for why this is GFS-only.
+  const bandDefs = elevationBandUrlsFor(LOC);
+  const bandFetchPromise = Promise.all(bandDefs.map((b) => fetchJsonCached(b.url)));
+
   // GFS is the heaviest request (more fields than the other three, and the
   // one other models' precip/wind rows borrow via buildModelHours' 3rd arg)
   // so it gets more timeout headroom and an extra retry — but it is NOT a
@@ -1387,6 +1437,34 @@ async function loadForecast() {
     // Every model failed — genuinely nothing to show, not just GFS being slow.
     modelHours = { gfs: buildDemoForecast(), ecmwf: null, aifs: null, ukmo: null, average: null };
   }
+
+  // Resolve the elevation-band fetch kicked off above. A band that failed
+  // (null hourly) becomes null in the array rather than throwing — same
+  // "missing data degrades gracefully" contract as the model fetches above;
+  // computeElevationBandTotals/getDepthAtElevation fall back to the old
+  // straight-line taper if too few bands came back to interpolate between.
+  const bandJsons = await bandFetchPromise;
+  elevationBandHours = bandDefs.map((b, i) => {
+    const hourly = bandJsons[i] ? bandJsons[i].hourly : null;
+    if (!hourly || !hourly.time) return null;
+    return {
+      elev: b.elev,
+      hours: hourly.time.map((t, idx) => {
+        const temp = hourly.temperature_2m?.[idx] ?? null;
+        const precip = hourly.precipitation?.[idx] ?? 0;
+        let snowCm = hourly.snowfall?.[idx] || 0;
+        // Same fallback ratio buildModelHours uses (see its own comment) —
+        // applied at THIS elevation's own temperature, not borrowed from the
+        // summit/base pair, so a band's fallback actually reflects whether
+        // that specific elevation was below freezing.
+        if (temp != null && temp < 0 && precip > 0 && snowCm === 0) {
+          snowCm = Math.min(precip * 7, MAX_HOURLY_SNOWFALL_MM) / 10;
+        }
+        return { time: t, snowCm };
+      }),
+    };
+  });
+
   restoreSelectedModel();
   buildModelMenu();
   forecastHours = modelHours[selectedModel] || modelHours.average
@@ -3395,9 +3473,63 @@ let currentSnowLine = null;
 let currentHourCm = 0;
 let currentAccumTotalCm = 0;
 
+// Real per-elevation totals for the window currently showing — an array of
+// { elev, cm } sorted ascending by elevation, or null if too few elevation
+// bands came back to interpolate between (see loadForecast). Recomputed by
+// renderAccumulatedView() whenever the period/model/resort changes.
+let elevationBandTotals = null;
+
+// Sums each fetched elevation band's own snowfall over [startIdx, startIdx+count)
+// — the identical window renderAccumulatedView just sliced for totalCm — then
+// scales the result so the top (summit) band matches totalCm exactly. That
+// scaling step matters: elevationBandHours is always GFS, but totalCm reflects
+// whichever model the user has selected (see selectedModel) — without it,
+// switching models would only affect the flat total while the map's spatial
+// shape silently stayed pinned to GFS. Scaling means the model picker still
+// controls overall magnitude as before; only the shape across elevation
+// (previously a straight line) now reflects GFS's own real elevation curve.
+// startTime anchors by the actual hour timestamp rather than a raw numeric
+// index — elevationBandHours is a wholly separate fetch from forecastHours
+// (own request, own response), and while both use the same forecast_days/
+// timezone so their time grids line up in practice, forecastHours can in
+// principle be shorter (buildModelHours filters out any hour missing a
+// field) while these per-band arrays never filter. Matching by the actual
+// timestamp removes that alignment assumption entirely instead of trusting
+// the two arrays' indices to agree.
+function computeElevationBandTotals(startTime, count, totalCm) {
+  if (!elevationBandHours || startTime == null) return null;
+  const raw = elevationBandHours
+    .filter(Boolean)
+    .map((b) => {
+      const startIdx = b.hours.findIndex((h) => h.time === startTime);
+      const slice = startIdx === -1 ? [] : b.hours.slice(startIdx, startIdx + count);
+      return { elev: b.elev, cm: slice.reduce((s, h) => s + h.snowCm, 0) };
+    })
+    .sort((a, b) => a.elev - b.elev);
+  if (raw.length < 2) return null;
+  const topCm = raw[raw.length - 1].cm;
+  if (!(topCm > 0) || !(totalCm > 0)) return null;
+  const scale = totalCm / topCm;
+  return raw.map((b) => ({ elev: b.elev, cm: b.cm * scale }));
+}
+
 function getDepthAtElevation(elev) {
   if (currentSnowLine == null || elev < currentSnowLine) return 0;
   if (viewMode === 'hourly') return currentHourCm;
+  if (elevationBandTotals) {
+    const bands = elevationBandTotals;
+    if (elev <= bands[0].elev) return bands[0].cm;
+    if (elev >= bands[bands.length - 1].elev) return bands[bands.length - 1].cm;
+    for (let i = 0; i < bands.length - 1; i++) {
+      const lo = bands[i], hi = bands[i + 1];
+      if (elev >= lo.elev && elev <= hi.elev) {
+        const t = (elev - lo.elev) / (hi.elev - lo.elev);
+        return lo.cm + (hi.cm - lo.cm) * t;
+      }
+    }
+  }
+  // Fallback: the old straight-line taper, used when the band fetch failed
+  // or hasn't landed yet rather than showing nothing.
   const frac = Math.min(1, (elev - currentSnowLine) / (TOP_ELEV - currentSnowLine));
   return currentAccumTotalCm * frac;
 }
@@ -3731,6 +3863,7 @@ function renderAccumulatedView() {
 
   currentSnowLine = snowLine;
   currentAccumTotalCm = totalCm;
+  elevationBandTotals = computeElevationBandTotals(window_[0]?.time, accumDays * 24, totalCm);
 
   document.getElementById('accum-period-label').textContent = `Next ${accumDays} Days`;
   document.getElementById('accum-total').textContent = totalCm.toFixed(0) + ' cm';
