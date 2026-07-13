@@ -49,6 +49,10 @@
       "destination": "/api/whakapapa-report"
     },
     {
+      "source": "/forecast-summary",
+      "destination": "/api/forecast-summary"
+    },
+    {
       "source": "/cardrona-report",
       "destination": "/api/cardrona-report"
     },

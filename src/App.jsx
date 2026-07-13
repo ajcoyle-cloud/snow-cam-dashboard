@@ -1385,6 +1385,11 @@ function SnowfallForecast({ resort, setResort }) {
   const [elevation, setElevation] = useState('summit') // 'summit' or 'base'
   const [viewMode, setViewMode] = useState('fit') // 'hourly' or 'fit'
   const [meteoBlueForecastData, setMeteoBlueForecastData] = useState(null)
+  // AI (Gemini) 7-day spoken summary — text + Web Speech playback state.
+  const [aiSummary, setAiSummary] = useState(null)
+  const [aiLoading, setAiLoading] = useState(false)
+  const [aiError, setAiError] = useState(null)
+  const [isSpeaking, setIsSpeaking] = useState(false)
   // Default to GFS/ECMWF/AIFS on the chart; once the user ticks/unticks anything
   // in the Models dropdown, remember their choice for next visit.
   const DEFAULT_SHOW_FREEZING = { gfs: true, ecmwf: true, aifs: true, ukmo: false, metservice: false, average: false }
@@ -1811,6 +1816,135 @@ function SnowfallForecast({ resort, setResort }) {
       observer?.disconnect()
     }
   }, [forecastData])
+
+  // --- AI 7-day summary (Gemini) + spoken playback (Web Speech API) ---------
+
+  // Switching locations invalidates any existing summary; stop any speech too.
+  useEffect(() => {
+    setAiSummary(null)
+    setAiError(null)
+    if (typeof window !== 'undefined' && window.speechSynthesis) {
+      window.speechSynthesis.cancel()
+    }
+    setIsSpeaking(false)
+  }, [resort])
+
+  // Never leave the browser talking after the tab unmounts.
+  useEffect(() => () => {
+    if (typeof window !== 'undefined' && window.speechSynthesis) {
+      window.speechSynthesis.cancel()
+    }
+  }, [])
+
+  // Condense the full hourly forecast into a compact 7-day daily digest — one
+  // object per calendar day — small enough to send to the summary endpoint.
+  const buildDailyDigest = () => {
+    const r = RESORTS[resort]
+    const byDay = new Map()
+    for (const h of forecastData) {
+      const key = h.datetime.toDateString()
+      if (!byDay.has(key)) byDay.set(key, [])
+      byDay.get(key).push(h)
+    }
+    const round = (v, d = 0) => {
+      const m = Math.pow(10, d)
+      return v == null || Number.isNaN(v) ? null : Math.round(v * m) / m
+    }
+    const maxOf = (arr) => (arr.length ? Math.max(...arr) : null)
+    const minOf = (arr) => (arr.length ? Math.min(...arr) : null)
+    const dirs = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW']
+    const compass = (deg) => (deg == null ? null : dirs[Math.round(deg / 45) % 8])
+
+    const days = [...byDay.values()].slice(0, 7).map((hours) => {
+      const summitTemps = hours.map(h => h.summit.temp).filter(v => v != null)
+      const baseTemps = hours.map(h => h.base.temp).filter(v => v != null)
+      const summitWinds = hours.map(h => h.summit.wind).filter(v => v != null)
+      // snowfall is stored in mm of snow (cm × 10); /10 back to cm for the digest.
+      const summitSnowCm = hours.reduce((s, h) => s + (h.summit.snowfall || 0), 0) / 10
+      const baseSnowCm = hours.reduce((s, h) => s + (h.base.snowfall || 0), 0) / 10
+      const summitPrecip = hours.reduce((s, h) => s + (h.summit.precipitation || 0), 0)
+      const freezing = hours.map(h => h.freezingLevel).filter(v => v != null)
+      // Wind direction at the windiest hour is the most report-worthy one.
+      const windiest = hours.reduce((a, b) => ((b.summit.wind || 0) > (a.summit.wind || 0) ? b : a), hours[0])
+      return {
+        day: hours[0].datetime.toLocaleDateString('en-NZ', { weekday: 'long' }),
+        summitTempMax: round(maxOf(summitTemps)),
+        summitTempMin: round(minOf(summitTemps)),
+        baseTempMax: round(maxOf(baseTemps)),
+        baseTempMin: round(minOf(baseTemps)),
+        summitSnowCm: round(summitSnowCm, 1),
+        baseSnowCm: round(baseSnowCm, 1),
+        summitPrecipMm: round(summitPrecip, 1),
+        maxWindKmh: round(maxOf(summitWinds)),
+        windDir: compass(windiest?.summit?.windDir),
+        freezingLevelMin: round(minOf(freezing)),
+        freezingLevelMax: round(maxOf(freezing)),
+      }
+    })
+
+    return {
+      resort,
+      summitElev: r.summitElev,
+      baseElev: r.baseElev,
+      generatedAt: new Date().toISOString(),
+      days,
+    }
+  }
+
+  const handleGenerateSummary = async () => {
+    // Prime speech synthesis synchronously inside the click gesture. iOS Safari
+    // only allows speech that starts from a user gesture, and our auto-play fires
+    // after an async fetch — this silent utterance unlocks it so playback works
+    // when the summary lands (the manual Play button is a direct gesture anyway).
+    if (typeof window !== 'undefined' && window.speechSynthesis) {
+      try {
+        window.speechSynthesis.resume()
+        window.speechSynthesis.speak(new SpeechSynthesisUtterance(''))
+      } catch (e) {}
+    }
+    setAiLoading(true)
+    setAiError(null)
+    try {
+      const res = await fetch('/forecast-summary', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(buildDailyDigest()),
+      })
+      const data = await res.json().catch(() => null)
+      if (!res.ok || !data?.summary) {
+        throw new Error(data?.detail || `Request failed (${res.status})`)
+      }
+      setAiSummary(data.summary)
+      speak(data.summary)
+    } catch (e) {
+      setAiError(String((e && e.message) || e))
+    } finally {
+      setAiLoading(false)
+    }
+  }
+
+  const speak = (text) => {
+    if (typeof window === 'undefined' || !window.speechSynthesis) {
+      setAiError('Text-to-speech is not supported in this browser.')
+      return
+    }
+    window.speechSynthesis.cancel()
+    const u = new SpeechSynthesisUtterance(text)
+    u.rate = 0.98
+    u.pitch = 1
+    u.lang = 'en-NZ'
+    u.onend = () => setIsSpeaking(false)
+    u.onerror = () => setIsSpeaking(false)
+    setIsSpeaking(true)
+    window.speechSynthesis.speak(u)
+  }
+
+  const stopSpeaking = () => {
+    if (typeof window !== 'undefined' && window.speechSynthesis) {
+      window.speechSynthesis.cancel()
+    }
+    setIsSpeaking(false)
+  }
 
   if (!forecastData || !Array.isArray(forecastData) || forecastData.length === 0) {
     return (
@@ -2377,6 +2511,37 @@ function SnowfallForecast({ resort, setResort }) {
         <div className="forecast-right-column">
           {renderModelsMenu(modelMenuRef, 'forecast-models-desktop')}
         </div>
+      </div>
+
+      {/* AI 7-day spoken summary (Gemini + Web Speech) */}
+      <div className="ai-summary">
+        <div className="ai-summary-actions">
+          <button
+            className="ai-summary-btn"
+            onClick={handleGenerateSummary}
+            disabled={aiLoading}
+          >
+            {aiLoading
+              ? 'Summarising…'
+              : aiSummary
+                ? `Refresh 7-day summary`
+                : `AI summary of the next 7 days`}
+          </button>
+          {aiSummary && !aiLoading && (
+            isSpeaking ? (
+              <button className="ai-summary-speak" onClick={stopSpeaking} aria-label="Stop reading">
+                ◼ Stop
+              </button>
+            ) : (
+              <button className="ai-summary-speak" onClick={() => speak(aiSummary)} aria-label="Read aloud">
+                🔊 Play
+              </button>
+            )
+          )}
+        </div>
+        {aiError && <div className="ai-summary-error">Couldn’t generate summary: {aiError}</div>}
+        {aiSummary && <p className="ai-summary-text">{aiSummary}</p>}
+        {aiSummary && <div className="ai-summary-meta">Generated by AI from forecast models · verify against official reports</div>}
       </div>
 
       {/* Snowfall chart */}
