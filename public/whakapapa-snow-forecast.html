@@ -1409,7 +1409,17 @@ async function loadForecast() {
 
 // Which model is shown persists across resort switches (this page reloads
 // fresh in the iframe each time), same pattern as restoreViewMode() below.
+// High-Res is exempt from that persistence: it shares the same
+// 'sp-map-model' localStorage key as the regular Map tab, so switching
+// models there (e.g. to compare ECMWF) would silently carry over here too —
+// and because High-Res's wind-redistributed totals scale directly off
+// whichever model is active, that made its numbers look wildly inflated
+// against the Forecast tab's table (which defaults to Average) with no
+// visible explanation. Always starting High-Res on Average keeps it
+// consistent with the table; a user can still switch models manually within
+// this one session via the dropdown, it just won't persist as the default.
 function restoreSelectedModel() {
+  if (isHighResMode) { selectedModel = modelHours.average ? 'average' : 'gfs'; return; }
   let saved = null;
   try { saved = localStorage.getItem('sp-map-model'); } catch (e) {}
   selectedModel = (saved && modelHours[saved]) ? saved : (modelHours.average ? 'average' : 'gfs');
