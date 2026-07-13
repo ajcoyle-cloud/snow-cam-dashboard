@@ -3809,27 +3809,43 @@ function renderDepthLegend(activeBand) {
   `).join('');
 }
 
-// Stack only the depth bands actually reached by the forecast total, evenly
-// between the snow line and the summit, as hard-edged steps. A light total
-// (e.g. 5cm, band index 1) only shows a couple of pale blue steps; a big
-// total (e.g. 120cm, band index 7) shows the full climb through blue/purple
-// to red. Previously this always stacked all 10 bands regardless of the
-// real total, so a 2cm and a 200cm forecast rendered identically.
-function buildAccumRamp(snowLine, bandIndex) {
-  const n = bandIndex + 1;
-  const bandWidth = (TOP_ELEV - snowLine) / n;
-  // A narrow snowLine..TOP_ELEV gap (e.g. snowLine clamped right up against
-  // TOP_ELEV) can make bandWidth sub-1, so "end - 1" would fall below "start"
-  // and break the ramp's required ascending order — nudge it down to a small
-  // fraction of the band width instead of a flat 1m in that case.
-  const edgeGap = Math.min(1, bandWidth / 4);
+// Colour stops now come from the SAME real per-elevation data the
+// tap-to-probe pill reads (getDepthAtElevation) — this used to stack
+// DEPTH_BANDS evenly by raw position between the snow line and summit,
+// entirely independent of the real elevation-band snowfall curve
+// (computeElevationBandTotals). That meant the colour painted at a point
+// could disagree with what tapping it actually reported — e.g. a
+// comfortably-coloured patch popping up "0.0cm" because GFS's real,
+// non-linear curve puts negligible snow there, while the old evenly-spaced
+// colouring had no way to know and painted it anyway (the reported bug).
+//
+// Walks up from the snow line in fixed steps, samples the real depth at
+// each via getDepthAtElevation, and emits a new colour stop only where the
+// DEPTH_BANDS bucket actually changes — same hard-edged-step look as
+// before, but the edges now sit wherever the real data crosses a
+// threshold instead of an arbitrary even split. Requires currentSnowLine/
+// elevationBandTotals/currentAccumTotalCm to already be set (see call site
+// in renderAccumulatedView, which assigns those before calling this).
+const ACCUM_RAMP_SAMPLE_STEP_M = 30;
+function colorForDepth(cm) {
+  const idx = DEPTH_BANDS.findIndex((b) => cm <= b.max);
+  return (idx === -1 ? DEPTH_BANDS[DEPTH_BANDS.length - 1] : DEPTH_BANDS[idx]).color;
+}
+function buildAccumRamp(snowLine) {
   const stops = ['interpolate', ['linear'], ['elevation'], snowLine - 1, 'rgba(255,255,255,0)'];
-  DEPTH_BANDS.slice(0, n).forEach((b, i) => {
-    const start = snowLine + bandWidth * i;
-    const end = snowLine + bandWidth * (i + 1);
-    stops.push(start, b.color);
-    stops.push(end - edgeGap, b.color);
-  });
+  let prevColor = null;
+  for (let elev = snowLine; elev <= TOP_ELEV; elev += ACCUM_RAMP_SAMPLE_STEP_M) {
+    const color = colorForDepth(getDepthAtElevation(elev));
+    if (color !== prevColor) {
+      // Hold the previous colour right up to the edge of this step (mirrors
+      // the old code's `end - edgeGap` trick) so the transition reads as a
+      // hard edge, not a gradient blend between the two colours.
+      if (prevColor !== null) stops.push(elev - 1, prevColor);
+      stops.push(elev, color);
+      prevColor = color;
+    }
+  }
+  stops.push(TOP_ELEV, colorForDepth(getDepthAtElevation(TOP_ELEV)));
   return stops;
 }
 
@@ -3859,11 +3875,13 @@ function renderAccumulatedView() {
   const bandIndex = DEPTH_BANDS.findIndex(b => totalCm <= b.max);
   const band = bandIndex === -1 ? DEPTH_BANDS[DEPTH_BANDS.length - 1] : DEPTH_BANDS[bandIndex];
 
-  applyRampWhenReady(buildAccumRamp(snowLine, bandIndex === -1 ? DEPTH_BANDS.length - 1 : bandIndex));
-
+  // Assigned before buildAccumRamp runs — it calls getDepthAtElevation
+  // internally, which reads these three module-level vars.
   currentSnowLine = snowLine;
   currentAccumTotalCm = totalCm;
   elevationBandTotals = computeElevationBandTotals(window_[0]?.time, accumDays * 24, totalCm);
+
+  applyRampWhenReady(buildAccumRamp(snowLine));
 
   document.getElementById('accum-period-label').textContent = `Next ${accumDays} Days`;
   document.getElementById('accum-total').textContent = totalCm.toFixed(0) + ' cm';
