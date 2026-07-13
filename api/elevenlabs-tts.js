@@ -13,13 +13,27 @@
 //
 // vercel.json rewrites /elevenlabs-tts -> /api/elevenlabs-tts.
 
-// Default voice: "Rachel", one of ElevenLabs' premade natural-sounding
-// voices. Override with ELEVENLABS_VOICE_ID to use any voice from your
-// account (see the Voices tab in the ElevenLabs dashboard for IDs).
-const DEFAULT_VOICE_ID = '21m00Tcm4TlvDq8ikWAM';
 // Turbo model — low latency, good quality, cheaper per character than the
 // full multilingual model. Override with ELEVENLABS_MODEL_ID if desired.
 const DEFAULT_MODEL_ID = 'eleven_turbo_v2_5';
+
+// There is no universal "default voice ID" that works for every account: the
+// text-to-speech API rejects Voice Library voices (e.g. the well-known
+// "Rachel" premade voice) for free-tier accounts with 402 "Free users cannot
+// use library voices via the API" — free accounts can only use voices that
+// are actually saved to *their own* "My Voices" list, which varies per
+// account. Rather than hardcode an ID that may not exist/be usable in the
+// caller's account, ask the account what voices it actually has and use the
+// first one. ELEVENLABS_VOICE_ID still short-circuits this if set.
+async function resolveVoiceId(apiKey) {
+  if (process.env.ELEVENLABS_VOICE_ID) return process.env.ELEVENLABS_VOICE_ID;
+  const res = await fetch('https://api.elevenlabs.io/v1/voices', {
+    headers: { 'xi-api-key': apiKey },
+  });
+  if (!res.ok) return null;
+  const data = await res.json().catch(() => null);
+  return data?.voices?.[0]?.voice_id || null;
+}
 
 // Sanity cap — the forecast summary is ~130 words (~800 characters); this
 // just guards against an unexpectedly huge request burning through quota.
@@ -57,10 +71,18 @@ export default async function handler(req, res) {
     return;
   }
 
-  const voiceId = process.env.ELEVENLABS_VOICE_ID || DEFAULT_VOICE_ID;
   const modelId = process.env.ELEVENLABS_MODEL_ID || DEFAULT_MODEL_ID;
 
   try {
+    const voiceId = await resolveVoiceId(apiKey);
+    if (!voiceId) {
+      res.status(502).json({
+        error: 'no_voice_available',
+        detail: 'No usable voice found in your ElevenLabs account. In the ElevenLabs dashboard, go to Voices → Voice Library and click "Add to My Voices" on any voice, then try again — or set ELEVENLABS_VOICE_ID to a specific voice ID from My Voices.',
+      });
+      return;
+    }
+
     const upstream = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`, {
       method: 'POST',
       headers: {
