@@ -1587,3 +1587,12 @@
   font-size: 0.72em;
   letter-spacing: 0.02em;
 }
+.ai-summary-voice {
+  margin-top: 4px;
+  color: #6a8f6a;
+  font-size: 0.72em;
+  letter-spacing: 0.02em;
+}
+.ai-summary-voice-fallback {
+  color: #c9a15a;
+}
