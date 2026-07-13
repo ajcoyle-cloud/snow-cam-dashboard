@@ -1390,6 +1390,8 @@ function SnowfallForecast({ resort, setResort }) {
   const [aiLoading, setAiLoading] = useState(false)
   const [aiError, setAiError] = useState(null)
   const [isSpeaking, setIsSpeaking] = useState(false)
+  const speechTimerRef = useRef(null)
+  const voicesRef = useRef([])
   // Default to GFS/ECMWF/AIFS on the chart; once the user ticks/unticks anything
   // in the Models dropdown, remember their choice for next visit.
   const DEFAULT_SHOW_FREEZING = { gfs: true, ecmwf: true, aifs: true, ukmo: false, metservice: false, average: false }
@@ -1834,6 +1836,16 @@ function SnowfallForecast({ resort, setResort }) {
     if (typeof window !== 'undefined' && window.speechSynthesis) {
       window.speechSynthesis.cancel()
     }
+    if (speechTimerRef.current) { clearInterval(speechTimerRef.current); speechTimerRef.current = null }
+  }, [])
+
+  // Voice lists load asynchronously; cache them so pickVoice() has them ready.
+  useEffect(() => {
+    if (typeof window === 'undefined' || !window.speechSynthesis) return
+    const load = () => { voicesRef.current = window.speechSynthesis.getVoices() || [] }
+    load()
+    window.speechSynthesis.addEventListener?.('voiceschanged', load)
+    return () => window.speechSynthesis.removeEventListener?.('voiceschanged', load)
   }, [])
 
   // Condense the full hourly forecast into a compact 7-day daily digest — one
@@ -1928,21 +1940,74 @@ function SnowfallForecast({ resort, setResort }) {
       setAiError('Text-to-speech is not supported in this browser.')
       return
     }
-    window.speechSynthesis.cancel()
-    const u = new SpeechSynthesisUtterance(text)
-    u.rate = 0.98
-    u.pitch = 1
-    u.lang = 'en-NZ'
-    u.onend = () => setIsSpeaking(false)
-    u.onerror = () => setIsSpeaking(false)
+    const synth = window.speechSynthesis
+    synth.cancel()
+    if (speechTimerRef.current) { clearInterval(speechTimerRef.current); speechTimerRef.current = null }
+
+    const voice = pickVoice()
+
+    // Chrome silently stops long utterances after ~15s. Splitting the summary
+    // into sentence-sized chunks and queueing them keeps each utterance short,
+    // and the keep-alive interval below nudges the engine so the queue doesn't
+    // stall between chunks.
+    const chunks = (text.match(/[^.!?]+[.!?]*/g) || [text])
+      .map(s => s.trim())
+      .filter(Boolean)
+
+    speechTimerRef.current = setInterval(() => {
+      if (synth.speaking) synth.resume()
+    }, 8000)
+
+    const clearKeepAlive = () => {
+      if (speechTimerRef.current) { clearInterval(speechTimerRef.current); speechTimerRef.current = null }
+    }
+
+    chunks.forEach((chunk, i) => {
+      const u = new SpeechSynthesisUtterance(chunk)
+      u.rate = 0.98
+      u.pitch = 1
+      if (voice) { u.voice = voice; u.lang = voice.lang } else { u.lang = 'en-NZ' }
+      if (i === chunks.length - 1) {
+        u.onend = () => { clearKeepAlive(); setIsSpeaking(false) }
+      }
+      u.onerror = () => { clearKeepAlive(); setIsSpeaking(false) }
+      synth.speak(u)
+    })
+
     setIsSpeaking(true)
-    window.speechSynthesis.speak(u)
+  }
+
+  // Prefer the most natural-sounding English voice the device offers, biased to
+  // NZ/AU/GB accents. Voice availability is OS/browser-dependent — on Chrome the
+  // "Google …" voices sound far better than the default; on macOS/iOS the named
+  // system voices (Samantha, Karen, Daniel) do.
+  const pickVoice = () => {
+    const voices = (voicesRef.current && voicesRef.current.length)
+      ? voicesRef.current
+      : (window.speechSynthesis.getVoices() || [])
+    if (!voices.length) return null
+    const en = voices.filter(v => /^en(-|_|$)/i.test(v.lang))
+    const pool = en.length ? en : voices
+    const score = (v) => {
+      let s = 0
+      const lang = (v.lang || '').toLowerCase()
+      if (lang.startsWith('en-nz')) s += 40
+      else if (lang.startsWith('en-au')) s += 30
+      else if (lang.startsWith('en-gb')) s += 20
+      else if (lang.startsWith('en')) s += 10
+      const name = (v.name || '').toLowerCase()
+      if (/google|natural|premium|enhanced|neural/.test(name)) s += 15
+      if (/samantha|karen|daniel|serena|moira|tessa|aria|libby/.test(name)) s += 8
+      return s
+    }
+    return pool.slice().sort((a, b) => score(b) - score(a))[0] || null
   }
 
   const stopSpeaking = () => {
     if (typeof window !== 'undefined' && window.speechSynthesis) {
       window.speechSynthesis.cancel()
     }
+    if (speechTimerRef.current) { clearInterval(speechTimerRef.current); speechTimerRef.current = null }
     setIsSpeaking(false)
   }
 
