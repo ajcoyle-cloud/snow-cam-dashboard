@@ -1946,11 +1946,17 @@ function SnowfallForecast({ resort, setResort }) {
 
     const voice = pickVoice()
 
+    // "winds" is a heteronym — many TTS engines read it as rhyming with
+    // "finds" (the verb, "the road winds") instead of moving air. The prompt
+    // already steers Gemini away from the bare word, but this is a guaranteed
+    // fallback regardless of what the model actually returns.
+    const speakableText = text.replace(/\bwinds\b/gi, 'wind speeds')
+
     // Chrome silently stops long utterances after ~15s. Splitting the summary
     // into sentence-sized chunks and queueing them keeps each utterance short,
     // and the keep-alive interval below nudges the engine so the queue doesn't
     // stall between chunks.
-    const chunks = (text.match(/[^.!?]+[.!?]*/g) || [text])
+    const chunks = (speakableText.match(/[^.!?]+[.!?]*/g) || [speakableText])
       .map(s => s.trim())
       .filter(Boolean)
 

@@ -111,11 +111,13 @@ function buildPrompt(resort, body) {
     ``,
     `Write a natural, conversational summary of the week ahead that will be READ ALOUD, so:`,
     `- Plain sentences only. No markdown, headings, bullet points, or emoji.`,
+    `- No greeting or preamble — do not open with "Kia ora", "Welcome", or any introductory sentence. Start directly with the forecast picture.`,
     `- 90-140 words, 3-5 short sentences.`,
     `- Lead with the overall picture, then call out the standout snow days and any warm/rain or high-wind days.`,
     `- Name days by weekday (e.g. "Saturday"), not dates.`,
     `- If snowfall is negligible all week, say so plainly rather than inventing detail.`,
     `- Mention the freezing level only when it matters (e.g. rain risk at base, or a notable drop).`,
     `- End with a one-line bottom line on the best day(s) to ride.`,
+    `- Say "wind speeds" or "gusts" rather than the bare word "winds" — text-to-speech engines often mispronounce "winds" (rhyming with "finds") since it's a heteronym.`,
   ].join('\n');
 }
