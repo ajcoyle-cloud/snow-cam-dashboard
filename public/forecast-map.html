@@ -233,15 +233,25 @@ let grid = null; // { days, points, rain_mm, snow_cm, bounds }
 let dayCanvases = []; // dataURLs, one per day, filled in lazily
 let corners = null;
 
-// Inverse-distance-weighted (power 2, no sqrt needed) interpolation from the
-// sparse 0.5° grid onto a raster fine enough that the band edges read as
-// smooth contours rather than blocky cells.
+// Inverse-distance-weighted interpolation from the sparse 0.5° grid onto a
+// raster fine enough that the band edges read as smooth contours rather
+// than blocky cells.
+//
+// A bare power-2 kernel (1/d²) is so peaked that a single point's own value
+// dominates everything within a fraction of a grid cell, and drops off to
+// near-nothing by the time you reach its neighbour 0.5° away — so a point
+// with a slightly lower value than its neighbours punches a small
+// transparent hole exactly at its own coordinate, producing a polka-dot
+// pattern aligned to the sample grid instead of a filled region. Using
+// power 1 (1/dist) with a smoothing floor tied to the grid spacing spreads
+// each point's influence far enough to actually blend with its neighbours.
 function renderDayCanvas(dayIndex) {
   const bounds = grid.bounds;
   const lonSpan = bounds.lonMax - bounds.lonMin, latSpan = bounds.latMax - bounds.latMin;
   const RES = 460; // long-edge pixel size — smooth contours without being slow
   const w = lonSpan >= latSpan ? RES : Math.round(RES * lonSpan / latSpan);
   const h = lonSpan >= latSpan ? Math.round(RES * latSpan / lonSpan) : RES;
+  const smoothFloor = Math.pow((grid.grid_step_deg || 0.5) * 0.5, 2); // ~half a grid cell
 
   const rainVals = grid.points.map((_, i) => grid.rain_mm[i][dayIndex] || 0);
   const snowVals = grid.points.map((_, i) => grid.snow_cm[i][dayIndex] || 0);
@@ -260,7 +270,7 @@ function renderDayCanvas(dayIndex) {
       for (let i = 0; i < grid.points.length; i++) {
         const dy = lat - grid.points[i][0], dx = lon - grid.points[i][1];
         const d2 = dx * dx + dy * dy;
-        const wt = 1 / (d2 + 1e-4);
+        const wt = 1 / Math.sqrt(d2 + smoothFloor);
         wSum += wt; rSum += wt * rainVals[i]; sSum += wt * snowVals[i];
       }
       const rainVal = rSum / wSum, snowVal = sSum / wSum;
