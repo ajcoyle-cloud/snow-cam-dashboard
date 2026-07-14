@@ -1,0 +1,394 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>NZ Precip + Snow Forecast — 15 Day</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/maplibre-gl@5.23.0/dist/maplibre-gl.min.css" />
+<script src="https://cdn.jsdelivr.net/npm/maplibre-gl@5.23.0/dist/maplibre-gl.js"></script>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif; background: #0f1c30; color: #fff; }
+  /* position:fixed + inset:0, not height:100vh — mobile Safari's 100vh
+     includes the collapsed-toolbar height, not the real visible viewport. */
+  #map-screen { position: fixed; inset: 0; }
+  #map { width: 100%; height: 100%; }
+
+  .maplibregl-ctrl-top-left .maplibregl-ctrl-group {
+    background: rgba(20,20,20,0.78); backdrop-filter: blur(14px);
+    border: none; border-radius: 9999px; overflow: hidden; box-shadow: 0 4px 16px rgba(0,0,0,0.35);
+  }
+  .maplibregl-ctrl-top-left .maplibregl-ctrl-group button { background-color: transparent; width: 32px; height: 32px; }
+  .maplibregl-ctrl-top-left .maplibregl-ctrl-group button + button { border-top: 1px solid rgba(255,255,255,0.15); }
+  .maplibregl-ctrl-top-left .maplibregl-ctrl-group button:hover { background-color: rgba(255,255,255,0.15); }
+  .maplibregl-ctrl-top-left .maplibregl-ctrl-icon { filter: invert(1) brightness(1.6); }
+
+  #title-chip {
+    position: absolute; top: 18px; left: 60px; z-index: 5;
+    background: rgba(9,14,22,0.7); border: 1px solid rgba(255,255,255,0.08); backdrop-filter: blur(14px);
+    border-radius: 16px; padding: 10px 16px 12px; box-shadow: 0 6px 22px rgba(0,0,0,0.35);
+    max-width: 60vw;
+  }
+  #title-chip .eyebrow { font-size: 0.62rem; font-weight: 700; letter-spacing: 0.09em; color: #6bd0e8; text-transform: uppercase; margin-bottom: 3px; }
+  #title-chip .title { font-size: 0.92rem; font-weight: 700; letter-spacing: -0.01em; }
+  #title-chip .sub { font-size: 0.68rem; color: rgba(255,255,255,0.6); margin-top: 2px; }
+
+  #legend {
+    position: absolute; top: 18px; right: 16px; z-index: 5;
+    background: rgba(9,14,22,0.7); border: 1px solid rgba(255,255,255,0.08); backdrop-filter: blur(14px);
+    border-radius: 14px; padding: 12px 14px 13px; width: 158px;
+    box-shadow: 0 6px 22px rgba(0,0,0,0.35);
+  }
+  #legend .lg-title { font-size: 0.62rem; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; color: rgba(255,255,255,0.62); margin-bottom: 8px; }
+  .lg-group { margin-bottom: 9px; }
+  .lg-group:last-of-type { margin-bottom: 0; }
+  .lg-group .lg-name { font-size: 0.65rem; font-weight: 600; margin-bottom: 5px; display: flex; justify-content: space-between; }
+  .lg-group .lg-name span:last-child { color: rgba(255,255,255,0.4); font-weight: 500; }
+  .lg-bands { display: flex; gap: 2px; }
+  .lg-band { flex: 1; height: 9px; border-radius: 2px; }
+  .lg-band-labels { display: flex; justify-content: space-between; margin-top: 3px; font-size: 0.56rem; color: rgba(255,255,255,0.4); font-variant-numeric: tabular-nums; }
+
+  #timeline {
+    position: absolute; left: 20px; right: 20px; bottom: 20px; z-index: 10;
+    display: flex; align-items: center; gap: 14px;
+    background: rgba(0,0,0,0.6); backdrop-filter: blur(14px);
+    border-radius: 30px; padding: 10px 18px; box-shadow: 0 6px 26px rgba(0,0,0,0.35);
+    opacity: 0; pointer-events: none; transition: opacity 0.3s ease;
+  }
+  #timeline.ready { opacity: 1; pointer-events: auto; }
+  #tl-play {
+    flex-shrink: 0; background: rgba(255,255,255,0.14); color: #fff; border: none;
+    width: 38px; height: 38px; border-radius: 50%; cursor: pointer;
+    font-size: 1rem; display: flex; align-items: center; justify-content: center;
+    transition: background 0.15s;
+  }
+  #tl-play:hover { background: rgba(255,255,255,0.26); }
+  #tl-slider {
+    flex: 1; -webkit-appearance: none; appearance: none;
+    height: 6px; border-radius: 3px; background: rgba(255,255,255,0.25);
+    cursor: pointer; outline: none;
+  }
+  #tl-slider::-webkit-slider-thumb {
+    -webkit-appearance: none; width: 18px; height: 18px; border-radius: 50%;
+    background: #fff; box-shadow: 0 2px 8px rgba(0,0,0,0.4); cursor: pointer; border: 3px solid #333;
+  }
+  #tl-slider::-moz-range-thumb {
+    width: 18px; height: 18px; border-radius: 50%; background: #fff;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.4); cursor: pointer; border: 3px solid #333;
+  }
+  .tl-step {
+    flex-shrink: 0; background: transparent; color: rgba(255,255,255,0.85); border: none;
+    font-size: 1.2rem; cursor: pointer; width: 26px; height: 38px;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .tl-step:hover:not(:disabled) { color: #fff; }
+  .tl-step:disabled { opacity: 0.3; cursor: default; }
+  #tl-label { flex-shrink: 0; text-align: right; min-width: 128px; }
+  #tl-label .day { font-size: 0.8rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+  #tl-label .date { font-size: 0.66rem; color: rgba(255,255,255,0.62); }
+  #tl-confidence {
+    flex-shrink: 0; font-size: 0.6rem; font-weight: 700; letter-spacing: 0.03em;
+    padding: 3px 8px; border-radius: 999px; white-space: nowrap; text-transform: uppercase;
+  }
+  #tl-confidence.high { color: #6bd0e8; background: rgba(107,208,232,0.12); border: 1px solid rgba(107,208,232,0.3); }
+  #tl-confidence.medium { color: #e8c46b; background: rgba(232,196,107,0.12); border: 1px solid rgba(232,196,107,0.3); }
+  #tl-confidence.low { color: rgba(255,255,255,0.55); background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.16); }
+
+  @media (max-width: 640px) {
+    #timeline { left: 10px; right: 10px; padding: 8px 12px; gap: 8px; }
+    #tl-label { min-width: 0; font-size: 0.7rem; }
+    #legend { width: 132px; padding: 10px 11px 11px; }
+    #title-chip { left: 54px; max-width: 55vw; padding: 8px 12px 10px; }
+    #title-chip .sub { display: none; }
+  }
+
+  #banner {
+    position: absolute; inset: 0; z-index: 5; display: flex; align-items: center; justify-content: center;
+    text-align: center; padding: 40px; color: rgba(255,255,255,0.6); font-size: 0.85rem; line-height: 1.5;
+    background: #0f1c30; transition: opacity 0.3s ease;
+  }
+  #banner.hidden { opacity: 0; pointer-events: none; }
+</style>
+</head>
+<body>
+
+<div id="map-screen">
+  <div id="map"></div>
+  <div id="banner">Loading 15-day forecast…</div>
+
+  <div id="title-chip">
+    <div class="eyebrow">National forecast</div>
+    <div class="title">Precip + snow — 15 day outlook</div>
+    <div class="sub">0.5° grid · Open‑Meteo · updates a few times a day</div>
+  </div>
+
+  <div id="legend">
+    <div class="lg-title">Intensity</div>
+    <div class="lg-group">
+      <div class="lg-name"><span>Rain</span><span>mm/day</span></div>
+      <div class="lg-bands">
+        <div class="lg-band" style="background:#6fd3d8"></div>
+        <div class="lg-band" style="background:#3fa377"></div>
+        <div class="lg-band" style="background:#e8b93e"></div>
+        <div class="lg-band" style="background:#d6455a"></div>
+      </div>
+      <div class="lg-band-labels"><span>1</span><span>5</span><span>15</span><span>35+</span></div>
+    </div>
+    <div class="lg-group">
+      <div class="lg-name"><span>Snow</span><span>cm/day</span></div>
+      <div class="lg-bands">
+        <div class="lg-band" style="background:#dce4fa"></div>
+        <div class="lg-band" style="background:#a9a3e8"></div>
+        <div class="lg-band" style="background:#7859c9"></div>
+      </div>
+      <div class="lg-band-labels"><span>0.5</span><span>3</span><span>10+</span></div>
+    </div>
+  </div>
+
+  <div id="timeline">
+    <button id="tl-play">▶</button>
+    <button class="tl-step" id="tl-prev">‹</button>
+    <input type="range" id="tl-slider" min="0" max="0" step="1" value="0">
+    <button class="tl-step" id="tl-next">›</button>
+    <span id="tl-confidence" class="high">High</span>
+    <div id="tl-label"><div class="day">—</div><div class="date">—</div></div>
+  </div>
+</div>
+
+<script>
+// ---------- 3D NZ base map (same terrain/satellite recipe as radar-map.html) ----------
+let map = null;
+try {
+  if (typeof maplibregl === 'undefined') throw new Error('maplibre-gl failed to load from CDN');
+  map = new maplibregl.Map({
+    container: 'map',
+    center: [172.8, -41.2],
+    zoom: 5.3,
+    pitch: 48,
+    bearing: 0,
+    maxPitch: 85,
+    attributionControl: false,
+    style: {
+      version: 8,
+      sources: {
+        terrain: { type: 'raster-dem', url: 'https://tiles.mapterhorn.com/tilejson.json', tileSize: 512 },
+        satellite: {
+          type: 'raster',
+          tiles: ['https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'],
+          tileSize: 256,
+          attribution: 'Tiles &copy; Esri'
+        }
+      },
+      layers: [
+        { id: 'background', type: 'background', paint: { 'background-color': '#0b1a2e' } },
+        { id: 'satellite', type: 'raster', source: 'satellite', paint: { 'raster-opacity': 1, 'raster-saturation': -0.2 } },
+        { id: 'hillshade', type: 'hillshade', source: 'terrain', paint: { 'hillshade-exaggeration': 0.5 } }
+      ],
+      terrain: { source: 'terrain', exaggeration: 1.4 }
+    }
+  });
+  map.addControl(new maplibregl.NavigationControl(), 'top-left');
+} catch (e) {
+  console.error('Map init failed:', e);
+  showBanner('Map unavailable — the terrain/satellite tile service could not be reached.');
+}
+
+function showBanner(text) {
+  const b = document.getElementById('banner');
+  b.textContent = text;
+  b.classList.remove('hidden');
+  window.parent.postMessage({ type: 'map-ready' }, '*');
+}
+function hideBanner() {
+  document.getElementById('banner').classList.add('hidden');
+}
+
+// ---------- forecast grid: fetch once, render 15 day-frames client-side ----------
+// Discrete colour bands (not a gradient) — thresholds chosen to match a
+// conventional filled-contour precip map. Snow takes priority over rain at
+// a given point once it clears its own (much lower) threshold, since snow
+// implies it's cold enough there for precip type to matter more than amount.
+const RAIN_BANDS = [
+  { min: 1, max: 5, color: [111, 211, 216] },   // light — teal
+  { min: 5, max: 15, color: [63, 163, 119] },   // moderate — green
+  { min: 15, max: 35, color: [232, 185, 62] },  // heavy — amber
+  { min: 35, max: Infinity, color: [214, 69, 90] }, // extreme — rose
+];
+const SNOW_BANDS = [
+  { min: 0.5, max: 3, color: [220, 228, 250] },  // light — ice
+  { min: 3, max: 10, color: [169, 163, 232] },   // moderate — lavender
+  { min: 10, max: Infinity, color: [120, 89, 201] }, // heavy — violet
+];
+function bandFor(bands, v) {
+  for (const b of bands) if (v >= b.min && v < b.max) return b.color;
+  return null;
+}
+function colorFor(rainVal, snowVal) {
+  const snowColor = bandFor(SNOW_BANDS, snowVal);
+  if (snowColor) return snowColor;
+  return bandFor(RAIN_BANDS, rainVal);
+}
+
+let grid = null; // { days, points, rain_mm, snow_cm, bounds }
+let dayCanvases = []; // dataURLs, one per day, filled in lazily
+let corners = null;
+
+// Inverse-distance-weighted (power 2, no sqrt needed) interpolation from the
+// sparse 0.5° grid onto a raster fine enough that the band edges read as
+// smooth contours rather than blocky cells.
+function renderDayCanvas(dayIndex) {
+  const bounds = grid.bounds;
+  const lonSpan = bounds.lonMax - bounds.lonMin, latSpan = bounds.latMax - bounds.latMin;
+  const RES = 460; // long-edge pixel size — smooth contours without being slow
+  const w = lonSpan >= latSpan ? RES : Math.round(RES * lonSpan / latSpan);
+  const h = lonSpan >= latSpan ? Math.round(RES * latSpan / lonSpan) : RES;
+
+  const rainVals = grid.points.map((_, i) => grid.rain_mm[i][dayIndex] || 0);
+  const snowVals = grid.points.map((_, i) => grid.snow_cm[i][dayIndex] || 0);
+
+  const canvas = document.createElement('canvas');
+  canvas.width = w; canvas.height = h;
+  const ctx = canvas.getContext('2d');
+  const imgData = ctx.createImageData(w, h);
+  const d = imgData.data;
+
+  for (let y = 0; y < h; y++) {
+    const lat = bounds.latMax - (y / h) * latSpan;
+    for (let x = 0; x < w; x++) {
+      const lon = bounds.lonMin + (x / w) * lonSpan;
+      let wSum = 0, rSum = 0, sSum = 0;
+      for (let i = 0; i < grid.points.length; i++) {
+        const dy = lat - grid.points[i][0], dx = lon - grid.points[i][1];
+        const d2 = dx * dx + dy * dy;
+        const wt = 1 / (d2 + 1e-4);
+        wSum += wt; rSum += wt * rainVals[i]; sSum += wt * snowVals[i];
+      }
+      const rainVal = rSum / wSum, snowVal = sSum / wSum;
+      const col = colorFor(rainVal, snowVal);
+      const idx = (y * w + x) * 4;
+      if (!col) { d[idx + 3] = 0; continue; }
+      d[idx] = col[0]; d[idx + 1] = col[1]; d[idx + 2] = col[2]; d[idx + 3] = 215;
+    }
+  }
+  ctx.putImageData(imgData, 0, 0);
+  return canvas.toDataURL('image/png');
+}
+
+function drawDay(i) {
+  if (!map || !grid) return;
+  currentIndex = i;
+  if (!dayCanvases[i]) dayCanvases[i] = renderDayCanvas(i);
+  const url = dayCanvases[i];
+  if (!map.getSource('forecast-src')) {
+    map.addSource('forecast-src', { type: 'image', url, coordinates: corners });
+    map.addLayer({
+      id: 'forecast-layer', type: 'raster', source: 'forecast-src',
+      paint: { 'raster-opacity': 0.88, 'raster-fade-duration': 0 }
+    });
+  } else {
+    map.getSource('forecast-src').updateImage({ url });
+  }
+  updateTimelineUi(i);
+}
+
+let currentIndex = 0;
+let playTimer = null;
+
+function formatDay(dateStr, i) {
+  const d = new Date(dateStr + 'T00:00:00');
+  const dayLabel = i === 0 ? 'Today' : d.toLocaleDateString('en-NZ', { weekday: 'short' });
+  const dateLabel = d.toLocaleDateString('en-NZ', { day: 'numeric', month: 'short' });
+  return { dayLabel, dateLabel };
+}
+
+function updateTimelineUi(i) {
+  const { dayLabel, dateLabel } = formatDay(grid.days[i], i);
+  document.getElementById('tl-slider').value = i;
+  document.getElementById('tl-prev').disabled = i <= 0;
+  document.getElementById('tl-next').disabled = i >= grid.days.length - 1;
+  const label = document.getElementById('tl-label');
+  label.querySelector('.day').textContent = `Day ${i + 1} of ${grid.days.length} — ${dayLabel}`;
+  label.querySelector('.date').textContent = dateLabel;
+
+  // Forecast skill drops off past the near-term days — flag it directly in
+  // the timeline rather than presenting day 14 with the same confidence as
+  // tomorrow (see the accuracy discussion in chat).
+  const conf = document.getElementById('tl-confidence');
+  conf.className = i <= 4 ? 'high' : (i <= 9 ? 'medium' : 'low');
+  conf.textContent = i <= 4 ? 'High confidence' : (i <= 9 ? 'Trending' : 'Long range');
+}
+
+function stepDay(delta) {
+  stopPlay();
+  drawDay(Math.max(0, Math.min(grid.days.length - 1, currentIndex + delta)));
+}
+function togglePlay() { if (playTimer) stopPlay(); else startPlay(); }
+const PLAY_FRAME_MS = 900;
+function startPlay() {
+  if (grid.days.length < 2) return;
+  if (currentIndex >= grid.days.length - 1) drawDay(0);
+  document.getElementById('tl-play').textContent = '⏸';
+  playTimer = setInterval(() => {
+    if (currentIndex >= grid.days.length - 1) { stopPlay(); return; }
+    drawDay(currentIndex + 1);
+  }, PLAY_FRAME_MS);
+}
+function stopPlay() {
+  if (playTimer) { clearInterval(playTimer); playTimer = null; }
+  document.getElementById('tl-play').textContent = '▶';
+}
+
+document.getElementById('tl-play').addEventListener('click', togglePlay);
+document.getElementById('tl-prev').addEventListener('click', () => stepDay(-1));
+document.getElementById('tl-next').addEventListener('click', () => stepDay(1));
+document.getElementById('tl-slider').addEventListener('input', (e) => {
+  stopPlay();
+  drawDay(parseInt(e.target.value, 10));
+});
+window.addEventListener('keydown', (e) => {
+  if (e.code === 'Space') {
+    const ae = document.activeElement;
+    if (ae && (ae.tagName === 'TEXTAREA' || (ae.tagName === 'INPUT' && ae.type === 'text'))) return;
+    e.preventDefault();
+    togglePlay();
+  }
+});
+
+async function loadGrid() {
+  try {
+    const res = await fetch('/api/forecast-grid');
+    if (!res.ok) throw new Error('forecast-grid ' + res.status);
+    grid = await res.json();
+    if (!grid.points || grid.points.length === 0) throw new Error('empty grid');
+    corners = [
+      [grid.bounds.lonMin, grid.bounds.latMax], // NW
+      [grid.bounds.lonMax, grid.bounds.latMax], // NE
+      [grid.bounds.lonMax, grid.bounds.latMin], // SE
+      [grid.bounds.lonMin, grid.bounds.latMin], // SW
+    ];
+    document.getElementById('tl-slider').max = grid.days.length - 1;
+    drawDay(0);
+    document.getElementById('timeline').classList.add('ready');
+    hideBanner();
+    window.parent.postMessage({ type: 'map-ready' }, '*');
+    // Precompute the rest of the days in the background, one per tick, so
+    // scrubbing/playing doesn't stall on the ~100-200ms IDW pass per frame.
+    let next = 1;
+    function precomputeNext() {
+      if (next >= grid.days.length) return;
+      if (!dayCanvases[next]) dayCanvases[next] = renderDayCanvas(next);
+      next++;
+      setTimeout(precomputeNext, 30);
+    }
+    setTimeout(precomputeNext, 300);
+  } catch (e) {
+    console.error('loadGrid failed:', e);
+    showBanner('Forecast data unavailable right now — try reloading in a few minutes.');
+  }
+}
+
+if (map) map.on('load', loadGrid);
+</script>
+
+</body>
+</html>
