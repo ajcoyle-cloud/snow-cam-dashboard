@@ -4472,19 +4472,42 @@ function startPlay() {
   const tickMs = BASE_INTERVAL_MS / playSpeed;
   let tickStart = performance.now();
 
+  // fromBands/toBands — the real per-elevation curves for the two hours
+  // currently being animated between — only change once per tick (~230-
+  // 700ms), not on every requestAnimationFrame callback (~60/s). Cached
+  // here and only refreshed when currentIndex actually advances, so the
+  // real scan through each band's hourly series (computeElevationBandRates)
+  // doesn't redo needless work 60 times a second for two hours that haven't
+  // changed — only the cheap per-frame blend below does.
+  let cachedIndex = -1, fromBands = null, toBands = null;
+  const refreshBandCache = () => {
+    if (cachedIndex === currentIndex) return;
+    cachedIndex = currentIndex;
+    const from = forecastHours[currentIndex];
+    const to = forecastHours[currentIndex + 1];
+    const fromCm = from.snowfallMm >= SNOWFALL_THRESHOLD_MM ? from.snowfallMm / 10 : 0;
+    const toCm = to.snowfallMm >= SNOWFALL_THRESHOLD_MM ? to.snowfallMm / 10 : 0;
+    fromBands = fromCm > 0 ? computeElevationBandRates(from.time, fromCm) : null;
+    toBands = toCm > 0 ? computeElevationBandRates(to.time, toCm) : null;
+  };
+  refreshBandCache();
+
   const frame = (now) => {
     if (currentIndex >= forecastHours.length - 1) { stopPlay(); return; }
     const t = Math.min(1, (now - tickStart) / tickMs);
     const from = forecastHours[currentIndex];
     const to = forecastHours[currentIndex + 1];
     const blended = blendHour(from, to, t);
-    // blended is a synthetic in-between hour with no real timestamp, so
-    // there's no elevation-band data to look up for it (computing a blend of
-    // two real hours' band arrays too was more complexity than a purely
-    // decorative animation frame warrants) — null falls back to the flat,
-    // pre-fix intensity/depth cleanly, and gets replaced with real data the
-    // instant playback lands on the next actual hour (openMapView below).
-    currentHourBandRates = null;
+    // Real per-elevation blend between the two real hours' own curves, not
+    // just their flat totals — elevationBandsFor produces the same fixed
+    // elevation set for every hour of one resort, so blending by index is
+    // safe. Only falls back to null (the old flat behaviour) when either
+    // hour genuinely has no curve to blend (e.g. a non-snowing hour, or the
+    // band fetch failed) — there's nothing real to interpolate toward in
+    // that case either way.
+    currentHourBandRates = (fromBands && toBands && fromBands.length === toBands.length)
+      ? fromBands.map((b, i) => ({ elev: b.elev, cm: b.cm + (toBands[i].cm - b.cm) * t }))
+      : null;
     applyRampWhenReady(buildSnowRamp(blended));
     // Keep the tap-to-probe in sync during smooth playback too, not just at
     // each full-hour tick (openMapView) — same boundary logic as there/
@@ -4498,6 +4521,7 @@ function startPlay() {
       openMapView(currentIndex + 1);
       tickStart = now;
       if (currentIndex >= forecastHours.length - 1) return; // stopPlay() already ran inside openMapView
+      refreshBandCache();
     }
     playTimer = requestAnimationFrame(frame);
   };
