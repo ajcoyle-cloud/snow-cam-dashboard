@@ -2211,6 +2211,35 @@ function SnowfallForecast({ resort, setResort }) {
   const ukmoTableData = buildAltTableData(ukmoForecastData)
   const averageForecastDataRaw = buildAverageForecastData([forecastData, ecmwfForecastData, aifsForecastData, ukmoForecastData])
   const averageTableData = buildAltTableData(averageForecastDataRaw)
+  // In day view, buildAltTableData sums 24 already-blended hourly values —
+  // fine for mean-based fields (mean of hourly means equals the overall
+  // mean) but wrong for snowfall/precip, which are blended with a median
+  // per hour. Summing per-hour medians answers "how much fell in the median
+  // hour, every hour", not "what's the median of the four models' day
+  // totals" — a model heavy in the morning and one heavy in the evening both
+  // get suppressed at every single hour even though their day totals agree,
+  // dragging the summed total well below where most models actually sit.
+  // Recompute each day's snowfall/precip here as the median of the four
+  // models' own (already-summed) daily totals instead.
+  if (viewMode === 'fit') {
+    const dailyModelMedian = (dayIndex, pick) => {
+      const vals = [tableData, ecmwfTableData, aifsTableData, ukmoTableData]
+        .map((arr) => arr[dayIndex])
+        .filter(Boolean)
+        .map(pick)
+        .filter((v) => v !== null && v !== undefined)
+        .sort((a, b) => a - b)
+      if (!vals.length) return null
+      const mid = Math.floor(vals.length / 2)
+      return vals.length % 2 !== 0 ? vals[mid] : (vals[mid - 1] + vals[mid]) / 2
+    }
+    averageTableData.forEach((day, gi) => {
+      day.summit.snowfall = dailyModelMedian(gi, (d) => d.summit.snowfall) ?? 0
+      day.summit.precipitation = dailyModelMedian(gi, (d) => d.summit.precipitation) ?? 0
+      day.base.snowfall = dailyModelMedian(gi, (d) => d.base.snowfall) ?? 0
+      day.base.precipitation = dailyModelMedian(gi, (d) => d.base.precipitation) ?? 0
+    })
+  }
 
   // Every model that can populate a full table row (temp/precip/snow/wind/freezing),
   // each carrying its own freezing-level accessor since GFS uniquely falls back
