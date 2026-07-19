@@ -3489,7 +3489,21 @@ let currentHourBandRates = null;
 // window total) and currentHourBandRates (a single hour's rate) — same
 // { elev, cm } shape either way, so one function serves both.
 function interpolateBandArray(bands, elev) {
-  if (elev <= bands[0].elev) return bands[0].cm;
+  if (elev <= bands[0].elev) {
+    // Below the lowest fetched band, taper down to zero at the snow line
+    // instead of holding flat at the lowest band's total. Every caller here
+    // has already ruled out elev < currentSnowLine (that returns 0 earlier
+    // in getDepthAtElevation), so this only covers the gap between the snow
+    // line and the lowest band — flat-holding it painted one uniform colour
+    // across every bit of low-elevation terrain in view down to the snow
+    // line (not just this mountain's own lower slopes), instead of fading
+    // out the way the ramp does at every other transition.
+    if (currentSnowLine != null && bands[0].elev > currentSnowLine) {
+      const t = (elev - currentSnowLine) / (bands[0].elev - currentSnowLine);
+      return bands[0].cm * Math.max(0, Math.min(1, t));
+    }
+    return bands[0].cm;
+  }
   if (elev >= bands[bands.length - 1].elev) return bands[bands.length - 1].cm;
   for (let i = 0; i < bands.length - 1; i++) {
     const lo = bands[i], hi = bands[i + 1];
