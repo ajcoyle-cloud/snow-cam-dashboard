@@ -4077,18 +4077,18 @@ function updateAccumMinSummary() {
 // its west edge on screen. Only the actual Open-Meteo request (a real
 // geographic API that rejects lon > 180) normalises, in fetchPressureTimeSeries.
 //
-// Still deliberately low-resolution — the sample grid stays at its
-// original point count (kept CHEAP on purpose, same reasoning as before:
-// this box is 6x the area again, and Open-Meteo's practical limit on a
-// single batched request is unverified from this sandbox) — but the
-// resulting isobars are stitched into continuous polylines and smoothed
-// (see chaikinSmooth) so the much coarser grid doesn't read as jagged.
-//
 // latMax pushed from -28 to -10: north edge now clears Cape York (-10.7),
 // the tip of the Australian mainland — lonMin/lonMax unchanged (same width,
 // taller box).
 const ISOBAR_BBOX = { latMin: -67, latMax: -10, lonMin: 91, lonMax: 223 };
-const ISOBAR_GRID_SIZE = 12;
+// 24 -> 576 points (12 was 144) — doubling grid resolution on a 2D grid
+// quadruples the point count, not doubles it. That's a ~4x longer request
+// URL and ~4x the 7-day hourly response payload versus before, still
+// unverified against Open-Meteo's practical batch-size/URL-length limits
+// from this sandbox — if this breaks (413, timeout, truncated response),
+// the fallback is splitting the fetch into a few smaller parallel requests
+// instead of one, not reducing resolution back down.
+const ISOBAR_GRID_SIZE = 24;
 const ISOBAR_STEP_HPA = 4;
 
 function normalizeLon(lon) {
@@ -4663,10 +4663,13 @@ function setViewMode(mode) {
   // map-touching lines here: initMap() is wrapped in try/catch, so a WebGL
   // init failure can leave map null even this far into setViewMode.
   if (map) updateResortPillVisibility();
-  // Radar always shows real station pills regardless of pwVisible (see
-  // pwRenderPill/toggleObsLayer) — keep the icon's lit state honest about
-  // that instead of looking "off" while pills are actually showing.
-  { const obsBtn = document.getElementById('obs-toggle'); if (obsBtn) obsBtn.classList.toggle('active', pwVisible || mode === 'radar'); }
+  pwUpdatePillVisibility();
+  // Radar always shows real station pills regardless of pwVisible, and
+  // Isobars uses its own separate pwVisibleIsobars flag (see
+  // pwRealPillsShouldShow) — keep the icon's lit state honest about
+  // whichever of those is actually true instead of looking "off"/"on" out
+  // of sync with what the map is showing.
+  { const obsBtn = document.getElementById('obs-toggle'); if (obsBtn) obsBtn.classList.toggle('active', mode === 'isobars' ? pwVisibleIsobars : (pwVisible || mode === 'radar')); }
   // Radar and Isobars are both clean reads of something other than
   // snow/temp — clear whatever colour drape the previous mode left painted
   // on 'snow-relief' so it isn't still showing through/under them. Leaving
@@ -5393,6 +5396,39 @@ const PW_STATIONS = (PW_CONFIG[resortKey] || { tiles: [], stations: [] }).statio
 const KT_TO_KMH = 1.852;
 let pwRefreshTimer = null;
 let pwVisible = true; // observation pills shown by default
+// Isobars gets its OWN independent visibility flag rather than sharing
+// pwVisible with every other mode: a country-wide weather-system view has
+// no real use for individual station temp dots by default, but the same
+// obs-toggle icon should still be able to turn them on while in Isobars
+// specifically, without that choice bleeding into Hourly/Live/Accumulated
+// once you switch back.
+let pwVisibleIsobars = false;
+// Real (pwState) pills: everywhere else unchanged (pwVisible, or forced on
+// in Radar); Isobars uses its own flag instead of either.
+function pwRealPillsShouldShow() {
+  if (viewMode === 'isobars') return pwVisibleIsobars;
+  return pwVisible || viewMode === 'radar';
+}
+// Pseudo (interpolated, non-station) pills never had Radar's force-on
+// exception — only real pattern preserved here, Isobars added the same way.
+function pwPseudoPillsShouldShow() {
+  if (viewMode === 'isobars') return pwVisibleIsobars;
+  return pwVisible;
+}
+// Re-applies current visibility to every already-rendered pill marker —
+// without this, switching mode wouldn't hide/show anything until whatever
+// pill next happened to re-render on its own (periodic refresh), same
+// "stale until the next unrelated update" bug already fixed for resort
+// pills (see updateResortPillVisibility). Called from setViewMode.
+function pwUpdatePillVisibility() {
+  for (const id in pwState) {
+    const el = pwState[id].marker && pwState[id].marker.getElement();
+    if (el) el.style.display = pwRealPillsShouldShow() ? '' : 'none';
+  }
+  for (const el of document.querySelectorAll('.pseudo-pill')) {
+    el.style.display = pwPseudoPillsShouldShow() ? '' : 'none';
+  }
+}
 // per-track runtime state: trackId -> { meta, series, updated, marker }
 const pwState = {};
 
@@ -5731,8 +5767,9 @@ function pwRenderPill(trackId) {
   // Radar mode always shows real station pills regardless of the obs-toggle
   // state — the point of overlaying them there is a live read of actual
   // conditions alongside live precip, so a pill left off from another view
-  // must not carry over and hide them.
-  el.style.display = (pwVisible || viewMode === 'radar') ? '' : 'none';
+  // must not carry over and hide them. Isobars is the opposite: individual
+  // station dots default off there (see pwRealPillsShouldShow).
+  el.style.display = pwRealPillsShouldShow() ? '' : 'none';
   // In HOURLY view the pills are showing forecast (not observed) data, so the
   // click-through to the observation modal would be misleading — make them
   // non-interactive there, matching the pseudo pills. Live/accumulated keep the
@@ -5742,18 +5779,22 @@ function pwRenderPill(trackId) {
   el.innerHTML = `<span class="dot"></span>${tempC.toFixed(1)}°C`;
 }
 
-// Single icon-tap toggle for all live observation pills (on by default).
+// Single icon-tap toggle for all live observation pills (on by default,
+// off by default in Isobars — see pwVisibleIsobars). Toggles whichever
+// flag the current mode actually reads from, so flipping it in Isobars
+// doesn't change what Hourly/Live/Accumulated default to next time.
 function toggleObsLayer() {
-  pwVisible = !pwVisible;
+  if (viewMode === 'isobars') pwVisibleIsobars = !pwVisibleIsobars;
+  else pwVisible = !pwVisible;
   const btn = document.getElementById('obs-toggle');
-  if (btn) btn.classList.toggle('active', pwVisible);
+  if (btn) btn.classList.toggle('active', viewMode === 'isobars' ? pwVisibleIsobars : pwVisible);
   for (const id in pwState) {
     const el = pwState[id].marker && pwState[id].marker.getElement();
-    if (el) el.style.display = (pwVisible || viewMode === 'radar') ? '' : 'none';
+    if (el) el.style.display = pwRealPillsShouldShow() ? '' : 'none';
   }
   // Also toggle pseudo pills
   for (const el of document.querySelectorAll('.pseudo-pill')) {
-    el.style.display = pwVisible ? '' : 'none';
+    el.style.display = pwPseudoPillsShouldShow() ? '' : 'none';
   }
 }
 
@@ -6519,7 +6560,7 @@ function pwRenderPseudoPills() {
     const el = document.createElement('div');
     el.className = 'station-pill pseudo-pill';
     el.style.background = pwTempColor(t);
-    el.style.display = pwVisible ? '' : 'none';
+    el.style.display = pwPseudoPillsShouldShow() ? '' : 'none';
     el.style.pointerEvents = 'none';  // non-interactive
     el.innerHTML = `<span class="dot"></span>${t.toFixed(1)}°C`;
     const marker = new maplibregl.Marker({ element: el, anchor: 'center', subpixelPositioning: true })
