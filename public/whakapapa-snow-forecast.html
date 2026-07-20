@@ -1226,9 +1226,13 @@ function navigateToResort(key) {
   }
 }
 
-// Pills are only shown once zoomed out past RESORT_PILL_MAX_ZOOM.
+// Pills are only shown once zoomed out past RESORT_PILL_MAX_ZOOM — except in
+// Isobars mode, which zooms out that far (and further) on purpose to frame
+// a whole weather system, not to navigate between resorts. Every resort's
+// pill would otherwise light up at once and clutter a view about pressure
+// systems, not ski fields.
 function updateResortPillVisibility() {
-  const show = map.getZoom() <= RESORT_PILL_MAX_ZOOM;
+  const show = viewMode !== 'isobars' && map.getZoom() <= RESORT_PILL_MAX_ZOOM;
   for (const key in resortPillMarkers) {
     resortPillMarkers[key].getElement().style.display = show ? '' : 'none';
   }
@@ -4072,7 +4076,11 @@ function updateAccumMinSummary() {
 // single batched request is unverified from this sandbox) — but the
 // resulting isobars are stitched into continuous polylines and smoothed
 // (see chaikinSmooth) so the much coarser grid doesn't read as jagged.
-const ISOBAR_BBOX = { latMin: -67, latMax: -28, lonMin: 91, lonMax: 223 };
+//
+// latMax pushed from -28 to -10: north edge now clears Cape York (-10.7),
+// the tip of the Australian mainland — lonMin/lonMax unchanged (same width,
+// taller box).
+const ISOBAR_BBOX = { latMin: -67, latMax: -10, lonMin: 91, lonMax: 223 };
 const ISOBAR_GRID_SIZE = 12;
 const ISOBAR_STEP_HPA = 4;
 
@@ -4481,6 +4489,13 @@ function setViewMode(mode) {
   document.getElementById('map-screen').classList.toggle('accum-mode', mode === 'accumulated');
   document.getElementById('map-screen').classList.toggle('radar-mode', mode === 'radar');
   document.getElementById('map-screen').classList.toggle('isobars-mode', mode === 'isobars');
+  // updateResortPillVisibility() normally only runs on the map's 'zoom'
+  // event — call it directly here too so pills disappear the instant
+  // Isobars is selected rather than waiting for the fitBounds/flyTo
+  // animation's first 'zoom' tick to catch up. Guarded like the other
+  // map-touching lines here: initMap() is wrapped in try/catch, so a WebGL
+  // init failure can leave map null even this far into setViewMode.
+  if (map) updateResortPillVisibility();
   // Radar always shows real station pills regardless of pwVisible (see
   // pwRenderPill/toggleObsLayer) — keep the icon's lit state honest about
   // that instead of looking "off" while pills are actually showing.
