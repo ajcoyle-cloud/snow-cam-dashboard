@@ -4135,10 +4135,11 @@ async function fetchPressureChunk(latsChunk, lons) {
 // broke in production, almost certainly some Open-Meteo limit on batch
 // size/response payload. Each chunk is sized to exactly match
 // 12x12=144 points, the shape already proven to work as a single request.
-// If one chunk's request fails, its rows come back null rather than the
-// whole fetch failing — the contouring code already treats null grid
-// cells as "no data here", so the result is a gap in that one band, not
-// the entire view going blank.
+// If one chunk's request fails, it gets one retry attempt on its own
+// before giving up (see below); if that also fails, its rows come back
+// null rather than the whole fetch failing — the contouring code already
+// treats null grid cells as "no data here", so the result is a gap in
+// that one band, not the entire view going blank.
 // Returns { seriesGrid, lats, lons, times } | null.
 async function fetchPressureTimeSeries(bbox) {
   const lats = [], lons = [];
@@ -4155,6 +4156,22 @@ async function fetchPressureTimeSeries(bbox) {
   const chunks = await Promise.all(
     chunkStarts.map((start) => fetchPressureChunk(lats.slice(start, start + rowsPerChunk), lons))
   );
+
+  // A chunk coming back null here isn't necessarily a persistent problem —
+  // fetchOrNull already retries transient network errors internally, but a
+  // whole chunk still failing after that (a brief upstream hiccup, a
+  // momentary rate limit) is common enough to be worth one more attempt at
+  // just the failed band(s) before settling for a gap in the isobars. A
+  // failed attempt is never cached (see fetchJsonCached/forecastCacheSet),
+  // so retrying here genuinely goes back to the network rather than
+  // replaying the same failure from cache.
+  const failedIdx = chunkStarts.map((_, i) => i).filter((i) => !chunks[i]);
+  if (failedIdx.length > 0) {
+    const retried = await Promise.all(
+      failedIdx.map((i) => fetchPressureChunk(lats.slice(chunkStarts[i], chunkStarts[i] + rowsPerChunk), lons))
+    );
+    failedIdx.forEach((i, j) => { chunks[i] = retried[j]; });
+  }
 
   const times = chunks.map((c) => c?.times).find(Boolean);
   if (!times) return null; // every chunk failed — genuinely nothing to show
