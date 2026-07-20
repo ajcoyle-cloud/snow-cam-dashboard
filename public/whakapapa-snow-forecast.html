@@ -4466,13 +4466,13 @@ function isobarExtremaToGeoJSON(extrema) {
 // ── Cold-air temperature drape ──────────────────────────────────────────
 // A single-hue "how cold is it here" wash, not a full hot-to-cold
 // spectrum — the ask was specifically to see where cold air sits relative
-// to the systems, not a general temperature map. Opacity scales with
-// coldness against FIXED thresholds (not auto-scaled to each frame's own
-// min/max), so the same shade of blue always means the same real
-// temperature across every frame/resort, rather than "20% opacity" moving
-// target depending on what else is in view that hour.
-const ISOBAR_TEMP_COLD_C = -15; // full intensity at or below this
-const ISOBAR_TEMP_WARM_C = 10;  // fully transparent at or above this
+// to the systems, not a general temperature map. Hard-edged at a single
+// FIXED threshold (not auto-scaled to each frame's own min/max, and not a
+// gradient fade either) — a point is either on the cold side of the line
+// or it isn't, same as how a real cold-front boundary is drawn, so the
+// same threshold always means the same real temperature across every
+// frame/resort.
+const ISOBAR_TEMP_THRESHOLD_C = 0; // colder than this: full-opacity blue; at/above: fully transparent
 const ISOBAR_TEMP_MAX_OPACITY = 0.55;
 // Upsampled render resolution for the overlay canvas — deliberately much
 // finer than the 24x24 DATA grid (bilinear-interpolated up to this), so
@@ -4516,12 +4516,11 @@ function buildTempOverlayDataUrl(tempGrid, lats, lons) {
       const lon = lonMin + (x / (ISOBAR_TEMP_CANVAS_SIZE - 1)) * (lonMax - lonMin);
       const idx = (y * ISOBAR_TEMP_CANVAS_SIZE + x) * 4;
       const t = bilinearAt(lon, lat, tempGrid, lats, lons);
-      if (t == null) { img.data[idx + 3] = 0; continue; }
-      const coldFrac = Math.max(0, Math.min(1, (ISOBAR_TEMP_WARM_C - t) / (ISOBAR_TEMP_WARM_C - ISOBAR_TEMP_COLD_C)));
+      if (t == null || t >= ISOBAR_TEMP_THRESHOLD_C) { img.data[idx + 3] = 0; continue; }
       img.data[idx] = 190;   // light blue
       img.data[idx + 1] = 225;
       img.data[idx + 2] = 255;
-      img.data[idx + 3] = Math.round(coldFrac * ISOBAR_TEMP_MAX_OPACITY * 255);
+      img.data[idx + 3] = Math.round(ISOBAR_TEMP_MAX_OPACITY * 255);
     }
   }
   ctx.putImageData(img, 0, 0);
