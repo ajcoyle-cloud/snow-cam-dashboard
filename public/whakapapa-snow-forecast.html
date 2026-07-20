@@ -4028,7 +4028,7 @@ function updateAccumMinSummary() {
 // a standard hPa step — same approach verified in scripts/isobar_poc.mjs,
 // ported client-side.
 //
-// Went through two size changes before landing here:
+// Went through three size changes before landing here:
 //   1. ~110km x 100km, centred on whichever resort was active — synoptic
 //      gradients run ~1 hPa per 100-200km, so a box that small routinely had
 //      less than one 4 hPa step of spread across it: correct, but visually
@@ -4037,16 +4037,34 @@ function updateAccumMinSummary() {
 //      actually appear, but still only shows a system after it's already on
 //      top of the country, not the wider pattern approaching from the
 //      Tasman/Southern Ocean this view exists to show.
-// This is deliberately a wide, low-resolution "see the whole weather
-// system" view rather than a local-detail one — the sample grid stays at
-// its previous point count (kept CHEAP on purpose: this box is ~7x the area
-// of the North Island one, and Open-Meteo's practical limit on a single
-// batched request is unverified from this sandbox, so density drops rather
-// than the request growing into untested territory) and just spreads those
-// same points over a much bigger area instead.
-const ISOBAR_BBOX = { latMin: -47.5, latMax: -28, lonMin: 135, lonMax: 179 };
+//   3. ~2160km x 3850km, southern Australia/Tasman/all of NZ.
+// This box is that one widened again to 6x its area: one more block-width
+// added east and west (3 blocks wide total), and one more block-height
+// added south into the Southern Ocean (2 blocks tall total) — a 3x2 grid of
+// the size-3 box. The east edge (223) is left UNWRAPPED past 180 rather
+// than normalised into -180..180: MapLibre's fitBounds/GeoJSON rendering
+// treats longitude as a continuous line and handles the antimeridian
+// crossing correctly as long as coordinates stay continuous, whereas
+// wrapping it here would make the box's east edge jump back to land next to
+// its west edge on screen. Only the actual Open-Meteo request (a real
+// geographic API that rejects lon > 180) normalises, in fetchPressureGrid.
+//
+// Still deliberately low-resolution — the sample grid stays at its
+// original point count (kept CHEAP on purpose, same reasoning as before:
+// this box is 6x the area again, and Open-Meteo's practical limit on a
+// single batched request is unverified from this sandbox) — but the
+// resulting isobars are stitched into continuous polylines and smoothed
+// (see chaikinSmooth) so the much coarser grid doesn't read as jagged.
+const ISOBAR_BBOX = { latMin: -67, latMax: -28, lonMin: 91, lonMax: 223 };
 const ISOBAR_GRID_SIZE = 12;
 const ISOBAR_STEP_HPA = 4;
+
+function normalizeLon(lon) {
+  let l = lon;
+  while (l > 180) l -= 360;
+  while (l < -180) l += 360;
+  return l;
+}
 
 async function fetchPressureGrid(bbox) {
   const lats = [], lons = [];
@@ -4057,12 +4075,13 @@ async function fetchPressureGrid(bbox) {
     lons.push(bbox.lonMin + (c / (ISOBAR_GRID_SIZE - 1)) * (bbox.lonMax - bbox.lonMin));
   }
   const flatLat = [], flatLon = [];
-  for (const lat of lats) for (const lon of lons) { flatLat.push(lat.toFixed(4)); flatLon.push(lon.toFixed(4)); }
-  // The bbox now spans both NZ and Australia, so no single fixed timezone
-  // (and definitely not LOC.timezone, whichever resort's page loaded this)
-  // is correct for every point in the batch — 'auto' resolves each
-  // location's own local timezone. Doesn't actually matter for what we read
-  // back (current.pressure_msl is a plain number, unaffected by how its
+  // lons stays unwrapped (continuous, can exceed 180) for the grid/geometry
+  // returned below — only the outgoing request needs valid -180..180.
+  for (const lat of lats) for (const lon of lons) { flatLat.push(lat.toFixed(4)); flatLon.push(normalizeLon(lon).toFixed(4)); }
+  // The bbox spans several countries/timezones — 'auto' resolves each
+  // location's own local timezone rather than guessing one fixed zone for
+  // all of them. Doesn't actually matter for what we read back
+  // (current.pressure_msl is a plain number, unaffected by how its
   // timestamp is formatted) but keeps the request honest regardless.
   const url = `https://api.open-meteo.com/v1/forecast?latitude=${flatLat.join(',')}&longitude=${flatLon.join(',')}&current=pressure_msl&timezone=auto`;
 
@@ -4147,13 +4166,144 @@ function buildIsobarSegments(grid, lats, lons, stepHpa) {
   const segments = levels.flatMap((lvl) => isobarContourLevel(grid, lats, lons, lvl));
   return { min, max, levels, segments };
 }
-function isobarSegmentsToGeoJSON(segments) {
+// Marching squares emits one disconnected 2-point segment per grid cell a
+// level crosses — fine for the raw min/max/level stats, but rendered
+// directly it reads as a scatter of short jagged shards rather than lines,
+// especially now the grid is this coarse. Chains same-level segments that
+// share an endpoint into continuous polylines before anything gets smoothed
+// or drawn. Endpoints from isobarEdgePoint are exact float matches when two
+// cells share an edge (same lerp inputs), so a plain string key is enough —
+// no fuzzy-distance matching needed.
+function stitchSegmentsToLines(segments) {
+  const byLevel = new Map();
+  for (const s of segments) {
+    if (!byLevel.has(s.level)) byLevel.set(s.level, []);
+    byLevel.get(s.level).push(s.coords);
+  }
+
+  const key = (p) => `${p[0].toFixed(6)},${p[1].toFixed(6)}`;
+  const lines = [];
+  for (const [level, coordsList] of byLevel) {
+    const adjacency = new Map(); // point key -> [{ to: [lon,lat], segIdx }]
+    coordsList.forEach(([a, b], i) => {
+      for (const [from, to] of [[a, b], [b, a]]) {
+        const k = key(from);
+        if (!adjacency.has(k)) adjacency.set(k, []);
+        adjacency.get(k).push({ to, segIdx: i });
+      }
+    });
+    const used = new Array(coordsList.length).fill(false);
+
+    for (let i = 0; i < coordsList.length; i++) {
+      if (used[i]) continue;
+      used[i] = true;
+      let coords = [...coordsList[i]];
+
+      let extended = true;
+      while (extended) {
+        extended = false;
+        for (const cand of adjacency.get(key(coords[coords.length - 1])) || []) {
+          if (used[cand.segIdx]) continue;
+          used[cand.segIdx] = true;
+          coords.push(cand.to);
+          extended = true;
+          break;
+        }
+      }
+      extended = true;
+      while (extended) {
+        extended = false;
+        for (const cand of adjacency.get(key(coords[0])) || []) {
+          if (used[cand.segIdx]) continue;
+          used[cand.segIdx] = true;
+          coords.unshift(cand.to);
+          extended = true;
+          break;
+        }
+      }
+      lines.push({ level, coords });
+    }
+  }
+  return lines;
+}
+
+// Chaikin corner-cutting: replaces each interior vertex with two points 1/4
+// and 3/4 of the way along its adjacent edges, repeated a couple of times.
+// Standard, cheap way to turn an angular polyline into a smooth-looking
+// curve without any curve-fitting library — endpoints are left untouched
+// (open lines don't shrink back from the grid box's true edge) or fed back
+// as the closing point when the chain looped into a closed ring.
+function chaikinSmooth(coords, iterations = 2) {
+  let pts = coords;
+  if (pts.length < 3) return pts;
+  const closed = key0(pts[0]) === key0(pts[pts.length - 1]);
+  for (let iter = 0; iter < iterations; iter++) {
+    const n = pts.length;
+    const next = [];
+    if (!closed) next.push(pts[0]);
+    for (let i = 0; i < n - 1; i++) {
+      const [x0, y0] = pts[i], [x1, y1] = pts[i + 1];
+      next.push([0.75 * x0 + 0.25 * x1, 0.75 * y0 + 0.25 * y1]);
+      next.push([0.25 * x0 + 0.75 * x1, 0.25 * y0 + 0.75 * y1]);
+    }
+    if (!closed) next.push(pts[n - 1]);
+    else next.push(next[0]);
+    pts = next;
+  }
+  return pts;
+}
+function key0(p) { return `${p[0].toFixed(6)},${p[1].toFixed(6)}`; }
+
+function buildSmoothedIsobarLines(segments) {
+  return stitchSegmentsToLines(segments).map((l) => ({ level: l.level, coords: chaikinSmooth(l.coords) }));
+}
+
+function isobarLinesToGeoJSON(lines) {
   return {
     type: 'FeatureCollection',
-    features: segments.map((s) => ({
+    features: lines.filter((l) => l.coords.length >= 2).map((l) => ({
       type: 'Feature',
-      properties: { pressure_msl: Math.round(s.level) },
-      geometry: { type: 'LineString', coordinates: s.coords },
+      properties: { pressure_msl: Math.round(l.level) },
+      geometry: { type: 'LineString', coordinates: l.coords },
+    })),
+  };
+}
+
+// Finds local pressure minima/maxima on the grid — the "L"/"H" centres
+// marked on every real synoptic chart. Restricted to INTERIOR grid points
+// only (never the outer ring): a point on the box's edge winning against
+// its few in-bounds neighbours usually just means the true centre is
+// outside our sampled area, not that one is actually there — labelling
+// that would be a guess dressed up as a reading.
+function findPressureExtrema(grid, lats, lons) {
+  const extrema = [];
+  for (let r = 1; r < grid.length - 1; r++) {
+    for (let c = 1; c < grid[r].length - 1; c++) {
+      const v = grid[r][c];
+      if (v == null) continue;
+      let isMin = true, isMax = true;
+      for (let dr = -1; dr <= 1 && (isMin || isMax); dr++) {
+        for (let dc = -1; dc <= 1; dc++) {
+          if (dr === 0 && dc === 0) continue;
+          const nv = grid[r + dr][c + dc];
+          if (nv == null) continue;
+          if (nv <= v) isMin = false;
+          if (nv >= v) isMax = false;
+        }
+      }
+      if (isMin) extrema.push({ label: 'L', lon: lons[c], lat: lats[r], pressure: v });
+      else if (isMax) extrema.push({ label: 'H', lon: lons[c], lat: lats[r], pressure: v });
+    }
+  }
+  return extrema;
+}
+function isobarExtremaToGeoJSON(extrema) {
+  return {
+    type: 'FeatureCollection',
+    features: extrema.map((e) => ({
+      type: 'Feature',
+      properties: { label: e.label, pressure_msl: Math.round(e.pressure) },
+      geometry: { type: 'Point', coordinates: [e.lon, e.lat] },
     })),
   };
 }
@@ -4169,7 +4319,10 @@ function ensureIsobarLayer() {
   map.addLayer({
     id: 'isobar-lines', type: 'line', source: 'isobar-src',
     paint: { 'line-color': 'rgba(255,255,255,0.85)', 'line-width': 1.5 },
-    layout: { visibility: 'none', 'line-cap': 'round' },
+    // round joins/caps — the stitched+Chaikin-smoothed lines are already
+    // curved, but a sharp miter join at each of the many short segments
+    // Chaikin produces would still read as faceted up close, not smooth.
+    layout: { visibility: 'none', 'line-cap': 'round', 'line-join': 'round' },
   });
   map.addLayer({
     id: 'isobar-labels', type: 'symbol', source: 'isobar-src',
@@ -4182,6 +4335,25 @@ function ensureIsobarLayer() {
     },
     paint: { 'text-color': '#ffffff', 'text-halo-color': 'rgba(0,0,0,0.65)', 'text-halo-width': 1.2 },
   });
+  map.addSource('isobar-extrema-src', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+  // High/Low centre markers — the big bold H/L every synoptic chart marks
+  // system centres with. Blue H / red L is the common convention (matches
+  // BOM/MetService-style charts); halo keeps it legible over any basemap
+  // colour underneath.
+  map.addLayer({
+    id: 'isobar-extrema-labels', type: 'symbol', source: 'isobar-extrema-src',
+    layout: {
+      visibility: 'none',
+      'text-field': ['get', 'label'],
+      'text-size': 26,
+      'text-font': ['Open Sans Bold', 'Arial Unicode MS Bold'],
+    },
+    paint: {
+      'text-color': ['match', ['get', 'label'], 'H', '#3b82f6', 'L', '#ef4444', '#ffffff'],
+      'text-halo-color': 'rgba(0,0,0,0.75)',
+      'text-halo-width': 2,
+    },
+  });
   return true;
 }
 function setIsobarLayerVisible(visible) {
@@ -4189,6 +4361,7 @@ function setIsobarLayerVisible(visible) {
   const v = visible ? 'visible' : 'none';
   if (map.getLayer('isobar-lines')) map.setLayoutProperty('isobar-lines', 'visibility', v);
   if (map.getLayer('isobar-labels')) map.setLayoutProperty('isobar-labels', 'visibility', v);
+  if (map.getLayer('isobar-extrema-labels')) map.setLayoutProperty('isobar-extrema-labels', 'visibility', v);
 }
 
 let isobarRenderToken = 0;
@@ -4217,7 +4390,9 @@ async function renderIsobarsView() {
 
   const { grid, lats, lons } = result;
   const { min, max, levels, segments } = buildIsobarSegments(grid, lats, lons, ISOBAR_STEP_HPA);
-  map.getSource('isobar-src').setData(isobarSegmentsToGeoJSON(segments));
+  const lines = buildSmoothedIsobarLines(segments);
+  map.getSource('isobar-src').setData(isobarLinesToGeoJSON(lines));
+  map.getSource('isobar-extrema-src').setData(isobarExtremaToGeoJSON(findPressureExtrema(grid, lats, lons)));
   setIsobarLayerVisible(true);
 
   if (el) {
