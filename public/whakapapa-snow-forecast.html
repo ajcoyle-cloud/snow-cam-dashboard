@@ -4158,6 +4158,19 @@ function isobarGridAtHour(seriesGrid, hourIdx) {
   }));
 }
 
+// Linear blend between two hourly grids, point for point — pressure
+// evolves continuously at any given spot, so blending consecutive hours
+// here (then recontouring the blend fresh, same pipeline as any other
+// frame) reads as the isobars actually moving between hours instead of
+// visibly jump-cutting to a new shape once an hour during playback.
+function interpolateGrid(gridA, gridB, t) {
+  return gridA.map((row, r) => row.map((v, c) => {
+    const b = gridB[r][c];
+    if (v == null || b == null) return null;
+    return v + (b - v) * t;
+  }));
+}
+
 // Standard marching-squares contourer — see scripts/isobar_poc.mjs for the
 // full derivation/comments on the case table and saddle-case handling; kept
 // identical here so the two stay verifiably in sync.
@@ -4433,22 +4446,20 @@ function isobarFormatTs(iso) {
   return d.toLocaleDateString('en-NZ', { weekday: 'short' }) + ' ' + fmtClock(d);
 }
 
-function isobarDrawFrame(i) {
-  if (!map || !isobarSeries || !isobarSeries.times[i]) return;
-  isobarFrameIndex = i;
-  const { seriesGrid, lats, lons, times } = isobarSeries;
-  const grid = isobarGridAtHour(seriesGrid, i);
+// Renders one already-resolved grid (a real hour's data, or an
+// interpolated in-between blend — caller's job to build it) onto the map
+// and info panel. Shared by isobarDrawFrame (exact real hours, used by
+// manual step/drag) and isobarPlayTick (interpolated sub-steps, used by
+// autoplay) so both paths paint identically — only what grid/label/slider
+// position they pass in differs.
+function isobarRenderGrid(grid, lats, lons, labelText, sliderValue) {
   const { min, max, levels, segments } = buildIsobarSegments(grid, lats, lons, ISOBAR_STEP_HPA);
   const lines = buildSmoothedIsobarLines(segments);
   map.getSource('isobar-src').setData(isobarLinesToGeoJSON(lines));
   map.getSource('isobar-extrema-src').setData(isobarExtremaToGeoJSON(findPressureExtrema(grid, lats, lons)));
 
-  const slider = document.getElementById('isbtl-slider');
-  slider.max = times.length - 1;
-  slider.value = i;
-  document.getElementById('isbtl-prev').disabled = i <= 0;
-  document.getElementById('isbtl-next').disabled = i >= times.length - 1;
-  document.getElementById('isbtl-label').textContent = isobarFormatTs(times[i]);
+  document.getElementById('isbtl-slider').value = sliderValue;
+  document.getElementById('isbtl-label').textContent = labelText;
 
   const el = document.getElementById('info-isobars');
   if (el && min != null) {
@@ -4458,11 +4469,28 @@ function isobarDrawFrame(i) {
       : '';
     el.innerHTML = `
       <h3>Pressure (MSLP)</h3>
-      <div class="si-row"><span class="l">Showing</span><span class="v">${isobarFormatTs(times[i])}</span></div>
+      <div class="si-row"><span class="l">Showing</span><span class="v">${labelText}</span></div>
       <div class="si-row"><span class="l">Range (this view)</span><span class="v">${min.toFixed(1)}–${max.toFixed(1)} hPa</span></div>
       <div class="si-row"><span class="l">Isobar step</span><span class="v">${ISOBAR_STEP_HPA} hPa</span></div>
       ${note}`;
   }
+}
+
+// Manual navigation (drag/step buttons) always lands on an exact real
+// hour — no interpolation here, so a dragged-to reading is always a true
+// forecast value, never a blended one.
+function isobarDrawFrame(i) {
+  if (!map || !isobarSeries || !isobarSeries.times[i]) return;
+  isobarFrameIndex = i;
+  isobarPlaySubStep = 0;
+  const { seriesGrid, lats, lons, times } = isobarSeries;
+  const grid = isobarGridAtHour(seriesGrid, i);
+  isobarRenderGrid(grid, lats, lons, isobarFormatTs(times[i]), i);
+
+  const slider = document.getElementById('isbtl-slider');
+  slider.max = times.length - 1;
+  document.getElementById('isbtl-prev').disabled = i <= 0;
+  document.getElementById('isbtl-next').disabled = i >= times.length - 1;
 }
 
 function isobarStepFrame(delta) {
@@ -4473,18 +4501,52 @@ function isobarStepFrame(delta) {
 function isobarTogglePlay() {
   if (isobarPlayTimer) isobarStopPlay(); else isobarStartPlay();
 }
-// Faster than Radar's 1s/frame: 168 hourly frames at 1s each would take
-// nearly 3 minutes to play through once — this is meant to read as "watch
-// the system move," not a real-time animation.
-const ISOBAR_PLAY_FRAME_MS = 350;
+
+// Autoplay interpolates ISOBAR_PLAY_SUBSTEPS in-between frames per real
+// hour (see interpolateGrid) instead of jump-cutting straight to the next
+// hour's isobars — 6 sub-steps x 60ms = 360ms per hour-transition, close
+// to the previous flat 350ms/frame pacing, but now each of those 360ms
+// shows the isobars actually sliding rather than snapping.
+const ISOBAR_PLAY_SUBSTEPS = 6;
+const ISOBAR_PLAY_TICK_MS = 60;
+let isobarPlaySubStep = 0;
+
+function isobarPlayTick() {
+  if (!isobarSeries) return;
+  const { seriesGrid, lats, lons, times } = isobarSeries;
+  if (isobarFrameIndex >= times.length - 1) { isobarStopPlay(); return; }
+
+  isobarPlaySubStep++;
+  const frac = Math.min(1, isobarPlaySubStep / ISOBAR_PLAY_SUBSTEPS);
+  const gridA = isobarGridAtHour(seriesGrid, isobarFrameIndex);
+  const gridB = isobarGridAtHour(seriesGrid, isobarFrameIndex + 1);
+  const grid = frac >= 1 ? gridB : interpolateGrid(gridA, gridB, frac);
+
+  const tA = new Date(times[isobarFrameIndex]).getTime();
+  const tB = new Date(times[isobarFrameIndex + 1]).getTime();
+  const label = isobarFormatTs(new Date(tA + (tB - tA) * frac).toISOString());
+  isobarRenderGrid(grid, lats, lons, label, isobarFrameIndex + frac);
+
+  if (frac >= 1) {
+    // Landed exactly on the next real hour — advance and let the next tick
+    // start a fresh 0..1 blend from there, rather than isobarDrawFrame's
+    // own resets fighting this loop's own frame/substep bookkeeping.
+    isobarFrameIndex++;
+    isobarPlaySubStep = 0;
+    document.getElementById('isbtl-prev').disabled = isobarFrameIndex <= 0;
+    document.getElementById('isbtl-next').disabled = isobarFrameIndex >= times.length - 1;
+  }
+}
+
 function isobarStartPlay() {
   if (!isobarSeries || isobarSeries.times.length < 2) return;
   if (isobarFrameIndex >= isobarSeries.times.length - 1) isobarDrawFrame(0);
+  isobarPlaySubStep = 0;
   document.getElementById('isbtl-play').textContent = '⏸';
   isobarPlayTimer = setInterval(() => {
     if (isobarFrameIndex >= isobarSeries.times.length - 1) { isobarStopPlay(); return; }
-    isobarDrawFrame(isobarFrameIndex + 1);
-  }, ISOBAR_PLAY_FRAME_MS);
+    isobarPlayTick();
+  }, ISOBAR_PLAY_TICK_MS);
 }
 function isobarStopPlay() {
   if (isobarPlayTimer) { clearInterval(isobarPlayTimer); isobarPlayTimer = null; }
