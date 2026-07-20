@@ -4101,19 +4101,20 @@ function normalizeLon(lon) {
 }
 
 // Fetches one horizontal band of the grid (a subset of rows, every
-// column) — see fetchPressureTimeSeries below for why the full grid is
-// split into several of these run in parallel rather than one request.
-// temperature_2m rides along on the same request (for the cold-air
-// boundary line — see buildTempBoundaryGeoJSON) rather than a separate fetch.
-// Returns { rows, tempRows, times } or null if this band's request failed.
-async function fetchPressureChunk(latsChunk, lons) {
+// column) for ONE hourly variable — see fetchPressureTimeSeries below for
+// why the full grid is split into several of these run in parallel rather
+// than one request, and why pressure and temperature are two entirely
+// separate sets of chunk requests rather than one variable riding along
+// with the other. Returns { rows, times } or null if this band's request
+// failed.
+async function fetchWeatherChunk(latsChunk, lons, hourlyVar) {
   const flatLat = [], flatLon = [];
   for (const lat of latsChunk) for (const lon of lons) { flatLat.push(lat.toFixed(4)); flatLon.push(normalizeLon(lon).toFixed(4)); }
   // The bbox spans several countries/timezones — 'auto' resolves each
   // location's own local timezone. Doesn't affect what we read back
-  // (pressure_msl/temperature_2m values, unaffected by how their
-  // timestamps are formatted) but keeps the request honest regardless.
-  const url = `https://api.open-meteo.com/v1/forecast?latitude=${flatLat.join(',')}&longitude=${flatLon.join(',')}&hourly=pressure_msl,temperature_2m&forecast_days=7&timezone=auto`;
+  // (a plain number, unaffected by how its timestamp is formatted) but
+  // keeps the request honest regardless.
+  const url = `https://api.open-meteo.com/v1/forecast?latitude=${flatLat.join(',')}&longitude=${flatLon.join(',')}&hourly=${hourlyVar}&forecast_days=7&timezone=auto`;
   const json = await fetchJsonCached(url, { timeoutMs: 20000, retries: 1 });
   if (!json) return null;
   const entries = Array.isArray(json) ? json : [json];
@@ -4122,38 +4123,35 @@ async function fetchPressureChunk(latsChunk, lons) {
   const times = entries.find((e) => e?.hourly?.time)?.hourly?.time;
   if (!times) return null;
 
-  const rows = [], tempRows = [];
+  const rows = [];
   let i = 0;
   for (let r = 0; r < latsChunk.length; r++) {
-    const row = [], tempRow = [];
+    const row = [];
     for (let c = 0; c < lons.length; c++) {
       const h = entries[i++]?.hourly;
-      row.push(h?.pressure_msl ?? null);
-      tempRow.push(h?.temperature_2m ?? null);
+      row.push(h?.[hourlyVar] ?? null);
     }
     rows.push(row);
-    tempRows.push(tempRow);
   }
-  return { rows, tempRows, times };
+  return { rows, times };
 }
 
-// Fetches the full 7-day hourly pressure_msl series for every grid point,
+// Fetches one variable's full 7-day hourly series for every grid point,
 // split into ISOBAR_FETCH_CHUNKS row-bands fetched in PARALLEL rather than
 // one request for the whole grid — a single 576-point (24x24) request
-// broke in production (see the grid-size revert this replaced), almost
-// certainly some Open-Meteo limit on batch size/URL length. Each chunk is
-// sized to exactly match 12x12=144 points, the size already proven to work
-// as a single request, so this restores the higher resolution without
-// re-trying the exact thing that failed. If one chunk's request fails, its
-// rows come back null rather than the whole fetch failing — the
-// contouring code already treats null grid cells as "no data here", so the
-// result is a gap in that one band, not the entire view going blank.
-// Returns { seriesGrid, tempSeriesGrid, lats, lons, times }: seriesGrid[r][c]
-// (and tempSeriesGrid[r][c]) is that point's own array of hourly values,
-// aligned index-for-index with `times` (every chunk requests the same
-// forecast_days/timezone, so they all share one time grid — whichever
-// chunk succeeds first supplies it).
-async function fetchPressureTimeSeries(bbox) {
+// broke in production, almost certainly some Open-Meteo limit on batch
+// size/response payload. Each chunk is sized to exactly match
+// 12x12=144 points of ONE variable, the shape already proven to work as a
+// single request — bundling a second variable (temperature_2m) into the
+// same chunk requests roughly doubled that payload and broke again, so
+// pressure and temperature are now two fully independent sets of chunked
+// requests instead, each staying at the proven-safe single-variable size.
+// If one chunk's request fails, its rows come back null rather than the
+// whole fetch failing — the contouring code already treats null grid
+// cells as "no data here", so the result is a gap in that one band, not
+// the entire view going blank.
+// Returns { seriesGrid, lats, lons, times } for that one variable.
+async function fetchGriddedSeries(bbox, hourlyVar) {
   const lats = [], lons = [];
   for (let r = 0; r < ISOBAR_GRID_SIZE; r++) {
     lats.push(bbox.latMax - (r / (ISOBAR_GRID_SIZE - 1)) * (bbox.latMax - bbox.latMin));
@@ -4166,28 +4164,43 @@ async function fetchPressureTimeSeries(bbox) {
   const chunkStarts = [];
   for (let start = 0; start < ISOBAR_GRID_SIZE; start += rowsPerChunk) chunkStarts.push(start);
   const chunks = await Promise.all(
-    chunkStarts.map((start) => fetchPressureChunk(lats.slice(start, start + rowsPerChunk), lons))
+    chunkStarts.map((start) => fetchWeatherChunk(lats.slice(start, start + rowsPerChunk), lons, hourlyVar))
   );
 
   const times = chunks.map((c) => c?.times).find(Boolean);
   if (!times) return null; // every chunk failed — genuinely nothing to show
 
-  const seriesGrid = [], tempSeriesGrid = [];
+  const seriesGrid = [];
   chunkStarts.forEach((start, idx) => {
     const chunk = chunks[idx];
     if (chunk) {
       seriesGrid.push(...chunk.rows);
-      tempSeriesGrid.push(...chunk.tempRows);
     } else {
       const chunkRowCount = Math.min(rowsPerChunk, ISOBAR_GRID_SIZE - start);
-      for (let r = 0; r < chunkRowCount; r++) {
-        seriesGrid.push(lons.map(() => null));
-        tempSeriesGrid.push(lons.map(() => null));
-      }
+      for (let r = 0; r < chunkRowCount; r++) seriesGrid.push(lons.map(() => null));
     }
   });
 
-  return { seriesGrid, tempSeriesGrid, lats, lons, times };
+  return { seriesGrid, lats, lons, times };
+}
+
+// Fetches pressure and temperature as two fully independent gridded
+// fetches (8 parallel requests total: 4 chunks each) rather than one
+// combined fetch — see fetchGriddedSeries for why. Temperature failing
+// entirely still leaves the pressure isobars working (just no cold-air
+// line); pressure failing entirely is the real "Unavailable" case.
+// Returns { seriesGrid, tempSeriesGrid, lats, lons, times } | null.
+async function fetchPressureTimeSeries(bbox) {
+  const [pressure, temp] = await Promise.all([
+    fetchGriddedSeries(bbox, 'pressure_msl'),
+    fetchGriddedSeries(bbox, 'temperature_2m'),
+  ]);
+  if (!pressure) return null;
+  // A grid of nulls (same shape) if temperature failed entirely — the
+  // cold-air contour naturally produces zero segments over an all-null
+  // grid, so the boundary line just doesn't appear rather than crashing.
+  const tempSeriesGrid = temp ? temp.seriesGrid : pressure.seriesGrid.map((row) => row.map(() => null));
+  return { seriesGrid: pressure.seriesGrid, tempSeriesGrid, lats: pressure.lats, lons: pressure.lons, times: pressure.times };
 }
 
 // Slices one hour's worth of values out of fetchPressureTimeSeries's
