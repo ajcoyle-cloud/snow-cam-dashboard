@@ -4185,17 +4185,24 @@ async function fetchGriddedSeries(bbox, hourlyVar) {
 }
 
 // Fetches pressure and temperature as two fully independent gridded
-// fetches (8 parallel requests total: 4 chunks each) rather than one
-// combined fetch — see fetchGriddedSeries for why. Temperature failing
-// entirely still leaves the pressure isobars working (just no cold-air
-// line); pressure failing entirely is the real "Unavailable" case.
+// fetches — see fetchGriddedSeries for why each is its own set of 4
+// chunked requests rather than one combined fetch. SEQUENCED, not run
+// together via Promise.all: firing all 8 chunk requests at once (4
+// pressure + 4 temperature simultaneously) reintroduced the exact
+// "Unavailable" failure this splitting was meant to fix — temperature
+// came back entirely empty every time while pressure (identical request
+// shape) kept succeeding, which points at a concurrent-request limit
+// rather than a per-request size one. Doing temperature only after
+// pressure has already finished keeps at most 4 requests in flight at
+// once, the level already proven to work — at the cost of the whole
+// fetch taking roughly twice as long. Also skips the temperature fetch
+// entirely if pressure itself already failed, since there's nothing to
+// show either way.
 // Returns { seriesGrid, tempSeriesGrid, lats, lons, times } | null.
 async function fetchPressureTimeSeries(bbox) {
-  const [pressure, temp] = await Promise.all([
-    fetchGriddedSeries(bbox, 'pressure_msl'),
-    fetchGriddedSeries(bbox, 'temperature_2m'),
-  ]);
+  const pressure = await fetchGriddedSeries(bbox, 'pressure_msl');
   if (!pressure) return null;
+  const temp = await fetchGriddedSeries(bbox, 'temperature_2m');
   // A grid of nulls (same shape) if temperature failed entirely — the
   // cold-air contour naturally produces zero segments over an all-null
   // grid, so the boundary line just doesn't appear rather than crashing.
