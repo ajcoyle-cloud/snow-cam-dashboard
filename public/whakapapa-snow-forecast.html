@@ -4515,7 +4515,7 @@ function ensureIsobarLayer() {
   map.addSource('isobar-src', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
   map.addLayer({
     id: 'isobar-lines', type: 'line', source: 'isobar-src',
-    paint: { 'line-color': 'rgba(255,255,255,0.6)', 'line-width': 1.5 },
+    paint: { 'line-color': 'rgba(0,255,255,0.3)', 'line-width': 1.5 },
     // round joins/caps — the stitched+Chaikin-smoothed lines are already
     // curved, but a sharp miter join at each of the many short segments
     // Chaikin produces would still read as faceted up close, not smooth.
@@ -4609,7 +4609,8 @@ function isobarRenderGrid(grid, lats, lons, labelText, sliderValue) {
       <div class="si-row"><span class="l">Showing</span><span class="v">${labelText}</span></div>
       <div class="si-row"><span class="l">Range (this view)</span><span class="v">${min.toFixed(1)}–${max.toFixed(1)} hPa</span></div>
       <div class="si-row"><span class="l">Isobar step</span><span class="v">${ISOBAR_STEP_HPA} hPa</span></div>
-      ${note}`;
+      ${note}
+      <div id="isobar-temp-status"></div>`;
   }
 }
 
@@ -4626,7 +4627,29 @@ function isobarUpdateTempOverlay(hourIdx) {
   if (!src) return;
   const { tempSeriesGrid, lats, lons } = isobarSeries;
   const tempGrid = isobarGridAtHour(tempSeriesGrid, hourIdx);
-  src.setData(buildTempBoundaryGeoJSON(tempGrid, lats, lons));
+  const geojson = buildTempBoundaryGeoJSON(tempGrid, lats, lons);
+  src.setData(geojson);
+
+  // Reports the actual temperature range so "no line showing" is
+  // distinguishable from "fetch/render actually broke" — this box is
+  // mostly open ocean (Tasman/Southern Ocean/Pacific), where 2m air temp
+  // is moderated by sea surface temperature and can easily stay above 0C
+  // even at high southern latitudes in winter, unlike over Antarctic land
+  // or the continental interior. A genuinely absent line here can be
+  // correct, not broken.
+  const el = document.getElementById('isobar-temp-status');
+  if (!el) return;
+  const values = tempGrid.flat().filter((v) => v != null);
+  if (values.length === 0) {
+    el.innerHTML = `<div class="si-row" style="opacity:0.75"><span class="l" style="flex:1">Temperature data unavailable this hour — cold-air line can't be drawn.</span></div>`;
+    return;
+  }
+  const tMin = Math.min(...values), tMax = Math.max(...values);
+  const crossed = geojson.features.length > 0;
+  el.innerHTML = `
+    <hr style="border: none; border-top: 1px solid rgba(255,255,255,0.12); margin: 10px 0 8px;">
+    <div class="si-row"><span class="l">2m temp range</span><span class="v">${tMin.toFixed(1)}–${tMax.toFixed(1)}°C</span></div>
+    ${crossed ? '' : `<div class="si-row" style="opacity:0.75"><span class="l" style="flex:1">Whole view stays ${tMin > ISOBAR_TEMP_THRESHOLD_C ? 'above' : 'below'} ${ISOBAR_TEMP_THRESHOLD_C}°C — no cold-air line to draw this hour (mostly open ocean here, which rarely crosses freezing even this far south).</span></div>`}`;
 }
 
 function isobarDrawFrame(i) {
