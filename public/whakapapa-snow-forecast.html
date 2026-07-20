@@ -4103,15 +4103,17 @@ function normalizeLon(lon) {
 // Fetches one horizontal band of the grid (a subset of rows, every
 // column) — see fetchPressureTimeSeries below for why the full grid is
 // split into several of these run in parallel rather than one request.
-// Returns { rows, times } or null if this band's request failed.
+// temperature_2m rides along on the same request (for the cold-air overlay
+// drape — see buildTempOverlayDataUrl) rather than a separate fetch.
+// Returns { rows, tempRows, times } or null if this band's request failed.
 async function fetchPressureChunk(latsChunk, lons) {
   const flatLat = [], flatLon = [];
   for (const lat of latsChunk) for (const lon of lons) { flatLat.push(lat.toFixed(4)); flatLon.push(normalizeLon(lon).toFixed(4)); }
   // The bbox spans several countries/timezones — 'auto' resolves each
   // location's own local timezone. Doesn't affect what we read back
-  // (pressure_msl values, unaffected by how their timestamps are
-  // formatted) but keeps the request honest regardless.
-  const url = `https://api.open-meteo.com/v1/forecast?latitude=${flatLat.join(',')}&longitude=${flatLon.join(',')}&hourly=pressure_msl&forecast_days=7&timezone=auto`;
+  // (pressure_msl/temperature_2m values, unaffected by how their
+  // timestamps are formatted) but keeps the request honest regardless.
+  const url = `https://api.open-meteo.com/v1/forecast?latitude=${flatLat.join(',')}&longitude=${flatLon.join(',')}&hourly=pressure_msl,temperature_2m&forecast_days=7&timezone=auto`;
   const json = await fetchJsonCached(url, { timeoutMs: 20000, retries: 1 });
   if (!json) return null;
   const entries = Array.isArray(json) ? json : [json];
@@ -4120,17 +4122,19 @@ async function fetchPressureChunk(latsChunk, lons) {
   const times = entries.find((e) => e?.hourly?.time)?.hourly?.time;
   if (!times) return null;
 
-  const rows = [];
+  const rows = [], tempRows = [];
   let i = 0;
   for (let r = 0; r < latsChunk.length; r++) {
-    const row = [];
+    const row = [], tempRow = [];
     for (let c = 0; c < lons.length; c++) {
       const h = entries[i++]?.hourly;
       row.push(h?.pressure_msl ?? null);
+      tempRow.push(h?.temperature_2m ?? null);
     }
     rows.push(row);
+    tempRows.push(tempRow);
   }
-  return { rows, times };
+  return { rows, tempRows, times };
 }
 
 // Fetches the full 7-day hourly pressure_msl series for every grid point,
@@ -4144,10 +4148,11 @@ async function fetchPressureChunk(latsChunk, lons) {
 // rows come back null rather than the whole fetch failing — the
 // contouring code already treats null grid cells as "no data here", so the
 // result is a gap in that one band, not the entire view going blank.
-// Returns { seriesGrid, lats, lons, times }: seriesGrid[r][c] is that
-// point's own array of hourly values, aligned index-for-index with `times`
-// (every chunk requests the same forecast_days/timezone, so they all
-// share one time grid — whichever chunk succeeds first supplies it).
+// Returns { seriesGrid, tempSeriesGrid, lats, lons, times }: seriesGrid[r][c]
+// (and tempSeriesGrid[r][c]) is that point's own array of hourly values,
+// aligned index-for-index with `times` (every chunk requests the same
+// forecast_days/timezone, so they all share one time grid — whichever
+// chunk succeeds first supplies it).
 async function fetchPressureTimeSeries(bbox) {
   const lats = [], lons = [];
   for (let r = 0; r < ISOBAR_GRID_SIZE; r++) {
@@ -4167,18 +4172,22 @@ async function fetchPressureTimeSeries(bbox) {
   const times = chunks.map((c) => c?.times).find(Boolean);
   if (!times) return null; // every chunk failed — genuinely nothing to show
 
-  const seriesGrid = [];
+  const seriesGrid = [], tempSeriesGrid = [];
   chunkStarts.forEach((start, idx) => {
     const chunk = chunks[idx];
     if (chunk) {
       seriesGrid.push(...chunk.rows);
+      tempSeriesGrid.push(...chunk.tempRows);
     } else {
       const chunkRowCount = Math.min(rowsPerChunk, ISOBAR_GRID_SIZE - start);
-      for (let r = 0; r < chunkRowCount; r++) seriesGrid.push(lons.map(() => null));
+      for (let r = 0; r < chunkRowCount; r++) {
+        seriesGrid.push(lons.map(() => null));
+        tempSeriesGrid.push(lons.map(() => null));
+      }
     }
   });
 
-  return { seriesGrid, lats, lons, times };
+  return { seriesGrid, tempSeriesGrid, lats, lons, times };
 }
 
 // Slices one hour's worth of values out of fetchPressureTimeSeries's
@@ -4372,6 +4381,47 @@ function isobarLinesToGeoJSON(lines) {
   };
 }
 
+// Refines a detected extremum from its exact grid point to a sub-grid
+// position via 1D parabolic interpolation along each axis independently —
+// the standard technique for sub-sample peak/trough localisation (same
+// idea used for audio pitch detection, image corner refinement, etc).
+// Without this, an H/L marker can only ever sit exactly on one of the
+// grid's ~576 points — so even though the pressure field itself is
+// already blended smoothly between hours during playback (interpolateGrid),
+// the detected extremum still visibly SNAPS from one grid point straight
+// to the next as that field shifts, rather than gliding. This is what
+// actually fixes that (a rendering/animation tweak alone couldn't — the
+// snapping is a detection-precision problem, not a transition one).
+function refineExtremumPosition(grid, lats, lons, r, c) {
+  const v = grid[r][c];
+  let dCol = 0;
+  if (c > 0 && c < lons.length - 1) {
+    const vL = grid[r][c - 1], vR = grid[r][c + 1];
+    if (vL != null && vR != null) {
+      const denom = vL - 2 * v + vR;
+      if (Math.abs(denom) > 1e-6) dCol = 0.5 * (vL - vR) / denom;
+    }
+  }
+  let dRow = 0;
+  if (r > 0 && r < lats.length - 1) {
+    const vT = grid[r - 1][c], vB = grid[r + 1][c];
+    if (vT != null && vB != null) {
+      const denom = vT - 2 * v + vB;
+      if (Math.abs(denom) > 1e-6) dRow = 0.5 * (vT - vB) / denom;
+    }
+  }
+  // Parabolic fits can occasionally overshoot near-flat/degenerate regions
+  // — clamp so the refined point never leaves the cell it was detected in.
+  dCol = Math.max(-0.5, Math.min(0.5, dCol));
+  dRow = Math.max(-0.5, Math.min(0.5, dRow));
+
+  const lonStep = c < lons.length - 1 ? lons[c + 1] - lons[c] : lons[c] - lons[c - 1];
+  // lats runs north->south (descending, see fetchPressureTimeSeries), so
+  // moving toward r+1 (south) means SUBTRACTING from lat.
+  const latStep = r < lats.length - 1 ? lats[r] - lats[r + 1] : lats[r - 1] - lats[r];
+  return { lon: lons[c] + dCol * lonStep, lat: lats[r] - dRow * latStep };
+}
+
 // Finds local pressure minima/maxima on the grid — the "L"/"H" centres
 // marked on every real synoptic chart. Restricted to INTERIOR grid points
 // only (never the outer ring): a point on the box's edge winning against
@@ -4394,8 +4444,10 @@ function findPressureExtrema(grid, lats, lons) {
           if (nv >= v) isMax = false;
         }
       }
-      if (isMin) extrema.push({ label: 'L', lon: lons[c], lat: lats[r], pressure: v });
-      else if (isMax) extrema.push({ label: 'H', lon: lons[c], lat: lats[r], pressure: v });
+      if (isMin || isMax) {
+        const { lon, lat } = refineExtremumPosition(grid, lats, lons, r, c);
+        extrema.push({ label: isMin ? 'L' : 'H', lon, lat, pressure: v });
+      }
     }
   }
   return extrema;
@@ -4411,13 +4463,99 @@ function isobarExtremaToGeoJSON(extrema) {
   };
 }
 
+// ── Cold-air temperature drape ──────────────────────────────────────────
+// A single-hue "how cold is it here" wash, not a full hot-to-cold
+// spectrum — the ask was specifically to see where cold air sits relative
+// to the systems, not a general temperature map. Opacity scales with
+// coldness against FIXED thresholds (not auto-scaled to each frame's own
+// min/max), so the same shade of blue always means the same real
+// temperature across every frame/resort, rather than "20% opacity" moving
+// target depending on what else is in view that hour.
+const ISOBAR_TEMP_COLD_C = -15; // full intensity at or below this
+const ISOBAR_TEMP_WARM_C = 10;  // fully transparent at or above this
+const ISOBAR_TEMP_MAX_OPACITY = 0.55;
+// Upsampled render resolution for the overlay canvas — deliberately much
+// finer than the 24x24 DATA grid (bilinear-interpolated up to this), so
+// the drape reads as a smooth wash rather than visible grid cells.
+const ISOBAR_TEMP_CANVAS_SIZE = 128;
+
+// Generic bilinear sampler on a coarse grid — same technique used
+// elsewhere in this file, just for a single scalar field instead of a
+// vector one. Returns null outside the grid's own extent or where any
+// surrounding corner has no data.
+function bilinearAt(lon, lat, grid, lats, lons) {
+  if (lon < lons[0] || lon > lons[lons.length - 1]) return null;
+  if (lat > lats[0] || lat < lats[lats.length - 1]) return null;
+  let c = 0;
+  while (c < lons.length - 2 && lons[c + 1] < lon) c++;
+  let r = 0;
+  while (r < lats.length - 2 && lats[r + 1] > lat) r++;
+  const tx = (lon - lons[c]) / (lons[c + 1] - lons[c]);
+  const ty = (lats[r] - lat) / (lats[r] - lats[r + 1]);
+  const v00 = grid[r][c], v10 = grid[r][c + 1], v01 = grid[r + 1][c], v11 = grid[r + 1][c + 1];
+  if ([v00, v10, v01, v11].some((v) => v == null)) return null;
+  return v00 * (1 - tx) * (1 - ty) + v10 * tx * (1 - ty) + v01 * (1 - tx) * ty + v11 * tx * ty;
+}
+
+// Renders the temperature grid to an off-screen canvas as a light-blue
+// wash, bilinear-upsampled from the coarse data grid — same "generate a
+// raster image client-side, hand it to MapLibre as an image source"
+// pattern radarDrawFrame already uses for the radar overlay (source of
+// truth for this approach actually working in this codebase).
+function buildTempOverlayDataUrl(tempGrid, lats, lons) {
+  const canvas = document.createElement('canvas');
+  canvas.width = ISOBAR_TEMP_CANVAS_SIZE;
+  canvas.height = ISOBAR_TEMP_CANVAS_SIZE;
+  const ctx = canvas.getContext('2d');
+  const img = ctx.createImageData(ISOBAR_TEMP_CANVAS_SIZE, ISOBAR_TEMP_CANVAS_SIZE);
+  const lonMin = lons[0], lonMax = lons[lons.length - 1];
+  const latMax = lats[0], latMin = lats[lats.length - 1];
+  for (let y = 0; y < ISOBAR_TEMP_CANVAS_SIZE; y++) {
+    const lat = latMax - (y / (ISOBAR_TEMP_CANVAS_SIZE - 1)) * (latMax - latMin);
+    for (let x = 0; x < ISOBAR_TEMP_CANVAS_SIZE; x++) {
+      const lon = lonMin + (x / (ISOBAR_TEMP_CANVAS_SIZE - 1)) * (lonMax - lonMin);
+      const idx = (y * ISOBAR_TEMP_CANVAS_SIZE + x) * 4;
+      const t = bilinearAt(lon, lat, tempGrid, lats, lons);
+      if (t == null) { img.data[idx + 3] = 0; continue; }
+      const coldFrac = Math.max(0, Math.min(1, (ISOBAR_TEMP_WARM_C - t) / (ISOBAR_TEMP_WARM_C - ISOBAR_TEMP_COLD_C)));
+      img.data[idx] = 190;   // light blue
+      img.data[idx + 1] = 225;
+      img.data[idx + 2] = 255;
+      img.data[idx + 3] = Math.round(coldFrac * ISOBAR_TEMP_MAX_OPACITY * 255);
+    }
+  }
+  ctx.putImageData(img, 0, 0);
+  return canvas.toDataURL();
+}
+
 // Lazily adds the isobar source/layers on first use — mirrors how
 // radar-layer gets added on demand in radarDrawFrame(), including the same
 // "'satellite' layer existing" check for "the style has actually attached"
 // before calling addSource/addLayer (which throws if called too early).
+// Universally-known 1x1 transparent GIF — placeholder image source content
+// until the first real temperature frame renders (see isobarUpdateTempOverlay).
+const TRANSPARENT_1PX = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBTAA7';
+
 function ensureIsobarLayer() {
   if (!map || map.getSource('isobar-src')) return true;
   if (!map.getLayer('satellite')) return false;
+  // Temperature drape added FIRST so it paints underneath the pressure
+  // isobars/labels/H-L markers — background wash, not the primary read.
+  // ImageSource coordinates are [top-left, top-right, bottom-right,
+  // bottom-left], NOT a bbox — built from ISOBAR_BBOX once here since the
+  // box itself never changes.
+  map.addSource('isobar-temp-src', {
+    type: 'image', url: TRANSPARENT_1PX,
+    coordinates: [
+      [ISOBAR_BBOX.lonMin, ISOBAR_BBOX.latMax], [ISOBAR_BBOX.lonMax, ISOBAR_BBOX.latMax],
+      [ISOBAR_BBOX.lonMax, ISOBAR_BBOX.latMin], [ISOBAR_BBOX.lonMin, ISOBAR_BBOX.latMin],
+    ],
+  });
+  map.addLayer({
+    id: 'isobar-temp-layer', type: 'raster', source: 'isobar-temp-src',
+    paint: { 'raster-opacity': 1, 'raster-fade-duration': 0 },
+    layout: { visibility: 'none' },
+  });
   map.addSource('isobar-src', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
   map.addLayer({
     id: 'isobar-lines', type: 'line', source: 'isobar-src',
@@ -4439,7 +4577,9 @@ function ensureIsobarLayer() {
       'symbol-placement': 'line-center',
       'text-field': ['concat', ['get', 'pressure_msl'], ' hPa'],
       'text-size': 11,
-      'text-font': ['Open Sans Bold', 'Arial Unicode MS Bold'],
+      // Regular weight, not Bold — the H/L markers stay bold (they're the
+      // primary read), this is just the per-line hPa value.
+      'text-font': ['Open Sans Regular', 'Arial Unicode MS Regular'],
     },
     paint: { 'text-color': '#ffffff', 'text-halo-color': 'rgba(0,0,0,0.65)', 'text-halo-width': 1.2 },
   });
@@ -4467,6 +4607,7 @@ function ensureIsobarLayer() {
 function setIsobarLayerVisible(visible) {
   if (!map) return;
   const v = visible ? 'visible' : 'none';
+  if (map.getLayer('isobar-temp-layer')) map.setLayoutProperty('isobar-temp-layer', 'visibility', v);
   if (map.getLayer('isobar-lines')) map.setLayoutProperty('isobar-lines', 'visibility', v);
   if (map.getLayer('isobar-labels')) map.setLayoutProperty('isobar-labels', 'visibility', v);
   if (map.getLayer('isobar-extrema-labels')) map.setLayoutProperty('isobar-extrema-labels', 'visibility', v);
@@ -4477,7 +4618,7 @@ function setIsobarLayerVisible(visible) {
 // radarStepFrame/radarTogglePlay etc.) — one fetch loads the whole 7-day
 // series, then each frame just slices+recontours locally (cheap: 144
 // points, ~10 levels), no per-frame network calls.
-let isobarSeries = null; // { seriesGrid, lats, lons, times } | null
+let isobarSeries = null; // { seriesGrid, tempSeriesGrid, lats, lons, times } | null
 let isobarFrameIndex = -1;
 let isobarPlayTimer = null;
 
@@ -4519,6 +4660,19 @@ function isobarRenderGrid(grid, lats, lons, labelText, sliderValue) {
 // Manual navigation (drag/step buttons) always lands on an exact real
 // hour — no interpolation here, so a dragged-to reading is always a true
 // forecast value, never a blended one.
+// Temperature drape updates once per real hour, not every interpolated
+// sub-step during autoplay — same reasoning as the (now-removed) wind
+// streamlines had: it's background context, not something that needs to
+// track the pressure blend's every 60ms tick.
+function isobarUpdateTempOverlay(hourIdx) {
+  if (!map || !isobarSeries) return;
+  const src = map.getSource('isobar-temp-src');
+  if (!src) return;
+  const { tempSeriesGrid, lats, lons } = isobarSeries;
+  const tempGrid = isobarGridAtHour(tempSeriesGrid, hourIdx);
+  src.updateImage({ url: buildTempOverlayDataUrl(tempGrid, lats, lons) });
+}
+
 function isobarDrawFrame(i) {
   if (!map || !isobarSeries || !isobarSeries.times[i]) return;
   isobarFrameIndex = i;
@@ -4526,6 +4680,7 @@ function isobarDrawFrame(i) {
   const { seriesGrid, lats, lons, times } = isobarSeries;
   const grid = isobarGridAtHour(seriesGrid, i);
   isobarRenderGrid(grid, lats, lons, isobarFormatTs(times[i]), i);
+  isobarUpdateTempOverlay(i);
 
   const slider = document.getElementById('isbtl-slider');
   slider.max = times.length - 1;
@@ -4573,6 +4728,7 @@ function isobarPlayTick() {
     // own resets fighting this loop's own frame/substep bookkeeping.
     isobarFrameIndex++;
     isobarPlaySubStep = 0;
+    isobarUpdateTempOverlay(isobarFrameIndex);
     document.getElementById('isbtl-prev').disabled = isobarFrameIndex <= 0;
     document.getElementById('isbtl-next').disabled = isobarFrameIndex >= times.length - 1;
   }
