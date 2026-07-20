@@ -4421,7 +4421,7 @@ function ensureIsobarLayer() {
   map.addSource('isobar-src', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
   map.addLayer({
     id: 'isobar-lines', type: 'line', source: 'isobar-src',
-    paint: { 'line-color': 'rgba(255,255,255,0.85)', 'line-width': 1.5 },
+    paint: { 'line-color': 'rgba(255,255,255,0.6)', 'line-width': 1.5 },
     // round joins/caps — the stitched+Chaikin-smoothed lines are already
     // curved, but a sharp miter join at each of the many short segments
     // Chaikin produces would still read as faceted up close, not smooth.
@@ -4431,7 +4431,12 @@ function ensureIsobarLayer() {
     id: 'isobar-labels', type: 'symbol', source: 'isobar-src',
     layout: {
       visibility: 'none',
-      'symbol-placement': 'line',
+      // 'line' repeats the label every symbol-spacing px along the WHOLE
+      // line — on a line spanning most of this box that's the same "1008
+      // hPa" printed a dozen times. 'line-center' places it once, at the
+      // line's midpoint, cutting the label count from "many per isobar" to
+      // "one per isobar" without losing the reading altogether.
+      'symbol-placement': 'line-center',
       'text-field': ['concat', ['get', 'pressure_msl'], ' hPa'],
       'text-size': 11,
       'text-font': ['Open Sans Bold', 'Arial Unicode MS Bold'],
