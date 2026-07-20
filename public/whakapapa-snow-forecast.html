@@ -1657,6 +1657,23 @@ function waitForTerrainStable(cb, prev, stableCount, attempt) {
 
 function maybeSignalMapReady() {
   if (!mapStyleReady || window.parent === window) return;
+  // This whole establishing-shot cinematic exists to reveal the resort's
+  // own close-up oblique pose (LOC.center/zoom/pitch/bearing) — it runs
+  // once per page load via map.once('idle', ...) below, independently of
+  // and usually AFTER setViewMode() has already run (loadForecast's weather
+  // fetch, which restoreViewMode waits on, is typically slower than the
+  // map style reaching 'idle'). When Isobars is the mode restored from a
+  // previous visit, setViewMode('isobars') already flew the camera out to
+  // flyToIsobarRegion()'s flat country-scale view — then this sequence
+  // landed later and silently flew it right back to the resort close-up,
+  // undoing that. Isobars' own flat overview has no use for a close-up
+  // "establishing pose then fly in" reveal anyway, so just fit the isobar
+  // region directly and signal ready, skipping the rest of this function.
+  if (viewMode === 'isobars') {
+    flyToIsobarRegion();
+    window.parent.postMessage({ type: 'map-ready' }, '*');
+    return;
+  }
   // Auto-rotate does not run during load/fly-in (it's only kicked off once
   // the fly-in lands), so there's nothing to pause here — the camera bearing
   // is wherever the constructor set it. Snap to the exact default bearing so
