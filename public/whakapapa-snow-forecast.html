@@ -350,6 +350,9 @@
   #live-legend .bar { height: 9px; border-radius: 5px; margin: 4px 0 3px; }
   #live-legend .ticks { display: flex; justify-content: space-between; font-size: 0.62rem; color: rgba(255,255,255,0.45); font-variant-numeric: tabular-nums; }
 
+  /* ── Isobars (pressure) panel ─────────────────────────────────────────── */
+  #info-isobars { display: none; }
+
   /* ── Accumulated snowfall info + depth legend ───────────────────────── */
   #info-accum { display: none; }
   #accum-total { font-size: 1.7rem; font-weight: 800; margin: 2px 0 12px; }
@@ -756,6 +759,7 @@
       <button class="pill-btn active" data-mode="hourly" onclick="setViewMode('hourly')">Hourly</button>
       <button class="pill-btn" data-mode="accumulated" onclick="setViewMode('accumulated')">Accum</button>
       <button class="pill-btn" data-mode="radar" onclick="setViewMode('radar')">Radar</button>
+      <button class="pill-btn" data-mode="isobars" onclick="setViewMode('isobars')">Isobars</button>
     </div>
     <div class="pill-group" id="period-switch">
       <button class="pill-btn active" data-days="5" onclick="setPeriod(5)">5</button>
@@ -801,6 +805,7 @@
       <hr style="border: none; border-top: 1px solid rgba(255,255,255,0.12); margin: 12px 0 10px;">
       <div id="live-legend"></div>
     </div>
+    <div id="info-isobars"></div>
     </div>
   </div>
   <div id="fl-overlay"><span id="fl-caption"></span><svg></svg></div>
@@ -1895,9 +1900,9 @@ function initMap() {
     // no real x/y variation, which is exactly what High-Res must NOT show.
     if (isHighResMode) return;
     // The click-to-probe popup reports snow depth (cm) for the snowfall/
-    // accumulated views; it has no meaning on the Live temperature map, so
-    // skip it there.
-    if (viewMode === 'live') return;
+    // accumulated views; it has no meaning on the Live temperature map or
+    // the Isobars map, so skip it there.
+    if (viewMode === 'live' || viewMode === 'isobars') return;
     const rawElev = sampleElevationMedian(e.lngLat);
     if (rawElev == null) return;
     // The DEM tileset occasionally returns a spurious spike well above the
@@ -4017,6 +4022,211 @@ function updateAccumMinSummary() {
     </div>`;
 }
 
+// ── Isobars (pressure) view ─────────────────────────────────────────────
+// Grids Open-Meteo's pressure_msl over a box centred on this resort and
+// contours it into isobars at a standard hPa step — same approach verified
+// in scripts/isobar_poc.mjs, ported client-side. Box size (~110km x 100km)
+// matches that POC; centred on LOC.center instead of hardcoded to the
+// Central Plateau so this works for every resort, not just Whakapapa.
+//
+// This is a genuinely local-scale view: synoptic pressure gradients run
+// roughly 1 hPa per 100-200km in normal conditions, so a box this size may
+// only span a fraction of one 4 hPa step on an ordinary day — the info
+// panel says so explicitly when that happens, rather than silently
+// rendering nothing with no explanation.
+const ISOBAR_GRID_SIZE = 10;
+const ISOBAR_STEP_HPA = 4;
+const ISOBAR_LAT_HALF_SPAN = 0.525;
+const ISOBAR_LON_HALF_SPAN = 0.55;
+
+function isobarBBoxFor(loc) {
+  const [lon, lat] = loc.center;
+  return {
+    latMin: lat - ISOBAR_LAT_HALF_SPAN, latMax: lat + ISOBAR_LAT_HALF_SPAN,
+    lonMin: lon - ISOBAR_LON_HALF_SPAN, lonMax: lon + ISOBAR_LON_HALF_SPAN,
+  };
+}
+
+async function fetchPressureGrid(bbox) {
+  const lats = [], lons = [];
+  for (let r = 0; r < ISOBAR_GRID_SIZE; r++) {
+    lats.push(bbox.latMax - (r / (ISOBAR_GRID_SIZE - 1)) * (bbox.latMax - bbox.latMin));
+  }
+  for (let c = 0; c < ISOBAR_GRID_SIZE; c++) {
+    lons.push(bbox.lonMin + (c / (ISOBAR_GRID_SIZE - 1)) * (bbox.lonMax - bbox.lonMin));
+  }
+  const flatLat = [], flatLon = [];
+  for (const lat of lats) for (const lon of lons) { flatLat.push(lat.toFixed(4)); flatLon.push(lon.toFixed(4)); }
+  const url = `https://api.open-meteo.com/v1/forecast?latitude=${flatLat.join(',')}&longitude=${flatLon.join(',')}&current=pressure_msl&timezone=${LOC.timezone}`;
+
+  const json = await fetchJsonCached(url, { timeoutMs: 12000, retries: 1 });
+  if (!json) return null;
+  const entries = Array.isArray(json) ? json : [json];
+  if (entries.length !== lats.length * lons.length) return null;
+
+  const grid = [];
+  let i = 0;
+  for (let r = 0; r < lats.length; r++) {
+    const row = [];
+    for (let c = 0; c < lons.length; c++) {
+      const v = entries[i++]?.current?.pressure_msl;
+      row.push(typeof v === 'number' ? v : null);
+    }
+    grid.push(row);
+  }
+  return { grid, lats, lons };
+}
+
+// Standard marching-squares contourer — see scripts/isobar_poc.mjs for the
+// full derivation/comments on the case table and saddle-case handling; kept
+// identical here so the two stay verifiably in sync.
+const ISOBAR_EDGE_PAIRS = {
+  1: ['S', 'W'], 2: ['E', 'S'], 3: ['E', 'W'], 4: ['N', 'E'],
+  6: ['N', 'S'], 7: ['N', 'W'], 8: ['N', 'W'], 9: ['N', 'S'],
+  11: ['N', 'E'], 12: ['E', 'W'], 13: ['E', 'S'], 14: ['S', 'W'],
+};
+function isobarLerp(v0, v1, p0, p1, level) {
+  const t = (level - v0) / (v1 - v0);
+  return p0 + t * (p1 - p0);
+}
+function isobarEdgePoint(edge, corners, coords, level) {
+  const { TL, TR, BR, BL } = corners;
+  const { latTop, latBot, lonL, lonR } = coords;
+  switch (edge) {
+    case 'N': return [isobarLerp(TL, TR, lonL, lonR, level), latTop];
+    case 'S': return [isobarLerp(BL, BR, lonL, lonR, level), latBot];
+    case 'W': return [lonL, isobarLerp(TL, BL, latTop, latBot, level)];
+    case 'E': return [lonR, isobarLerp(TR, BR, latTop, latBot, level)];
+    default: return null;
+  }
+}
+function isobarContourLevel(grid, lats, lons, level) {
+  const segments = [];
+  for (let r = 0; r < grid.length - 1; r++) {
+    for (let c = 0; c < grid[r].length - 1; c++) {
+      const TL = grid[r][c], TR = grid[r][c + 1];
+      const BL = grid[r + 1][c], BR = grid[r + 1][c + 1];
+      if ([TL, TR, BL, BR].some((v) => v == null)) continue;
+      let caseIdx = (TL >= level ? 8 : 0) | (TR >= level ? 4 : 0) | (BR >= level ? 2 : 0) | (BL >= level ? 1 : 0);
+      if (caseIdx === 0 || caseIdx === 15) continue;
+      const corners = { TL, TR, BR, BL };
+      const coords = { latTop: lats[r], latBot: lats[r + 1], lonL: lons[c], lonR: lons[c + 1] };
+      let pairs;
+      if (caseIdx === 5 || caseIdx === 10) {
+        const avg = (TL + TR + BR + BL) / 4;
+        pairs = caseIdx === 5
+          ? (avg >= level ? [['N', 'W'], ['E', 'S']] : [['N', 'E'], ['W', 'S']])
+          : (avg >= level ? [['N', 'E'], ['W', 'S']] : [['N', 'W'], ['E', 'S']]);
+      } else {
+        pairs = [ISOBAR_EDGE_PAIRS[caseIdx]];
+      }
+      for (const [e1, e2] of pairs) {
+        const p1 = isobarEdgePoint(e1, corners, coords, level);
+        const p2 = isobarEdgePoint(e2, corners, coords, level);
+        if (p1 && p2) segments.push({ level, coords: [p1, p2] });
+      }
+    }
+  }
+  return segments;
+}
+function buildIsobarSegments(grid, lats, lons, stepHpa) {
+  const values = grid.flat().filter((v) => v != null);
+  if (values.length === 0) return { min: null, max: null, levels: [], segments: [] };
+  const min = Math.min(...values);
+  const max = Math.max(...values);
+  const firstLevel = Math.ceil(min / stepHpa) * stepHpa;
+  const levels = [];
+  for (let lvl = firstLevel; lvl <= max; lvl += stepHpa) levels.push(lvl);
+  const segments = levels.flatMap((lvl) => isobarContourLevel(grid, lats, lons, lvl));
+  return { min, max, levels, segments };
+}
+function isobarSegmentsToGeoJSON(segments) {
+  return {
+    type: 'FeatureCollection',
+    features: segments.map((s) => ({
+      type: 'Feature',
+      properties: { pressure_msl: Math.round(s.level) },
+      geometry: { type: 'LineString', coordinates: s.coords },
+    })),
+  };
+}
+
+// Lazily adds the isobar source/layers on first use — mirrors how
+// radar-layer gets added on demand in radarDrawFrame(), including the same
+// "'satellite' layer existing" check for "the style has actually attached"
+// before calling addSource/addLayer (which throws if called too early).
+function ensureIsobarLayer() {
+  if (!map || map.getSource('isobar-src')) return true;
+  if (!map.getLayer('satellite')) return false;
+  map.addSource('isobar-src', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+  map.addLayer({
+    id: 'isobar-lines', type: 'line', source: 'isobar-src',
+    paint: { 'line-color': 'rgba(255,255,255,0.85)', 'line-width': 1.5 },
+    layout: { visibility: 'none', 'line-cap': 'round' },
+  });
+  map.addLayer({
+    id: 'isobar-labels', type: 'symbol', source: 'isobar-src',
+    layout: {
+      visibility: 'none',
+      'symbol-placement': 'line',
+      'text-field': ['concat', ['get', 'pressure_msl'], ' hPa'],
+      'text-size': 11,
+      'text-font': ['Open Sans Bold', 'Arial Unicode MS Bold'],
+    },
+    paint: { 'text-color': '#ffffff', 'text-halo-color': 'rgba(0,0,0,0.65)', 'text-halo-width': 1.2 },
+  });
+  return true;
+}
+function setIsobarLayerVisible(visible) {
+  if (!map) return;
+  const v = visible ? 'visible' : 'none';
+  if (map.getLayer('isobar-lines')) map.setLayoutProperty('isobar-lines', 'visibility', v);
+  if (map.getLayer('isobar-labels')) map.setLayoutProperty('isobar-labels', 'visibility', v);
+}
+
+let isobarRenderToken = 0;
+async function renderIsobarsView() {
+  initMap();
+  const el = document.getElementById('info-isobars');
+  if (el) el.innerHTML = `<h3>Pressure (MSLP)</h3><div class="si-row"><span class="l">Status</span><span class="v">Loading…</span></div>`;
+
+  const token = ++isobarRenderToken;
+  const bbox = isobarBBoxFor(LOC);
+  const result = await fetchPressureGrid(bbox);
+  // Bail if either a newer render superseded this one, OR the user has
+  // since switched to a different mode entirely — without the latter check,
+  // a slow fetch landing after the user tapped e.g. Live back on would flip
+  // the isobar layer visible again right under a mode that's supposed to
+  // have cleared it (setViewMode only hides it once, when the switch happens,
+  // not on every later async arrival).
+  if (token !== isobarRenderToken || viewMode !== 'isobars') return;
+
+  if (!ensureIsobarLayer()) { setTimeout(() => { if (token === isobarRenderToken && viewMode === 'isobars') renderIsobarsView(); }, 80); return; }
+
+  if (!result) {
+    setIsobarLayerVisible(false);
+    if (el) el.innerHTML = `<h3>Pressure (MSLP)</h3><div class="si-row"><span class="l">Status</span><span class="v">Unavailable</span></div>`;
+    return;
+  }
+
+  const { grid, lats, lons } = result;
+  const { min, max, levels, segments } = buildIsobarSegments(grid, lats, lons, ISOBAR_STEP_HPA);
+  map.getSource('isobar-src').setData(isobarSegmentsToGeoJSON(segments));
+  setIsobarLayerVisible(true);
+
+  if (el) {
+    const spread = (max - min).toFixed(1);
+    const note = levels.length === 0
+      ? `<div class="si-row" style="opacity:0.75"><span class="l" style="flex:1">Spread here (${spread} hPa) is under one ${ISOBAR_STEP_HPA} hPa step — no isobar crosses this local a view right now.</span></div>`
+      : '';
+    el.innerHTML = `
+      <h3>Pressure (MSLP)</h3>
+      <div class="si-row"><span class="l">Range (this view)</span><span class="v">${min.toFixed(1)}–${max.toFixed(1)} hPa</span></div>
+      <div class="si-row"><span class="l">Isobar step</span><span class="v">${ISOBAR_STEP_HPA} hPa</span></div>
+      ${note}`;
+  }
+}
+
 let viewMode = 'hourly'; // 'hourly' | 'accumulated'
 let accumDays = 5;
 
@@ -4033,9 +4243,10 @@ function setViewMode(mode) {
   pwPersist('sp-view-mode', mode);
   document.querySelectorAll('#mode-switch .pill-btn').forEach(b => b.classList.toggle('active', b.dataset.mode === mode));
   document.getElementById('period-switch').style.display = mode === 'accumulated' ? 'flex' : 'none';
-  // No forecast data backs the Live temperature map or the Radar map (neither
-  // has a model to switch), so the model switcher has nothing to do there.
-  document.getElementById('model-switch').style.display = (mode === 'live' || mode === 'radar') ? 'none' : 'block';
+  // No forecast data backs the Live temperature map, the Radar map, or the
+  // Isobars map (none of them have a per-model breakdown), so the model
+  // switcher has nothing to do there.
+  document.getElementById('model-switch').style.display = (mode === 'live' || mode === 'radar' || mode === 'isobars') ? 'none' : 'block';
   syncTopControlsLayout();
   if (mode === 'live') closeModelMenu();
   document.getElementById('timeline').style.display = mode === 'hourly' ? 'flex' : 'none';
@@ -4043,21 +4254,27 @@ function setViewMode(mode) {
   document.getElementById('info-hourly').style.display = mode === 'hourly' ? 'block' : 'none';
   document.getElementById('info-accum').style.display = mode === 'accumulated' ? 'block' : 'none';
   document.getElementById('info-live').style.display = mode === 'live' ? 'block' : 'none';
+  document.getElementById('info-isobars').style.display = mode === 'isobars' ? 'block' : 'none';
   document.getElementById('live-timeline').style.display = mode === 'live' ? 'flex' : 'none';
   document.getElementById('radar-timeline').style.display = mode === 'radar' ? 'flex' : 'none';
   document.getElementById('map-screen').classList.toggle('live-mode', mode === 'live');
   document.getElementById('map-screen').classList.toggle('accum-mode', mode === 'accumulated');
   document.getElementById('map-screen').classList.toggle('radar-mode', mode === 'radar');
+  document.getElementById('map-screen').classList.toggle('isobars-mode', mode === 'isobars');
   // Radar always shows real station pills regardless of pwVisible (see
   // pwRenderPill/toggleObsLayer) — keep the icon's lit state honest about
   // that instead of looking "off" while pills are actually showing.
   { const obsBtn = document.getElementById('obs-toggle'); if (obsBtn) obsBtn.classList.toggle('active', pwVisible || mode === 'radar'); }
-  // Radar is a clean read of live precipitation — clear whatever snow/temp
-  // colour drape the previous mode left painted on 'snow-relief' so it isn't
-  // still showing through/under the radar image. Leaving radar re-paints the
-  // correct ramp anyway (openMapView/renderAccumulatedView/renderLiveTempView
-  // all call applyRampWhenReady themselves).
-  if (mode === 'radar') applyRampWhenReady(buildSnowRamp(null));
+  // Radar and Isobars are both clean reads of something other than
+  // snow/temp — clear whatever colour drape the previous mode left painted
+  // on 'snow-relief' so it isn't still showing through/under them. Leaving
+  // either re-paints the correct ramp anyway (openMapView/
+  // renderAccumulatedView/renderLiveTempView all call applyRampWhenReady
+  // themselves).
+  if (mode === 'radar' || mode === 'isobars') applyRampWhenReady(buildSnowRamp(null));
+  // The isobar overlay is Isobars-only — hide it (rather than tear it down)
+  // leaving every other mode, same pattern as radar-layer below.
+  if (mode !== 'isobars') setIsobarLayerVisible(false);
   // orographic-snow-layer is tied to forecastHours[currentIndex] and only
   // refreshed from openMapView (the 'hourly' branch below) — hide it in
   // every other mode rather than leaving a stale hour's overlay showing;
@@ -4066,8 +4283,8 @@ function setViewMode(mode) {
   if (mode !== 'hourly' && map && map.getLayer('orographic-snow-layer')) {
     map.setLayoutProperty('orographic-snow-layer', 'visibility', 'none');
   }
-  // Snowfall pin shows on hourly + accumulated; clear it only in live/radar view.
-  if ((mode === 'live' || mode === 'radar') && snowfallMarker) { snowfallMarker.remove(); snowfallMarker = null; }
+  // Snowfall pin shows on hourly + accumulated; clear it in every other view.
+  if ((mode === 'live' || mode === 'radar' || mode === 'isobars') && snowfallMarker) { snowfallMarker.remove(); snowfallMarker = null; }
   // The minimised-drawer summary is accumulated-only; clear it elsewhere so the
   // :empty rule keeps it hidden.
   if (mode !== 'accumulated') { const dms = document.getElementById('drawer-min-summary'); if (dms) dms.innerHTML = ''; }
@@ -4091,6 +4308,9 @@ function setViewMode(mode) {
   } else if (mode === 'radar') {
     stopPlay();
     radarEnterMode();
+  } else if (mode === 'isobars') {
+    stopPlay();
+    renderIsobarsView();
   } else {
     stopPlay();
     renderAccumulatedView();
@@ -4638,6 +4858,8 @@ function restoreViewMode() {
     setViewMode('live');
   } else if (saved === 'radar') {
     setViewMode('radar');
+  } else if (saved === 'isobars') {
+    setViewMode('isobars');
   }
   // 'hourly' or unset: openMapView already established the default hourly view.
 }
