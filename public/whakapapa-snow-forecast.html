@@ -4081,14 +4081,16 @@ function updateAccumMinSummary() {
 // the tip of the Australian mainland — lonMin/lonMax unchanged (same width,
 // taller box).
 const ISOBAR_BBOX = { latMin: -67, latMax: -10, lonMin: 91, lonMax: 223 };
-// 24 -> 576 points (12 was 144) — doubling grid resolution on a 2D grid
-// quadruples the point count, not doubles it. That's a ~4x longer request
-// URL and ~4x the 7-day hourly response payload versus before, still
-// unverified against Open-Meteo's practical batch-size/URL-length limits
-// from this sandbox — if this breaks (413, timeout, truncated response),
-// the fallback is splitting the fetch into a few smaller parallel requests
-// instead of one, not reducing resolution back down.
-const ISOBAR_GRID_SIZE = 24;
+// Tried 24 (576 points, 4x the request/response of 144) — broke in
+// production ("Status: Unavailable", the fetchPressureTimeSeries-failed
+// path), confirming the exact risk this was flagged with: too large a
+// batch against Open-Meteo's real limits. Reverted to the last confirmed-
+// working size rather than guessing at a fix blind (no way to test the
+// actual failure reason — URL length, location-count cap, or timeout —
+// from this sandbox). Splitting the fetch into a few smaller parallel
+// requests is the real path to higher resolution later; that's new,
+// untested code too, so it's a deliberate follow-up, not bundled in here.
+const ISOBAR_GRID_SIZE = 12;
 const ISOBAR_STEP_HPA = 4;
 
 function normalizeLon(lon) {
