@@ -4023,20 +4023,28 @@ function updateAccumMinSummary() {
 }
 
 // ── Isobars (pressure) view ─────────────────────────────────────────────
-// Grids Open-Meteo's pressure_msl over a fixed North Island-wide box and
-// contours it into isobars at a standard hPa step — same approach verified
-// in scripts/isobar_poc.mjs, ported client-side.
+// Grids Open-Meteo's pressure_msl over a fixed box spanning southern
+// Australia, the Tasman Sea, and all of NZ, and contours it into isobars at
+// a standard hPa step — same approach verified in scripts/isobar_poc.mjs,
+// ported client-side.
 //
-// Originally this box was ~110km x 100km, centred on whichever resort was
-// active (matching the POC's Central Plateau scope) — but synoptic pressure
-// gradients run roughly 1 hPa per 100-200km in normal conditions, so that
-// small a box routinely had less than one 4 hPa step of spread across it:
-// correct, but visually empty most of the time. A ~750km x 500km North
-// Island box gives the gradient room to actually show isobars. Fixed
-// coordinates rather than resort-relative — the map camera itself is
-// zoomed/re-pitched to frame this box in setViewMode (see there), so a
-// per-resort centre would fight that rather than help it.
-const NORTH_ISLAND_BBOX = { latMin: -41.7, latMax: -34.4, lonMin: 172.5, lonMax: 178.6 };
+// Went through two size changes before landing here:
+//   1. ~110km x 100km, centred on whichever resort was active — synoptic
+//      gradients run ~1 hPa per 100-200km, so a box that small routinely had
+//      less than one 4 hPa step of spread across it: correct, but visually
+//      empty most of the time.
+//   2. A fixed ~750km x 500km North Island box — enough room for isobars to
+//      actually appear, but still only shows a system after it's already on
+//      top of the country, not the wider pattern approaching from the
+//      Tasman/Southern Ocean this view exists to show.
+// This is deliberately a wide, low-resolution "see the whole weather
+// system" view rather than a local-detail one — the sample grid stays at
+// its previous point count (kept CHEAP on purpose: this box is ~7x the area
+// of the North Island one, and Open-Meteo's practical limit on a single
+// batched request is unverified from this sandbox, so density drops rather
+// than the request growing into untested territory) and just spreads those
+// same points over a much bigger area instead.
+const ISOBAR_BBOX = { latMin: -47.5, latMax: -28, lonMin: 135, lonMax: 179 };
 const ISOBAR_GRID_SIZE = 12;
 const ISOBAR_STEP_HPA = 4;
 
@@ -4050,11 +4058,13 @@ async function fetchPressureGrid(bbox) {
   }
   const flatLat = [], flatLon = [];
   for (const lat of lats) for (const lon of lons) { flatLat.push(lat.toFixed(4)); flatLon.push(lon.toFixed(4)); }
-  // The bbox is fixed to NZ's North Island regardless of which resort's page
-  // loaded it (a South Island or US resort tab can still open this view) —
-  // hardcode the NZ timezone rather than LOC.timezone, which would otherwise
-  // send e.g. America/Denver alongside North Island coordinates.
-  const url = `https://api.open-meteo.com/v1/forecast?latitude=${flatLat.join(',')}&longitude=${flatLon.join(',')}&current=pressure_msl&timezone=Pacific%2FAuckland`;
+  // The bbox now spans both NZ and Australia, so no single fixed timezone
+  // (and definitely not LOC.timezone, whichever resort's page loaded this)
+  // is correct for every point in the batch — 'auto' resolves each
+  // location's own local timezone. Doesn't actually matter for what we read
+  // back (current.pressure_msl is a plain number, unaffected by how its
+  // timestamp is formatted) but keeps the request honest regardless.
+  const url = `https://api.open-meteo.com/v1/forecast?latitude=${flatLat.join(',')}&longitude=${flatLon.join(',')}&current=pressure_msl&timezone=auto`;
 
   const json = await fetchJsonCached(url, { timeoutMs: 12000, retries: 1 });
   if (!json) return null;
@@ -4188,7 +4198,7 @@ async function renderIsobarsView() {
   if (el) el.innerHTML = `<h3>Pressure (MSLP)</h3><div class="si-row"><span class="l">Status</span><span class="v">Loading…</span></div>`;
 
   const token = ++isobarRenderToken;
-  const result = await fetchPressureGrid(NORTH_ISLAND_BBOX);
+  const result = await fetchPressureGrid(ISOBAR_BBOX);
   // Bail if either a newer render superseded this one, OR the user has
   // since switched to a different mode entirely — without the latter check,
   // a slow fetch landing after the user tapped e.g. Live back on would flip
@@ -4231,17 +4241,17 @@ let accumDays = 5;
 // default hourly view). Same-origin localStorage survives that reload.
 function pwPersist(key, val) { try { localStorage.setItem(key, val); } catch (e) {} }
 
-// Fits the camera to the whole North Island box the isobar view fetches
-// over (see NORTH_ISLAND_BBOX) — the resort's normal close-up oblique
-// framing (zoom ~13, pitch ~62) would show at most a tiny sliver of an
-// ~750km-wide area, so the isobars would be invisible even when the fetch
-// and contouring both worked perfectly. Levels the pitch out too: a
-// country-scale view tilted to a resort's usual near-horizon angle reads as
-// broken, not "zoomed out."
-function flyToNorthIsland() {
+// Fits the camera to the whole southern-Australia/Tasman/NZ box the isobar
+// view fetches over (see ISOBAR_BBOX) — the resort's normal close-up oblique
+// framing (zoom ~13, pitch ~62) would show at most a tiny sliver of an area
+// this size, so the isobars would be invisible even when the fetch and
+// contouring both worked perfectly. Levels the pitch out too: a
+// continent-scale view tilted to a resort's usual near-horizon angle reads
+// as broken, not "zoomed out."
+function flyToIsobarRegion() {
   if (!map) return;
   map.fitBounds(
-    [[NORTH_ISLAND_BBOX.lonMin, NORTH_ISLAND_BBOX.latMin], [NORTH_ISLAND_BBOX.lonMax, NORTH_ISLAND_BBOX.latMax]],
+    [[ISOBAR_BBOX.lonMin, ISOBAR_BBOX.latMin], [ISOBAR_BBOX.lonMax, ISOBAR_BBOX.latMax]],
     { padding: 40, pitch: 0, bearing: 0, duration: 1500, essential: true }
   );
 }
@@ -4320,7 +4330,7 @@ function setViewMode(mode) {
   // on the way to any other mode (never on isobars->isobars re-renders,
   // e.g. a resort switch while already on this tab, which would otherwise
   // restart the same zoom-out animation pointlessly).
-  if (mode === 'isobars' && prevMode !== 'isobars') flyToNorthIsland();
+  if (mode === 'isobars' && prevMode !== 'isobars') flyToIsobarRegion();
   else if (mode !== 'isobars' && prevMode === 'isobars') flyToResortView();
 
   if (mode === 'hourly') {
