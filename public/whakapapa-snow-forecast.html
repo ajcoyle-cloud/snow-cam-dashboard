@@ -4098,13 +4098,10 @@ function normalizeLon(lon) {
   return l;
 }
 
-// Fetches the full 7-day hourly pressure_msl + 10m wind series for every
-// grid point in ONE batched request (hourly=, not current=) — the
-// animation timeline scrubs through this locally afterward rather than
-// re-fetching per frame. windspeed_10m/winddirection_10m ride along on the
-// same request/grid the pressure contours already use, for the streamline
-// overlay — no separate fetch. Returns { seriesGrid, windSpeedSeriesGrid,
-// windDirSeriesGrid, lats, lons, times }: each seriesGrid[r][c] is that
+// Fetches the full 7-day hourly pressure_msl series for every grid point in
+// ONE batched request (hourly=, not current=) — the animation timeline
+// scrubs through this locally afterward rather than re-fetching per frame.
+// Returns { seriesGrid, lats, lons, times }: seriesGrid[r][c] is that
 // point's own array of hourly values, aligned index-for-index with `times`
 // (every location shares the same time grid — same forecast_days/timezone
 // settings on the request — so one shared `times` array is enough).
@@ -4122,13 +4119,12 @@ async function fetchPressureTimeSeries(bbox) {
   for (const lat of lats) for (const lon of lons) { flatLat.push(lat.toFixed(4)); flatLon.push(normalizeLon(lon).toFixed(4)); }
   // The bbox spans several countries/timezones — 'auto' resolves each
   // location's own local timezone. Doesn't affect what we read back
-  // (pressure_msl/wind values, unaffected by how their timestamps are
+  // (pressure_msl values, unaffected by how their timestamps are
   // formatted) but keeps the request honest regardless.
-  const url = `https://api.open-meteo.com/v1/forecast?latitude=${flatLat.join(',')}&longitude=${flatLon.join(',')}&hourly=pressure_msl,windspeed_10m,winddirection_10m&forecast_days=7&timezone=auto`;
+  const url = `https://api.open-meteo.com/v1/forecast?latitude=${flatLat.join(',')}&longitude=${flatLon.join(',')}&hourly=pressure_msl&forecast_days=7&timezone=auto`;
 
   // Heavier response than the old current= snapshot (144 points x 168
-  // hours x 3 variables now) — more time/timeout headroom than a typical
-  // request here.
+  // hours) — more time/timeout headroom than a typical request here.
   const json = await fetchJsonCached(url, { timeoutMs: 20000, retries: 1 });
   if (!json) return null;
   const entries = Array.isArray(json) ? json : [json];
@@ -4137,21 +4133,17 @@ async function fetchPressureTimeSeries(bbox) {
   const times = entries.find((e) => e?.hourly?.time)?.hourly?.time;
   if (!times) return null;
 
-  const seriesGrid = [], windSpeedSeriesGrid = [], windDirSeriesGrid = [];
+  const seriesGrid = [];
   let i = 0;
   for (let r = 0; r < lats.length; r++) {
-    const pRow = [], wsRow = [], wdRow = [];
+    const row = [];
     for (let c = 0; c < lons.length; c++) {
       const h = entries[i++]?.hourly;
-      pRow.push(h?.pressure_msl ?? null);
-      wsRow.push(h?.windspeed_10m ?? null);
-      wdRow.push(h?.winddirection_10m ?? null);
+      row.push(h?.pressure_msl ?? null);
     }
-    seriesGrid.push(pRow);
-    windSpeedSeriesGrid.push(wsRow);
-    windDirSeriesGrid.push(wdRow);
+    seriesGrid.push(row);
   }
-  return { seriesGrid, windSpeedSeriesGrid, windDirSeriesGrid, lats, lons, times };
+  return { seriesGrid, lats, lons, times };
 }
 
 // Slices one hour's worth of values out of fetchPressureTimeSeries's
@@ -4384,110 +4376,6 @@ function isobarExtremaToGeoJSON(extrema) {
   };
 }
 
-// ── Wind streamlines ─────────────────────────────────────────────────────
-// Short flow-lines traced through the 10m wind field — subtle background
-// texture showing which way air is moving, not a dense particle field. A
-// real per-particle GPU simulation (the windy.com/earth.nullschool look) is
-// a much bigger lift — this is the cheaper option discussed and chosen: a
-// fixed set of short static paths, animated with the well-known "marching
-// dashes" trick (cycling line-dasharray on a timer) instead of actually
-// re-simulating motion every frame.
-const ISOBAR_WIND_SEED_COLS = 10;
-const ISOBAR_WIND_SEED_ROWS = 8;
-const ISOBAR_WIND_STREAMLINE_STEPS = 9;
-// Degrees per integration step — deliberately NOT scaled by real wind
-// speed: this is about showing DIRECTION at a glance, so a calm patch and
-// a gale both draw a similarly short line rather than calm areas vanishing
-// to a dot and gales stretching across the whole map.
-const ISOBAR_WIND_STEP_DEG = 0.6;
-
-// Meteorological convention: dirDeg is where the wind is blowing FROM, so
-// the velocity vector points the opposite way (hence the negatives).
-function windToUV(speed, dirDeg) {
-  const rad = (dirDeg * Math.PI) / 180;
-  return { u: -speed * Math.sin(rad), v: -speed * Math.cos(rad) };
-}
-
-// Slices one hour out of the raw speed/direction series into u/v component
-// grids — same idea as isobarGridAtHour, just converting to vector form
-// (needed for bilinear interpolation and integration below; speed+direction
-// alone can't be linearly interpolated across a cell without the vector
-// wrapping badly near 0/360).
-function isobarWindGridAtHour(windSpeedSeriesGrid, windDirSeriesGrid, hourIdx) {
-  const uGrid = [], vGrid = [];
-  for (let r = 0; r < windSpeedSeriesGrid.length; r++) {
-    const uRow = [], vRow = [];
-    for (let c = 0; c < windSpeedSeriesGrid[r].length; c++) {
-      const speed = windSpeedSeriesGrid[r][c]?.[hourIdx];
-      const dir = windDirSeriesGrid[r][c]?.[hourIdx];
-      if (typeof speed === 'number' && typeof dir === 'number') {
-        const { u, v } = windToUV(speed, dir);
-        uRow.push(u); vRow.push(v);
-      } else {
-        uRow.push(null); vRow.push(null);
-      }
-    }
-    uGrid.push(uRow); vGrid.push(vRow);
-  }
-  return { uGrid, vGrid };
-}
-
-// Bilinear lookup on the (coarse, ISOBAR_GRID_SIZE-square) u/v grids. lats
-// runs north->south (descending, see fetchPressureTimeSeries), lons
-// west->east (ascending, possibly unwrapped past 180). Returns null outside
-// the grid's own extent or if any surrounding corner has no data.
-function bilinearWindAt(lon, lat, uGrid, vGrid, lats, lons) {
-  if (lon < lons[0] || lon > lons[lons.length - 1]) return null;
-  if (lat > lats[0] || lat < lats[lats.length - 1]) return null;
-  let c = 0;
-  while (c < lons.length - 2 && lons[c + 1] < lon) c++;
-  let r = 0;
-  while (r < lats.length - 2 && lats[r + 1] > lat) r++;
-  const tx = (lon - lons[c]) / (lons[c + 1] - lons[c]);
-  const ty = (lats[r] - lat) / (lats[r] - lats[r + 1]);
-  const corners = [uGrid[r][c], uGrid[r][c + 1], uGrid[r + 1][c], uGrid[r + 1][c + 1],
-                    vGrid[r][c], vGrid[r][c + 1], vGrid[r + 1][c], vGrid[r + 1][c + 1]];
-  if (corners.some((x) => x == null)) return null;
-  const [u00, u10, u01, u11, v00, v10, v01, v11] = corners;
-  return {
-    u: u00 * (1 - tx) * (1 - ty) + u10 * tx * (1 - ty) + u01 * (1 - tx) * ty + u11 * tx * ty,
-    v: v00 * (1 - tx) * (1 - ty) + v10 * tx * (1 - ty) + v01 * (1 - tx) * ty + v11 * tx * ty,
-  };
-}
-
-// Simple forward Euler integration through the field, ISOBAR_WIND_STEP_DEG
-// at a time. Stops early on leaving the grid or hitting dead calm (nothing
-// meaningful to point at).
-function traceStreamline(startLon, startLat, uGrid, vGrid, lats, lons) {
-  const coords = [[startLon, startLat]];
-  let lon = startLon, lat = startLat;
-  for (let s = 0; s < ISOBAR_WIND_STREAMLINE_STEPS; s++) {
-    const w = bilinearWindAt(lon, lat, uGrid, vGrid, lats, lons);
-    if (!w) break;
-    const mag = Math.hypot(w.u, w.v);
-    if (mag < 0.01) break;
-    lon += (w.u / mag) * ISOBAR_WIND_STEP_DEG;
-    lat += (w.v / mag) * ISOBAR_WIND_STEP_DEG;
-    coords.push([lon, lat]);
-  }
-  return coords.length >= 2 ? coords : null;
-}
-
-function buildWindStreamlines(uGrid, vGrid, lats, lons) {
-  const features = [];
-  const lonMin = lons[0], lonMax = lons[lons.length - 1];
-  const latMin = lats[lats.length - 1], latMax = lats[0];
-  for (let r = 0; r < ISOBAR_WIND_SEED_ROWS; r++) {
-    for (let c = 0; c < ISOBAR_WIND_SEED_COLS; c++) {
-      const lon = lonMin + ((c + 0.5) / ISOBAR_WIND_SEED_COLS) * (lonMax - lonMin);
-      const lat = latMin + ((r + 0.5) / ISOBAR_WIND_SEED_ROWS) * (latMax - latMin);
-      const coords = traceStreamline(lon, lat, uGrid, vGrid, lats, lons);
-      if (coords) features.push({ type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: coords } });
-    }
-  }
-  return { type: 'FeatureCollection', features };
-}
-
 // Lazily adds the isobar source/layers on first use — mirrors how
 // radar-layer gets added on demand in radarDrawFrame(), including the same
 // "'satellite' layer existing" check for "the style has actually attached"
@@ -4495,17 +4383,6 @@ function buildWindStreamlines(uGrid, vGrid, lats, lons) {
 function ensureIsobarLayer() {
   if (!map || map.getSource('isobar-src')) return true;
   if (!map.getLayer('satellite')) return false;
-  // Wind streamlines added FIRST so they paint underneath the pressure
-  // isobars/labels/H-L markers — background texture, not the main read.
-  map.addSource('isobar-wind-src', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
-  map.addLayer({
-    id: 'isobar-wind-lines', type: 'line', source: 'isobar-wind-src',
-    paint: {
-      'line-color': 'rgba(255,255,255,0.45)', 'line-width': 1.1,
-      'line-dasharray': ISOBAR_WIND_DASH_SEQUENCE[0],
-    },
-    layout: { visibility: 'none', 'line-cap': 'round' },
-  });
   map.addSource('isobar-src', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
   map.addLayer({
     id: 'isobar-lines', type: 'line', source: 'isobar-src',
@@ -4550,37 +4427,9 @@ function ensureIsobarLayer() {
 function setIsobarLayerVisible(visible) {
   if (!map) return;
   const v = visible ? 'visible' : 'none';
-  if (map.getLayer('isobar-wind-lines')) map.setLayoutProperty('isobar-wind-lines', 'visibility', v);
   if (map.getLayer('isobar-lines')) map.setLayoutProperty('isobar-lines', 'visibility', v);
   if (map.getLayer('isobar-labels')) map.setLayoutProperty('isobar-labels', 'visibility', v);
   if (map.getLayer('isobar-extrema-labels')) map.setLayoutProperty('isobar-extrema-labels', 'visibility', v);
-  if (visible) isobarStartWindDashAnim(); else isobarStopWindDashAnim();
-}
-
-// "Marching dashes" — the well-known Mapbox/MapLibre GL trick for faking
-// motion on a line without a real particle simulation: step through a
-// short sequence of line-dasharray patterns whose gaps shift by half a
-// dash-length each step, so the pattern visually crawls forward. Runs
-// continuously while Isobars is visible (independent of the hourly
-// play/pause timeline — the wind should read as "currently flowing" even
-// on a single paused frame, not just during playback).
-const ISOBAR_WIND_DASH_SEQUENCE = [
-  [0, 4, 3], [0.5, 4, 2.5], [1, 4, 2], [1.5, 4, 1.5], [2, 4, 1], [2.5, 4, 0.5], [3, 4, 0],
-  [0, 0.5, 3, 3.5], [0, 1, 3, 3], [0, 1.5, 3, 2.5], [0, 2, 3, 2], [0, 2.5, 3, 1.5], [0, 3, 3, 1], [0, 3.5, 3, 0.5],
-];
-let isobarWindDashTimer = null;
-let isobarWindDashStep = 0;
-function isobarWindDashTick() {
-  if (!map || !map.getLayer('isobar-wind-lines')) return;
-  isobarWindDashStep = (isobarWindDashStep + 1) % ISOBAR_WIND_DASH_SEQUENCE.length;
-  map.setPaintProperty('isobar-wind-lines', 'line-dasharray', ISOBAR_WIND_DASH_SEQUENCE[isobarWindDashStep]);
-}
-function isobarStartWindDashAnim() {
-  if (isobarWindDashTimer) return;
-  isobarWindDashTimer = setInterval(isobarWindDashTick, 80);
-}
-function isobarStopWindDashAnim() {
-  if (isobarWindDashTimer) { clearInterval(isobarWindDashTimer); isobarWindDashTimer = null; }
 }
 
 // ── Isobars animation timeline (next 7 days) ────────────────────────────
@@ -4588,7 +4437,7 @@ function isobarStopWindDashAnim() {
 // radarStepFrame/radarTogglePlay etc.) — one fetch loads the whole 7-day
 // series, then each frame just slices+recontours locally (cheap: 144
 // points, ~10 levels), no per-frame network calls.
-let isobarSeries = null; // { seriesGrid, windSpeedSeriesGrid, windDirSeriesGrid, lats, lons, times } | null
+let isobarSeries = null; // { seriesGrid, lats, lons, times } | null
 let isobarFrameIndex = -1;
 let isobarPlayTimer = null;
 
@@ -4627,19 +4476,6 @@ function isobarRenderGrid(grid, lats, lons, labelText, sliderValue) {
   }
 }
 
-// Wind streamlines update once per real hour, not every interpolated
-// sub-step during autoplay — they're background texture showing roughly
-// which way air is flowing, not something that needs to track the
-// pressure blend's every 60ms tick.
-function isobarUpdateWindStreamlines(hourIdx) {
-  if (!map || !isobarSeries) return;
-  const src = map.getSource('isobar-wind-src');
-  if (!src) return;
-  const { windSpeedSeriesGrid, windDirSeriesGrid, lats, lons } = isobarSeries;
-  const { uGrid, vGrid } = isobarWindGridAtHour(windSpeedSeriesGrid, windDirSeriesGrid, hourIdx);
-  src.setData(buildWindStreamlines(uGrid, vGrid, lats, lons));
-}
-
 // Manual navigation (drag/step buttons) always lands on an exact real
 // hour — no interpolation here, so a dragged-to reading is always a true
 // forecast value, never a blended one.
@@ -4650,7 +4486,6 @@ function isobarDrawFrame(i) {
   const { seriesGrid, lats, lons, times } = isobarSeries;
   const grid = isobarGridAtHour(seriesGrid, i);
   isobarRenderGrid(grid, lats, lons, isobarFormatTs(times[i]), i);
-  isobarUpdateWindStreamlines(i);
 
   const slider = document.getElementById('isbtl-slider');
   slider.max = times.length - 1;
@@ -4698,7 +4533,6 @@ function isobarPlayTick() {
     // own resets fighting this loop's own frame/substep bookkeeping.
     isobarFrameIndex++;
     isobarPlaySubStep = 0;
-    isobarUpdateWindStreamlines(isobarFrameIndex);
     document.getElementById('isbtl-prev').disabled = isobarFrameIndex <= 0;
     document.getElementById('isbtl-next').disabled = isobarFrameIndex >= times.length - 1;
   }
