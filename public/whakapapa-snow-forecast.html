@@ -56,7 +56,7 @@
   #map { width: 100%; height: 100%; }
 
   /* ── Timeline scrubber (play/pause + draggable slider) ─────────────────── */
-  #timeline, #live-timeline, #radar-timeline {
+  #timeline, #live-timeline, #radar-timeline, #isobar-timeline {
     position: absolute; left: 20px; right: 20px; bottom: 20px; z-index: 10;
     display: flex; align-items: center; gap: 14px;
     background: rgba(0,0,0,0.6);
@@ -64,25 +64,25 @@
     border-radius: 30px; padding: 10px 18px;
     box-shadow: 0 6px 26px rgba(0,0,0,0.35);
   }
-  #live-timeline, #radar-timeline { display: none; }
-  #tl-play, #ltl-play, #rtl-play {
+  #live-timeline, #radar-timeline, #isobar-timeline { display: none; }
+  #tl-play, #ltl-play, #rtl-play, #isbtl-play {
     flex-shrink: 0; background: rgba(255,255,255,0.14); color: #fff; border: none;
     width: 38px; height: 38px; border-radius: 50%; cursor: pointer;
     font-size: 1rem; display: flex; align-items: center; justify-content: center;
     transition: background 0.15s;
   }
-  #tl-play:hover, #ltl-play:hover, #rtl-play:hover { background: rgba(255,255,255,0.26); }
-  #tl-slider, #ltl-slider, #rtl-slider {
+  #tl-play:hover, #ltl-play:hover, #rtl-play:hover, #isbtl-play:hover { background: rgba(255,255,255,0.26); }
+  #tl-slider, #ltl-slider, #rtl-slider, #isbtl-slider {
     flex: 1; -webkit-appearance: none; appearance: none;
     height: 6px; border-radius: 3px; background: rgba(255,255,255,0.25);
     cursor: pointer; outline: none;
   }
-  #tl-slider::-webkit-slider-thumb, #ltl-slider::-webkit-slider-thumb, #rtl-slider::-webkit-slider-thumb {
+  #tl-slider::-webkit-slider-thumb, #ltl-slider::-webkit-slider-thumb, #rtl-slider::-webkit-slider-thumb, #isbtl-slider::-webkit-slider-thumb {
     -webkit-appearance: none; width: 18px; height: 18px; border-radius: 50%;
     background: #fff; box-shadow: 0 2px 8px rgba(0,0,0,0.4); cursor: pointer;
     border: 3px solid #333;
   }
-  #tl-slider::-moz-range-thumb, #ltl-slider::-moz-range-thumb, #rtl-slider::-moz-range-thumb {
+  #tl-slider::-moz-range-thumb, #ltl-slider::-moz-range-thumb, #rtl-slider::-moz-range-thumb, #isbtl-slider::-moz-range-thumb {
     width: 18px; height: 18px; border-radius: 50%; background: #fff;
     box-shadow: 0 2px 8px rgba(0,0,0,0.4); cursor: pointer; border: 3px solid #333;
   }
@@ -93,7 +93,7 @@
   }
   .tl-step:hover:not(:disabled) { color: #fff; }
   .tl-step:disabled { opacity: 0.3; cursor: default; }
-  #tl-label, #ltl-label, #rtl-label {
+  #tl-label, #ltl-label, #rtl-label, #isbtl-label {
     flex-shrink: 0; color: #fff; font-size: 0.78rem; font-weight: 600;
     min-width: 118px; text-align: right; font-variant-numeric: tabular-nums;
   }
@@ -601,12 +601,12 @@
 
     /* Timeline pinned to the very bottom, painted above the drawer's
        background layer (which extends down behind it — see below). */
-    #timeline, #live-timeline, #radar-timeline {
+    #timeline, #live-timeline, #radar-timeline, #isobar-timeline {
       left: 12px; right: 12px; bottom: 14px;
       gap: 8px; padding: 8px 12px;
       z-index: 11;
     }
-    #tl-label, #ltl-label, #rtl-label { min-width: 0; font-size: 0.7rem; }
+    #tl-label, #ltl-label, #rtl-label, #isbtl-label { min-width: 0; font-size: 0.7rem; }
 
     /* ── Bottom-sheet drawer ──────────────────────────────────────────── */
     /* The drawer's own box now runs all the way to the true bottom of the
@@ -832,6 +832,13 @@
     <input type="range" id="rtl-slider" min="0" max="0" step="1" value="0">
     <button class="tl-step" id="rtl-next" onclick="radarStepFrame(1)">›</button>
     <span id="rtl-label">—</span>
+  </div>
+  <div id="isobar-timeline">
+    <button id="isbtl-play" onclick="isobarTogglePlay()">▶</button>
+    <button class="tl-step" id="isbtl-prev" onclick="isobarStepFrame(-1)">‹</button>
+    <input type="range" id="isbtl-slider" min="0" max="0" step="1" value="0">
+    <button class="tl-step" id="isbtl-next" onclick="isobarStepFrame(1)">›</button>
+    <span id="isbtl-label">—</span>
   </div>
   <div id="speed-select">
     <button class="speed-btn" data-speed="1" onclick="setSpeed(1)">1×</button>
@@ -4068,7 +4075,7 @@ function updateAccumMinSummary() {
 // crossing correctly as long as coordinates stay continuous, whereas
 // wrapping it here would make the box's east edge jump back to land next to
 // its west edge on screen. Only the actual Open-Meteo request (a real
-// geographic API that rejects lon > 180) normalises, in fetchPressureGrid.
+// geographic API that rejects lon > 180) normalises, in fetchPressureTimeSeries.
 //
 // Still deliberately low-resolution — the sample grid stays at its
 // original point count (kept CHEAP on purpose, same reasoning as before:
@@ -4091,7 +4098,14 @@ function normalizeLon(lon) {
   return l;
 }
 
-async function fetchPressureGrid(bbox) {
+// Fetches the full 7-day hourly pressure_msl series for every grid point in
+// ONE batched request (hourly=, not current=) — the animation timeline
+// scrubs through this locally afterward rather than re-fetching per frame.
+// Returns { seriesGrid, lats, lons, times }: seriesGrid[r][c] is that
+// point's own array of hourly values, aligned index-for-index with `times`
+// (every location shares the same time grid — same forecast_days/timezone
+// settings on the request — so one shared `times` array is enough).
+async function fetchPressureTimeSeries(bbox) {
   const lats = [], lons = [];
   for (let r = 0; r < ISOBAR_GRID_SIZE; r++) {
     lats.push(bbox.latMax - (r / (ISOBAR_GRID_SIZE - 1)) * (bbox.latMax - bbox.latMin));
@@ -4104,28 +4118,44 @@ async function fetchPressureGrid(bbox) {
   // returned below — only the outgoing request needs valid -180..180.
   for (const lat of lats) for (const lon of lons) { flatLat.push(lat.toFixed(4)); flatLon.push(normalizeLon(lon).toFixed(4)); }
   // The bbox spans several countries/timezones — 'auto' resolves each
-  // location's own local timezone rather than guessing one fixed zone for
-  // all of them. Doesn't actually matter for what we read back
-  // (current.pressure_msl is a plain number, unaffected by how its
-  // timestamp is formatted) but keeps the request honest regardless.
-  const url = `https://api.open-meteo.com/v1/forecast?latitude=${flatLat.join(',')}&longitude=${flatLon.join(',')}&current=pressure_msl&timezone=auto`;
+  // location's own local timezone. Doesn't affect what we read back
+  // (pressure_msl values, unaffected by how their timestamps are
+  // formatted) but keeps the request honest regardless.
+  const url = `https://api.open-meteo.com/v1/forecast?latitude=${flatLat.join(',')}&longitude=${flatLon.join(',')}&hourly=pressure_msl&forecast_days=7&timezone=auto`;
 
-  const json = await fetchJsonCached(url, { timeoutMs: 12000, retries: 1 });
+  // Heavier response than the old current= snapshot (144 points x 168
+  // hours) — more time/timeout headroom than a typical request here.
+  const json = await fetchJsonCached(url, { timeoutMs: 20000, retries: 1 });
   if (!json) return null;
   const entries = Array.isArray(json) ? json : [json];
   if (entries.length !== lats.length * lons.length) return null;
 
-  const grid = [];
+  const times = entries.find((e) => e?.hourly?.time)?.hourly?.time;
+  if (!times) return null;
+
+  const seriesGrid = [];
   let i = 0;
   for (let r = 0; r < lats.length; r++) {
     const row = [];
     for (let c = 0; c < lons.length; c++) {
-      const v = entries[i++]?.current?.pressure_msl;
-      row.push(typeof v === 'number' ? v : null);
+      const h = entries[i++]?.hourly;
+      row.push(h?.pressure_msl ?? null);
     }
-    grid.push(row);
+    seriesGrid.push(row);
   }
-  return { grid, lats, lons };
+  return { seriesGrid, lats, lons, times };
+}
+
+// Slices one hour's worth of values out of fetchPressureTimeSeries's
+// per-point arrays into a plain grid — the same { grid, lats, lons } shape
+// buildIsobarSegments/findPressureExtrema already expect, so a single
+// frame's rendering is identical to how the old current=-only snapshot
+// worked, just called once per animation frame instead of once total.
+function isobarGridAtHour(seriesGrid, hourIdx) {
+  return seriesGrid.map((row) => row.map((cellSeries) => {
+    const v = cellSeries?.[hourIdx];
+    return typeof v === 'number' ? v : null;
+  }));
 }
 
 // Standard marching-squares contourer — see scripts/isobar_poc.mjs for the
@@ -4389,6 +4419,83 @@ function setIsobarLayerVisible(visible) {
   if (map.getLayer('isobar-extrema-labels')) map.setLayoutProperty('isobar-extrema-labels', 'visibility', v);
 }
 
+// ── Isobars animation timeline (next 7 days) ────────────────────────────
+// Same play/step/slider shape as the Radar timeline (radarDrawFrame/
+// radarStepFrame/radarTogglePlay etc.) — one fetch loads the whole 7-day
+// series, then each frame just slices+recontours locally (cheap: 144
+// points, ~10 levels), no per-frame network calls.
+let isobarSeries = null; // { seriesGrid, lats, lons, times } | null
+let isobarFrameIndex = -1;
+let isobarPlayTimer = null;
+
+function isobarFormatTs(iso) {
+  const d = new Date(iso);
+  return d.toLocaleDateString('en-NZ', { weekday: 'short' }) + ' ' + fmtClock(d);
+}
+
+function isobarDrawFrame(i) {
+  if (!map || !isobarSeries || !isobarSeries.times[i]) return;
+  isobarFrameIndex = i;
+  const { seriesGrid, lats, lons, times } = isobarSeries;
+  const grid = isobarGridAtHour(seriesGrid, i);
+  const { min, max, levels, segments } = buildIsobarSegments(grid, lats, lons, ISOBAR_STEP_HPA);
+  const lines = buildSmoothedIsobarLines(segments);
+  map.getSource('isobar-src').setData(isobarLinesToGeoJSON(lines));
+  map.getSource('isobar-extrema-src').setData(isobarExtremaToGeoJSON(findPressureExtrema(grid, lats, lons)));
+
+  const slider = document.getElementById('isbtl-slider');
+  slider.max = times.length - 1;
+  slider.value = i;
+  document.getElementById('isbtl-prev').disabled = i <= 0;
+  document.getElementById('isbtl-next').disabled = i >= times.length - 1;
+  document.getElementById('isbtl-label').textContent = isobarFormatTs(times[i]);
+
+  const el = document.getElementById('info-isobars');
+  if (el && min != null) {
+    const spread = (max - min).toFixed(1);
+    const note = levels.length === 0
+      ? `<div class="si-row" style="opacity:0.75"><span class="l" style="flex:1">Spread here (${spread} hPa) is under one ${ISOBAR_STEP_HPA} hPa step — no isobar crosses this local a view right now.</span></div>`
+      : '';
+    el.innerHTML = `
+      <h3>Pressure (MSLP)</h3>
+      <div class="si-row"><span class="l">Showing</span><span class="v">${isobarFormatTs(times[i])}</span></div>
+      <div class="si-row"><span class="l">Range (this view)</span><span class="v">${min.toFixed(1)}–${max.toFixed(1)} hPa</span></div>
+      <div class="si-row"><span class="l">Isobar step</span><span class="v">${ISOBAR_STEP_HPA} hPa</span></div>
+      ${note}`;
+  }
+}
+
+function isobarStepFrame(delta) {
+  if (!isobarSeries) return;
+  isobarStopPlay();
+  isobarDrawFrame(Math.max(0, Math.min(isobarSeries.times.length - 1, isobarFrameIndex + delta)));
+}
+function isobarTogglePlay() {
+  if (isobarPlayTimer) isobarStopPlay(); else isobarStartPlay();
+}
+// Faster than Radar's 1s/frame: 168 hourly frames at 1s each would take
+// nearly 3 minutes to play through once — this is meant to read as "watch
+// the system move," not a real-time animation.
+const ISOBAR_PLAY_FRAME_MS = 350;
+function isobarStartPlay() {
+  if (!isobarSeries || isobarSeries.times.length < 2) return;
+  if (isobarFrameIndex >= isobarSeries.times.length - 1) isobarDrawFrame(0);
+  document.getElementById('isbtl-play').textContent = '⏸';
+  isobarPlayTimer = setInterval(() => {
+    if (isobarFrameIndex >= isobarSeries.times.length - 1) { isobarStopPlay(); return; }
+    isobarDrawFrame(isobarFrameIndex + 1);
+  }, ISOBAR_PLAY_FRAME_MS);
+}
+function isobarStopPlay() {
+  if (isobarPlayTimer) { clearInterval(isobarPlayTimer); isobarPlayTimer = null; }
+  const btn = document.getElementById('isbtl-play');
+  if (btn) btn.textContent = '▶';
+}
+document.getElementById('isbtl-slider').addEventListener('input', (e) => {
+  isobarStopPlay();
+  isobarDrawFrame(parseInt(e.target.value, 10));
+});
+
 let isobarRenderToken = 0;
 async function renderIsobarsView() {
   initMap();
@@ -4396,7 +4503,8 @@ async function renderIsobarsView() {
   if (el) el.innerHTML = `<h3>Pressure (MSLP)</h3><div class="si-row"><span class="l">Status</span><span class="v">Loading…</span></div>`;
 
   const token = ++isobarRenderToken;
-  const result = await fetchPressureGrid(ISOBAR_BBOX);
+  isobarStopPlay();
+  const result = await fetchPressureTimeSeries(ISOBAR_BBOX);
   // Bail if either a newer render superseded this one, OR the user has
   // since switched to a different mode entirely — without the latter check,
   // a slow fetch landing after the user tapped e.g. Live back on would flip
@@ -4409,28 +4517,24 @@ async function renderIsobarsView() {
 
   if (!result) {
     setIsobarLayerVisible(false);
+    isobarSeries = null;
     if (el) el.innerHTML = `<h3>Pressure (MSLP)</h3><div class="si-row"><span class="l">Status</span><span class="v">Unavailable</span></div>`;
     return;
   }
 
-  const { grid, lats, lons } = result;
-  const { min, max, levels, segments } = buildIsobarSegments(grid, lats, lons, ISOBAR_STEP_HPA);
-  const lines = buildSmoothedIsobarLines(segments);
-  map.getSource('isobar-src').setData(isobarLinesToGeoJSON(lines));
-  map.getSource('isobar-extrema-src').setData(isobarExtremaToGeoJSON(findPressureExtrema(grid, lats, lons)));
+  isobarSeries = result;
   setIsobarLayerVisible(true);
 
-  if (el) {
-    const spread = (max - min).toFixed(1);
-    const note = levels.length === 0
-      ? `<div class="si-row" style="opacity:0.75"><span class="l" style="flex:1">Spread here (${spread} hPa) is under one ${ISOBAR_STEP_HPA} hPa step — no isobar crosses this local a view right now.</span></div>`
-      : '';
-    el.innerHTML = `
-      <h3>Pressure (MSLP)</h3>
-      <div class="si-row"><span class="l">Range (this view)</span><span class="v">${min.toFixed(1)}–${max.toFixed(1)} hPa</span></div>
-      <div class="si-row"><span class="l">Isobar step</span><span class="v">${ISOBAR_STEP_HPA} hPa</span></div>
-      ${note}`;
-  }
+  // Start on whichever hour is closest to right now — forecast_days=7 runs
+  // from local midnight, not from this exact moment, and the animation is
+  // meant to show "from now, forward" rather than starting hours in the past.
+  const nowMs = Date.now();
+  let startIdx = 0, bestDiff = Infinity;
+  result.times.forEach((t, i) => {
+    const diff = Math.abs(new Date(t).getTime() - nowMs);
+    if (diff < bestDiff) { bestDiff = diff; startIdx = i; }
+  });
+  isobarDrawFrame(startIdx);
 }
 
 let viewMode = 'hourly'; // 'hourly' | 'accumulated'
@@ -4485,6 +4589,7 @@ function setViewMode(mode) {
   document.getElementById('info-isobars').style.display = mode === 'isobars' ? 'block' : 'none';
   document.getElementById('live-timeline').style.display = mode === 'live' ? 'flex' : 'none';
   document.getElementById('radar-timeline').style.display = mode === 'radar' ? 'flex' : 'none';
+  document.getElementById('isobar-timeline').style.display = mode === 'isobars' ? 'flex' : 'none';
   document.getElementById('map-screen').classList.toggle('live-mode', mode === 'live');
   document.getElementById('map-screen').classList.toggle('accum-mode', mode === 'accumulated');
   document.getElementById('map-screen').classList.toggle('radar-mode', mode === 'radar');
@@ -4531,6 +4636,7 @@ function setViewMode(mode) {
     if (pwDisplayTime != null) { pwDisplayTime = null; for (const id in pwState) pwRenderPill(id); }
   }
   if (mode !== 'radar') radarStopPlay();
+  if (mode !== 'isobars') isobarStopPlay();
   if (map && map.getLayer('radar-layer')) map.setLayoutProperty('radar-layer', 'visibility', mode === 'radar' ? 'visible' : 'none');
   // Isobars is the one mode whose camera framing differs from every other
   // mode's shared "resort close-up" — fly out to it on entry, and fly back
