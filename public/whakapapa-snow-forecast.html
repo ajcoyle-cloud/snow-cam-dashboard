@@ -350,9 +350,6 @@
   #live-legend .bar { height: 9px; border-radius: 5px; margin: 4px 0 3px; }
   #live-legend .ticks { display: flex; justify-content: space-between; font-size: 0.62rem; color: rgba(255,255,255,0.45); font-variant-numeric: tabular-nums; }
 
-  /* ── Isobars (pressure) panel ─────────────────────────────────────────── */
-  #info-isobars { display: none; }
-
   /* ── Accumulated snowfall info + depth legend ───────────────────────── */
   #info-accum { display: none; }
   #accum-total { font-size: 1.7rem; font-weight: 800; margin: 2px 0 12px; }
@@ -805,7 +802,6 @@
       <hr style="border: none; border-top: 1px solid rgba(255,255,255,0.12); margin: 12px 0 10px;">
       <div id="live-legend"></div>
     </div>
-    <div id="info-isobars"></div>
     </div>
   </div>
   <div id="fl-overlay"><span id="fl-caption"></span><svg></svg></div>
@@ -4534,27 +4530,13 @@ function isobarFormatTs(iso) {
 // autoplay) so both paths paint identically — only what grid/label/slider
 // position they pass in differs.
 function isobarRenderGrid(grid, lats, lons, labelText, sliderValue) {
-  const { min, max, levels, segments } = buildIsobarSegments(grid, lats, lons, ISOBAR_STEP_HPA);
+  const { segments } = buildIsobarSegments(grid, lats, lons, ISOBAR_STEP_HPA);
   const lines = buildSmoothedIsobarLines(segments);
   map.getSource('isobar-src').setData(isobarLinesToGeoJSON(lines));
   map.getSource('isobar-extrema-src').setData(isobarExtremaToGeoJSON(findPressureExtrema(grid, lats, lons)));
 
   document.getElementById('isbtl-slider').value = sliderValue;
   document.getElementById('isbtl-label').textContent = labelText;
-
-  const el = document.getElementById('info-isobars');
-  if (el && min != null) {
-    const spread = (max - min).toFixed(1);
-    const note = levels.length === 0
-      ? `<div class="si-row" style="opacity:0.75"><span class="l" style="flex:1">Spread here (${spread} hPa) is under one ${ISOBAR_STEP_HPA} hPa step — no isobar crosses this local a view right now.</span></div>`
-      : '';
-    el.innerHTML = `
-      <h3>Pressure (MSLP)</h3>
-      <div class="si-row"><span class="l">Showing</span><span class="v">${labelText}</span></div>
-      <div class="si-row"><span class="l">Range (this view)</span><span class="v">${min.toFixed(1)}–${max.toFixed(1)} hPa</span></div>
-      <div class="si-row"><span class="l">Isobar step</span><span class="v">${ISOBAR_STEP_HPA} hPa</span></div>
-      ${note}`;
-  }
 }
 
 // Manual navigation (drag/step buttons) always lands on an exact real
@@ -4642,8 +4624,6 @@ document.getElementById('isbtl-slider').addEventListener('input', (e) => {
 let isobarRenderToken = 0;
 async function renderIsobarsView() {
   initMap();
-  const el = document.getElementById('info-isobars');
-  if (el) el.innerHTML = `<h3>Pressure (MSLP)</h3><div class="si-row"><span class="l">Status</span><span class="v">Loading…</span></div>`;
 
   const token = ++isobarRenderToken;
   isobarStopPlay();
@@ -4661,7 +4641,6 @@ async function renderIsobarsView() {
   if (!result) {
     setIsobarLayerVisible(false);
     isobarSeries = null;
-    if (el) el.innerHTML = `<h3>Pressure (MSLP)</h3><div class="si-row"><span class="l">Status</span><span class="v">Unavailable</span></div>`;
     return;
   }
 
@@ -4729,7 +4708,6 @@ function setViewMode(mode) {
   document.getElementById('info-hourly').style.display = mode === 'hourly' ? 'block' : 'none';
   document.getElementById('info-accum').style.display = mode === 'accumulated' ? 'block' : 'none';
   document.getElementById('info-live').style.display = mode === 'live' ? 'block' : 'none';
-  document.getElementById('info-isobars').style.display = mode === 'isobars' ? 'block' : 'none';
   document.getElementById('live-timeline').style.display = mode === 'live' ? 'flex' : 'none';
   document.getElementById('radar-timeline').style.display = mode === 'radar' ? 'flex' : 'none';
   document.getElementById('isobar-timeline').style.display = mode === 'isobars' ? 'flex' : 'none';
