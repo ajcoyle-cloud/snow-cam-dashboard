@@ -1898,8 +1898,8 @@ function initMap() {
     // accumulated views; it has no meaning on the Live temperature map, so
     // skip it there.
     if (viewMode === 'live') return;
-    const rawElev = map.queryTerrainElevation(e.lngLat, { exaggerated: false });
-    if (rawElev == null || isNaN(rawElev)) return;
+    const rawElev = sampleElevationMedian(e.lngLat);
+    if (rawElev == null) return;
     // The DEM tileset occasionally returns a spurious spike well above the
     // real summit (e.g. 3241m read back for Ruapehu, whose true summit is
     // ~2797m) — clamp to this resort's configured upper bound so the probe
@@ -1923,8 +1923,8 @@ function initMap() {
   // the drape.
   map.on('click', (e) => {
     if (!isHighResMode) return;
-    const rawElevTap = map.queryTerrainElevation(e.lngLat, { exaggerated: false });
-    if (rawElevTap == null || isNaN(rawElevTap)) return;
+    const rawElevTap = sampleElevationMedian(e.lngLat);
+    if (rawElevTap == null) return;
     const elevTap = Math.min(rawElevTap, TOP_ELEV);
 
     const hours = hiResAccumWindow();
@@ -2689,6 +2689,35 @@ function orographicSampleGradient(lngLat, offsetM = 5) {
     gradEast: (elevE - elevW) / (2 * offsetM),
     gradNorth: (elevN - elevS) / (2 * offsetM),
   };
+}
+
+// A single map.queryTerrainElevation() read can disagree with what the
+// colour-relief layer actually painted at that same spot — the TOP_ELEV
+// clamp a few lines up from the generic click handler exists because the DEM
+// tileset is already known to occasionally return a spurious spike (e.g.
+// 3241m read back for a ~2797m summit). That same noise can just as easily
+// land the OTHER way at a lower elevation: a stray high reading right above
+// the snow line reports a real-looking cm figure in the pill for a pixel the
+// drape left transparent, because the drape's colour and the pill's number
+// both come from getDepthAtElevation but were fed two different elevations
+// for the same tap. Median of a small local cluster (same 5m real-world
+// offset orographicSampleGradient already uses to smooth DEM noise) throws
+// out one outlier sample instead of trusting it outright.
+function sampleElevationMedian(lngLat, offsetM = 5) {
+  const latRad = (lngLat.lat * Math.PI) / 180;
+  const dLat = offsetM / 111320;
+  const dLng = offsetM / (111320 * Math.cos(latRad));
+  const q = (lng, lat) => map.queryTerrainElevation({ lng, lat }, { exaggerated: false });
+  const samples = [
+    q(lngLat.lng, lngLat.lat),
+    q(lngLat.lng + dLng, lngLat.lat),
+    q(lngLat.lng - dLng, lngLat.lat),
+    q(lngLat.lng, lngLat.lat + dLat),
+    q(lngLat.lng, lngLat.lat - dLat),
+  ].filter((v) => v != null && !isNaN(v));
+  if (samples.length === 0) return null;
+  samples.sort((a, b) => a - b);
+  return samples[Math.floor(samples.length / 2)];
 }
 
 let orographicSnowActive = false;
