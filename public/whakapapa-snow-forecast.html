@@ -4101,20 +4101,17 @@ function normalizeLon(lon) {
 }
 
 // Fetches one horizontal band of the grid (a subset of rows, every
-// column) for ONE hourly variable — see fetchPressureTimeSeries below for
-// why the full grid is split into several of these run in parallel rather
-// than one request, and why pressure and temperature are two entirely
-// separate sets of chunk requests rather than one variable riding along
-// with the other. Returns { rows, times } or null if this band's request
-// failed.
-async function fetchWeatherChunk(latsChunk, lons, hourlyVar) {
+// column) — see fetchPressureTimeSeries below for why the full grid is
+// split into several of these run in parallel rather than one request.
+// Returns { rows, times } or null if this band's request failed.
+async function fetchPressureChunk(latsChunk, lons) {
   const flatLat = [], flatLon = [];
   for (const lat of latsChunk) for (const lon of lons) { flatLat.push(lat.toFixed(4)); flatLon.push(normalizeLon(lon).toFixed(4)); }
   // The bbox spans several countries/timezones — 'auto' resolves each
   // location's own local timezone. Doesn't affect what we read back
-  // (a plain number, unaffected by how its timestamp is formatted) but
-  // keeps the request honest regardless.
-  const url = `https://api.open-meteo.com/v1/forecast?latitude=${flatLat.join(',')}&longitude=${flatLon.join(',')}&hourly=${hourlyVar}&forecast_days=7&timezone=auto`;
+  // (pressure_msl values, unaffected by how their timestamps are
+  // formatted) but keeps the request honest regardless.
+  const url = `https://api.open-meteo.com/v1/forecast?latitude=${flatLat.join(',')}&longitude=${flatLon.join(',')}&hourly=pressure_msl&forecast_days=7&timezone=auto`;
   const json = await fetchJsonCached(url, { timeoutMs: 20000, retries: 1 });
   if (!json) return null;
   const entries = Array.isArray(json) ? json : [json];
@@ -4129,29 +4126,25 @@ async function fetchWeatherChunk(latsChunk, lons, hourlyVar) {
     const row = [];
     for (let c = 0; c < lons.length; c++) {
       const h = entries[i++]?.hourly;
-      row.push(h?.[hourlyVar] ?? null);
+      row.push(h?.pressure_msl ?? null);
     }
     rows.push(row);
   }
   return { rows, times };
 }
 
-// Fetches one variable's full 7-day hourly series for every grid point,
+// Fetches the full 7-day hourly pressure_msl series for every grid point,
 // split into ISOBAR_FETCH_CHUNKS row-bands fetched in PARALLEL rather than
 // one request for the whole grid — a single 576-point (24x24) request
 // broke in production, almost certainly some Open-Meteo limit on batch
 // size/response payload. Each chunk is sized to exactly match
-// 12x12=144 points of ONE variable, the shape already proven to work as a
-// single request — bundling a second variable (temperature_2m) into the
-// same chunk requests roughly doubled that payload and broke again, so
-// pressure and temperature are now two fully independent sets of chunked
-// requests instead, each staying at the proven-safe single-variable size.
+// 12x12=144 points, the shape already proven to work as a single request.
 // If one chunk's request fails, its rows come back null rather than the
 // whole fetch failing — the contouring code already treats null grid
 // cells as "no data here", so the result is a gap in that one band, not
 // the entire view going blank.
-// Returns { seriesGrid, lats, lons, times } for that one variable.
-async function fetchGriddedSeries(bbox, hourlyVar) {
+// Returns { seriesGrid, lats, lons, times } | null.
+async function fetchPressureTimeSeries(bbox) {
   const lats = [], lons = [];
   for (let r = 0; r < ISOBAR_GRID_SIZE; r++) {
     lats.push(bbox.latMax - (r / (ISOBAR_GRID_SIZE - 1)) * (bbox.latMax - bbox.latMin));
@@ -4164,7 +4157,7 @@ async function fetchGriddedSeries(bbox, hourlyVar) {
   const chunkStarts = [];
   for (let start = 0; start < ISOBAR_GRID_SIZE; start += rowsPerChunk) chunkStarts.push(start);
   const chunks = await Promise.all(
-    chunkStarts.map((start) => fetchWeatherChunk(lats.slice(start, start + rowsPerChunk), lons, hourlyVar))
+    chunkStarts.map((start) => fetchPressureChunk(lats.slice(start, start + rowsPerChunk), lons))
   );
 
   const times = chunks.map((c) => c?.times).find(Boolean);
@@ -4182,32 +4175,6 @@ async function fetchGriddedSeries(bbox, hourlyVar) {
   });
 
   return { seriesGrid, lats, lons, times };
-}
-
-// Fetches pressure and temperature as two fully independent gridded
-// fetches — see fetchGriddedSeries for why each is its own set of 4
-// chunked requests rather than one combined fetch. SEQUENCED, not run
-// together via Promise.all: firing all 8 chunk requests at once (4
-// pressure + 4 temperature simultaneously) reintroduced the exact
-// "Unavailable" failure this splitting was meant to fix — temperature
-// came back entirely empty every time while pressure (identical request
-// shape) kept succeeding, which points at a concurrent-request limit
-// rather than a per-request size one. Doing temperature only after
-// pressure has already finished keeps at most 4 requests in flight at
-// once, the level already proven to work — at the cost of the whole
-// fetch taking roughly twice as long. Also skips the temperature fetch
-// entirely if pressure itself already failed, since there's nothing to
-// show either way.
-// Returns { seriesGrid, tempSeriesGrid, lats, lons, times } | null.
-async function fetchPressureTimeSeries(bbox) {
-  const pressure = await fetchGriddedSeries(bbox, 'pressure_msl');
-  if (!pressure) return null;
-  const temp = await fetchGriddedSeries(bbox, 'temperature_2m');
-  // A grid of nulls (same shape) if temperature failed entirely — the
-  // cold-air contour naturally produces zero segments over an all-null
-  // grid, so the boundary line just doesn't appear rather than crashing.
-  const tempSeriesGrid = temp ? temp.seriesGrid : pressure.seriesGrid.map((row) => row.map(() => null));
-  return { seriesGrid: pressure.seriesGrid, tempSeriesGrid, lats: pressure.lats, lons: pressure.lons, times: pressure.times };
 }
 
 // Slices one hour's worth of values out of fetchPressureTimeSeries's
@@ -4483,27 +4450,6 @@ function isobarExtremaToGeoJSON(extrema) {
   };
 }
 
-// ── Cold-air boundary line ──────────────────────────────────────────────
-// A single thick line at one FIXED threshold (0C) — not a filled wash, not
-// a gradient — same idea as a cold-front line on a real synoptic chart:
-// you're either on the cold side of it or you aren't. Reuses the exact
-// same contour/stitch/smooth pipeline already built and verified for the
-// pressure isobars (isobarContourLevel/stitchSegmentsToLines/
-// chaikinSmooth), just run once at a single temperature level instead of
-// in a loop over several pressure levels — no new tracing logic needed.
-const ISOBAR_TEMP_THRESHOLD_C = 0;
-
-function buildTempBoundaryGeoJSON(tempGrid, lats, lons) {
-  const segments = isobarContourLevel(tempGrid, lats, lons, ISOBAR_TEMP_THRESHOLD_C);
-  const lines = stitchSegmentsToLines(segments).map((l) => ({ ...l, coords: chaikinSmooth(l.coords) }));
-  return {
-    type: 'FeatureCollection',
-    features: lines.filter((l) => l.coords.length >= 2).map((l) => ({
-      type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: l.coords },
-    })),
-  };
-}
-
 // Lazily adds the isobar source/layers on first use — mirrors how
 // radar-layer gets added on demand in radarDrawFrame(), including the same
 // "'satellite' layer existing" check for "the style has actually attached"
@@ -4511,14 +4457,6 @@ function buildTempBoundaryGeoJSON(tempGrid, lats, lons) {
 function ensureIsobarLayer() {
   if (!map || map.getSource('isobar-src')) return true;
   if (!map.getLayer('satellite')) return false;
-  // Cold-air boundary line added FIRST so it paints underneath the
-  // pressure isobars/labels/H-L markers.
-  map.addSource('isobar-temp-src', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
-  map.addLayer({
-    id: 'isobar-temp-line', type: 'line', source: 'isobar-temp-src',
-    paint: { 'line-color': '#4db8ff', 'line-width': 4 },
-    layout: { visibility: 'none', 'line-cap': 'round', 'line-join': 'round' },
-  });
   map.addSource('isobar-src', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
   map.addLayer({
     id: 'isobar-lines', type: 'line', source: 'isobar-src',
@@ -4570,7 +4508,6 @@ function ensureIsobarLayer() {
 function setIsobarLayerVisible(visible) {
   if (!map) return;
   const v = visible ? 'visible' : 'none';
-  if (map.getLayer('isobar-temp-line')) map.setLayoutProperty('isobar-temp-line', 'visibility', v);
   if (map.getLayer('isobar-lines')) map.setLayoutProperty('isobar-lines', 'visibility', v);
   if (map.getLayer('isobar-labels')) map.setLayoutProperty('isobar-labels', 'visibility', v);
   if (map.getLayer('isobar-extrema-labels')) map.setLayoutProperty('isobar-extrema-labels', 'visibility', v);
@@ -4581,7 +4518,7 @@ function setIsobarLayerVisible(visible) {
 // radarStepFrame/radarTogglePlay etc.) — one fetch loads the whole 7-day
 // series, then each frame just slices+recontours locally (cheap: 144
 // points, ~10 levels), no per-frame network calls.
-let isobarSeries = null; // { seriesGrid, tempSeriesGrid, lats, lons, times } | null
+let isobarSeries = null; // { seriesGrid, lats, lons, times } | null
 let isobarFrameIndex = -1;
 let isobarPlayTimer = null;
 
@@ -4616,49 +4553,13 @@ function isobarRenderGrid(grid, lats, lons, labelText, sliderValue) {
       <div class="si-row"><span class="l">Showing</span><span class="v">${labelText}</span></div>
       <div class="si-row"><span class="l">Range (this view)</span><span class="v">${min.toFixed(1)}–${max.toFixed(1)} hPa</span></div>
       <div class="si-row"><span class="l">Isobar step</span><span class="v">${ISOBAR_STEP_HPA} hPa</span></div>
-      ${note}
-      <div id="isobar-temp-status"></div>`;
+      ${note}`;
   }
 }
 
 // Manual navigation (drag/step buttons) always lands on an exact real
 // hour — no interpolation here, so a dragged-to reading is always a true
 // forecast value, never a blended one.
-// Cold-air boundary line updates once per real hour, not every
-// interpolated sub-step during autoplay — same reasoning as the
-// (now-removed) wind streamlines had: it's background context, not
-// something that needs to track the pressure blend's every 60ms tick.
-function isobarUpdateTempOverlay(hourIdx) {
-  if (!map || !isobarSeries) return;
-  const src = map.getSource('isobar-temp-src');
-  if (!src) return;
-  const { tempSeriesGrid, lats, lons } = isobarSeries;
-  const tempGrid = isobarGridAtHour(tempSeriesGrid, hourIdx);
-  const geojson = buildTempBoundaryGeoJSON(tempGrid, lats, lons);
-  src.setData(geojson);
-
-  // Reports the actual temperature range so "no line showing" is
-  // distinguishable from "fetch/render actually broke" — this box is
-  // mostly open ocean (Tasman/Southern Ocean/Pacific), where 2m air temp
-  // is moderated by sea surface temperature and can easily stay above 0C
-  // even at high southern latitudes in winter, unlike over Antarctic land
-  // or the continental interior. A genuinely absent line here can be
-  // correct, not broken.
-  const el = document.getElementById('isobar-temp-status');
-  if (!el) return;
-  const values = tempGrid.flat().filter((v) => v != null);
-  if (values.length === 0) {
-    el.innerHTML = `<div class="si-row" style="opacity:0.75"><span class="l" style="flex:1">Temperature data unavailable this hour — cold-air line can't be drawn.</span></div>`;
-    return;
-  }
-  const tMin = Math.min(...values), tMax = Math.max(...values);
-  const crossed = geojson.features.length > 0;
-  el.innerHTML = `
-    <hr style="border: none; border-top: 1px solid rgba(255,255,255,0.12); margin: 10px 0 8px;">
-    <div class="si-row"><span class="l">2m temp range</span><span class="v">${tMin.toFixed(1)}–${tMax.toFixed(1)}°C</span></div>
-    ${crossed ? '' : `<div class="si-row" style="opacity:0.75"><span class="l" style="flex:1">Whole view stays ${tMin > ISOBAR_TEMP_THRESHOLD_C ? 'above' : 'below'} ${ISOBAR_TEMP_THRESHOLD_C}°C — no cold-air line to draw this hour (mostly open ocean here, which rarely crosses freezing even this far south).</span></div>`}`;
-}
-
 function isobarDrawFrame(i) {
   if (!map || !isobarSeries || !isobarSeries.times[i]) return;
   isobarFrameIndex = i;
@@ -4666,7 +4567,6 @@ function isobarDrawFrame(i) {
   const { seriesGrid, lats, lons, times } = isobarSeries;
   const grid = isobarGridAtHour(seriesGrid, i);
   isobarRenderGrid(grid, lats, lons, isobarFormatTs(times[i]), i);
-  isobarUpdateTempOverlay(i);
 
   const slider = document.getElementById('isbtl-slider');
   slider.max = times.length - 1;
@@ -4714,7 +4614,6 @@ function isobarPlayTick() {
     // own resets fighting this loop's own frame/substep bookkeeping.
     isobarFrameIndex++;
     isobarPlaySubStep = 0;
-    isobarUpdateTempOverlay(isobarFrameIndex);
     document.getElementById('isbtl-prev').disabled = isobarFrameIndex <= 0;
     document.getElementById('isbtl-next').disabled = isobarFrameIndex >= times.length - 1;
   }
