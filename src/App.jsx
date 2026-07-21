@@ -45,7 +45,7 @@ const getWeatherIcon = (pictocode) => {
   if (pictocode === 4) return '☁️'
   if (pictocode === 5 || pictocode === 6) return '🌫️'
   if (pictocode === 7 || pictocode === 8 || pictocode === 9 || pictocode === 10) return '🌧️'
-  if (pictocode === 11 || pictocode === 12 || pictocode === 13 || pictocode === 14) return '❄️'
+  if (pictocode === 11 || pictocode === 12 || pictocode === 13 || pictocode === 14) return '❄'
   if (pictocode === 15 || pictocode === 16 || pictocode === 17 || pictocode === 18) return '🌨️'
   if (pictocode === 19 || pictocode === 20 || pictocode === 21 || pictocode === 22) return '⛈️'
   return '❓'
@@ -60,7 +60,7 @@ const getWeatherConditionIcon = (wmoCode) => {
   if (wmoCode <= 59) return '🌧️' // drizzle
   if (wmoCode <= 67) return '🌧️' // rain (incl. freezing rain 66-67)
   if (wmoCode <= 69) return '🌨️' // freezing drizzle heavy / sleet
-  if (wmoCode <= 77) return '❄️' // snow, ice crystals, ice pellets
+  if (wmoCode <= 77) return '❄' // snow, ice crystals, ice pellets (no VS16 — this codepoint's default presentation is text/monochrome; forcing emoji presentation renders as a blank tofu box on systems whose emoji font lacks this specific glyph)
   if (wmoCode <= 79) return '🌨️' // ice pellets / snow grains
   if (wmoCode <= 82) return '🌧️' // rain showers
   if (wmoCode <= 84) return '🌨️' // rain and snow showers
@@ -915,12 +915,14 @@ function CameraCard({ camera, allCameras = [] }) {
                 </>
               )}
             </div>
-            <SnowReportSummary
-              location={activeCam.location}
-              expanded={reportExpanded}
-              onExpand={handleExpandReport}
-              onCollapse={handleCollapseReport}
-            />
+            {activeCam.location !== 'Whakapapa' && activeCam.location !== 'Turoa' && (
+              <SnowReportSummary
+                location={activeCam.location}
+                expanded={reportExpanded}
+                onExpand={handleExpandReport}
+                onCollapse={handleCollapseReport}
+              />
+            )}
             </div>
           </div>
         </div>

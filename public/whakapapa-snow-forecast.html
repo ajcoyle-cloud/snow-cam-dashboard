@@ -231,10 +231,13 @@
     position: absolute; top: 20px; left: calc(50% + 8px); z-index: 45;
     display: flex; gap: 10px;
     /* Safety net for syncTopControlsLayout()'s inline max-width (JS, see
-       below) — on a squeeze, pills scroll into view instead of overlapping
-       the model switch. Scrollbar hidden since this is a compact pill row,
-       not a scroll affordance users are meant to notice. */
-    overflow-x: auto; scrollbar-width: none;
+       below): when mode-switch + period-switch together don't fit in the
+       space left of the model switch, period-switch WRAPS onto its own row
+       below rather than being scrolled out of view. A previous version used
+       overflow-x:auto with a hidden scrollbar here, which just silently cut
+       pills off with no indication more existed — that's the "controls
+       getting cropped" bug; wrapping keeps every pill visible instead. */
+    flex-wrap: wrap; row-gap: 8px;
   }
   #top-controls::-webkit-scrollbar { display: none; }
   /* height:38px + box-sizing:border-box makes this match the resort switcher,
@@ -1770,7 +1773,26 @@ function initMap() {
         {
           // Forecasted snow coverage, tinted by elevation from the snow line
           // (freezing level − 300m) up to the summit, transparent below.
-          id: 'snow-relief', type: 'color-relief', source: 'terrain',
+          //
+          // The ramp (buildAccumRamp/buildSnowRamp) is fit entirely from THIS
+          // resort's own forecast — there's no real gridded precipitation
+          // field behind it, just "how much did/will Whakapapa get, mapped
+          // onto whatever elevation the DEM reports at each pixel". Fine
+          // right around the resort, where the assumption "same storm" holds.
+          // But color-relief paints the ENTIRE 'terrain' source with no
+          // horizontal distance falloff at all (its input is purely
+          // ['elevation'] — MapLibre's style spec has no "distance from a
+          // point" expression to gate it with) — so zooming/panning out far
+          // enough to see e.g. the Kaimanawa Range or Lake Taupo (60-90km
+          // away) paints those hills with Whakapapa's own storm total the
+          // moment they cross ITS snow line, regardless of what that area's
+          // own forecast actually says (reported bug: "11.4cm near Lake
+          // Taupo" that the per-location tables don't support). minzoom
+          // caps how far out this can be seen before the misleading colour
+          // disappears — real fix would need a genuine spatial precip grid
+          // (like the Isobars feature's gridded fetch), not just an
+          // elevation ramp.
+          id: 'snow-relief', type: 'color-relief', source: 'terrain', minzoom: 11,
           paint: { 'color-relief-color': ['interpolate', ['linear'], ['elevation'], 0, 'rgba(255,255,255,0)'] }
         }
       ],
