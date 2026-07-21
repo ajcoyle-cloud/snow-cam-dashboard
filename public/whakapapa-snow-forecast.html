@@ -423,41 +423,24 @@
     border: 2px solid #fff; box-shadow: 0 1px 4px rgba(0,0,0,0.5);
   }
 
-  /* ── "Track Me" GPS marker — bright blue dot + expanding pulse ring when
-     no compass heading is available (same language as Google Maps' own-
-     location dot), swapping to a rotated arrow once heading.has-heading is
-     set (see onGpsPosition() — gpsMarker.setRotation() rotates this whole
-     element, so the arrow just has to point "up" at 0deg). Same bright blue
-     as the .gps-trail-line history line, so the live position reads as the
-     current end of that line. */
+  /* ── "Track Me" GPS marker — blue dot + expanding pulse ring, same
+     language as Google Maps' own-location dot, see startGpsTracking() ───── */
   .gps-me-marker { position: relative; width: 18px; height: 18px; }
   .gps-me-dot {
     position: absolute; inset: 0; border-radius: 50%;
-    background: #0a84ff; border: 2px solid #fff;
+    background: #4285f4; border: 2px solid #fff;
     box-shadow: 0 1px 6px rgba(0,0,0,0.5);
   }
   .gps-me-pulse {
     position: absolute; top: 50%; left: 50%; width: 36px; height: 36px;
     margin: -18px 0 0 -18px; border-radius: 50%;
-    background: rgba(10,132,255,0.35);
+    background: rgba(66,133,244,0.35);
     animation: gps-me-pulse-anim 2s ease-out infinite;
   }
   @keyframes gps-me-pulse-anim {
     0% { transform: scale(0.3); opacity: 0.8; }
     100% { transform: scale(1); opacity: 0; }
   }
-  .gps-me-arrow {
-    display: none;
-    position: absolute; top: 50%; left: 50%; width: 28px; height: 28px;
-    margin: -14px 0 0 -14px;
-    background: #0a84ff;
-    clip-path: polygon(50% 0%, 100% 100%, 50% 76%, 0% 100%);
-    border: 1.5px solid #fff;
-    box-shadow: 0 1px 6px rgba(0,0,0,0.5);
-  }
-  .gps-me-marker.has-heading .gps-me-arrow { display: block; }
-  .gps-me-marker.has-heading .gps-me-dot,
-  .gps-me-marker.has-heading .gps-me-pulse { display: none; }
 
   /* ── Other-resort navigation pills (shown when zoomed out) ─────────────── */
   /* The pill itself used to sit centred right on the resort's coordinate,
@@ -1933,10 +1916,6 @@ function initMap() {
     // 'resort-lifts-line') already exist. Declared later in this script
     // (function-hoisted, safe to call from here).
     restoreMapSettings();
-    // Draw whatever GPS history is already saved (from earlier Track Me
-    // sessions, same-origin localStorage) so returning to the map shows the
-    // trip so far even before tapping Track Me again.
-    restoreGpsHistoryLine();
   });
 
   map.addControl(new maplibregl.NavigationControl({ visualizePitch: true, showZoom: true, showCompass: true }), 'top-right');
@@ -6752,65 +6731,16 @@ window.addEventListener('message', (event) => {
   if (event.data?.type === 'set-view-mode' && event.data?.mode) setViewMode(event.data.mode);
 });
 
-// ── "Track Me" — live GPS position + persistent history line on the 3D
-// terrain ────────────────────────────────────────────────────────────────
+// ── "Track Me" — live GPS position plotted on the 3D terrain ───────────────
 // Driven by the React-layer TrackMeToggle (App.jsx): it posts start/stop
 // messages and this iframe owns the actual navigator.geolocation call, since
 // that's what the permission prompt/grant is scoped to. Reports status back
 // via postMessage so the toggle button can show granted/denied/tracking
 // state without duplicating any geolocation logic on the React side.
-//
-// Every recorded fix is saved to localStorage (same-origin, so it's shared
-// across every resort's iframe, not scoped to whichever ?resort= is
-// currently loaded) grouped into "runs" — one run per start/stop tracking
-// session — so a later feature can list/replay/recolour them separately.
-// For now every run's points are just concatenated in order into a single
-// bright blue line, current session included, and the line is never
-// cleared by stopping — only by actually deleting history, which isn't
-// wired up to anything yet.
-const GPS_HISTORY_KEY = 'sc-gps-history';
-const GPS_HISTORY_MAX_POINTS = 20000; // across all runs combined — oldest whole runs get dropped past this
-
 let gpsWatchId = null;
 let gpsMarker = null;
+let gpsTrailCoords = [];
 let gpsFollowing = false;
-let gpsHistory = null; // { runs: [{ id, startedAt, points: [[lng,lat,ts],...] }] } — lazily loaded, single copy for this iframe's lifetime
-let gpsCurrentRun = null; // the in-progress run while tracking; also lives inside gpsHistory.runs once it has its first point
-
-function loadGpsHistoryFromStorage() {
-  try {
-    const raw = JSON.parse(localStorage.getItem(GPS_HISTORY_KEY));
-    if (raw && Array.isArray(raw.runs)) return raw;
-  } catch (e) {}
-  return { runs: [] };
-}
-
-function getGpsHistory() {
-  if (!gpsHistory) gpsHistory = loadGpsHistoryFromStorage();
-  return gpsHistory;
-}
-
-function saveGpsHistory(history) {
-  let total = history.runs.reduce((n, r) => n + r.points.length, 0);
-  while (total > GPS_HISTORY_MAX_POINTS && history.runs.length > 1) {
-    total -= history.runs.shift().points.length;
-  }
-  try {
-    localStorage.setItem(GPS_HISTORY_KEY, JSON.stringify(history));
-  } catch (e) {
-    // Quota exceeded — drop the oldest run and try once more.
-    if (history.runs.length > 1) {
-      history.runs.shift();
-      try { localStorage.setItem(GPS_HISTORY_KEY, JSON.stringify(history)); } catch (e2) {}
-    }
-  }
-}
-
-function gpsHistoryLineCoords(history) {
-  const coords = [];
-  for (const run of history.runs) for (const p of run.points) coords.push([p[0], p[1]]);
-  return coords;
-}
 
 function ensureGpsTrailLayer() {
   if (map.getSource('gps-trail')) return;
@@ -6818,66 +6748,38 @@ function ensureGpsTrailLayer() {
   map.addLayer({
     id: 'gps-trail-line', type: 'line', source: 'gps-trail',
     layout: { 'line-join': 'round', 'line-cap': 'round' },
-    paint: { 'line-color': '#0a84ff', 'line-width': 5, 'line-opacity': 0.95 },
+    paint: { 'line-color': '#4285f4', 'line-width': 4, 'line-opacity': 0.85 },
   });
-}
-
-function setGpsTrailData(history) {
-  const src = map.getSource('gps-trail');
-  if (src) src.setData({ type: 'Feature', geometry: { type: 'LineString', coordinates: gpsHistoryLineCoords(history) } });
-}
-
-// Draws whatever was already saved from earlier sessions — called once on
-// map load, before any tracking has (re)started this visit, so returning to
-// the map shows the trip so far even before tapping Track Me again.
-function restoreGpsHistoryLine() {
-  const history = getGpsHistory();
-  if (!history.runs.length) return;
-  ensureGpsTrailLayer();
-  setGpsTrailData(history);
-}
-
-function gpsMarkerEl() {
-  const el = document.createElement('div');
-  el.className = 'gps-me-marker';
-  el.innerHTML = '<div class="gps-me-pulse"></div><div class="gps-me-arrow"></div><div class="gps-me-dot"></div>';
-  return el;
 }
 
 function onGpsPosition(pos) {
   // A position fix can arrive before the map/style has finished loading
   // (geolocation and the CDN'd maplibre-gl + terrain style race each other
-  // on startup), or after stopGpsTracking() already cleared gpsCurrentRun
-  // (a straggling callback) — drop it rather than throwing.
-  if (!map || !mapStyleReady || !gpsCurrentRun) return;
+  // on startup) — drop this fix rather than throwing; the next watchPosition
+  // callback (a few seconds later) will land once the map exists.
+  if (!map || !mapStyleReady) return;
 
   const { latitude: lat, longitude: lng, accuracy, speed, heading } = pos.coords;
   const coord = [lng, lat];
-  // heading is only non-null once the device is actually moving with a fix
-  // on its direction of travel — falls back to the plain pulsing dot until then.
-  const hasHeading = typeof heading === 'number' && !Number.isNaN(heading);
 
   if (!gpsMarker) {
     ensureGpsTrailLayer();
-    gpsMarker = new maplibregl.Marker({
-      element: gpsMarkerEl(), anchor: 'center', rotationAlignment: 'map', pitchAlignment: 'map',
-    }).setLngLat(coord).addTo(map);
+    const el = document.createElement('div');
+    el.className = 'gps-me-marker';
+    el.innerHTML = '<div class="gps-me-pulse"></div><div class="gps-me-dot"></div>';
+    gpsMarker = new maplibregl.Marker({ element: el, anchor: 'center' }).setLngLat(coord).addTo(map);
   } else {
     gpsMarker.setLngLat(coord);
   }
-  gpsMarker.getElement().classList.toggle('has-heading', hasHeading);
-  if (hasHeading) gpsMarker.setRotation(heading);
 
   // Only append to the trail once we've actually moved a few metres, so a
-  // stationary phone doesn't spam the history with duplicate points.
-  const runPoints = gpsCurrentRun.points;
-  const last = runPoints[runPoints.length - 1];
+  // stationary phone doesn't spam the line source with duplicate points.
+  const last = gpsTrailCoords[gpsTrailCoords.length - 1];
   if (!last || Math.abs(last[0] - lng) > 0.00002 || Math.abs(last[1] - lat) > 0.00002) {
-    runPoints.push([lng, lat, pos.timestamp]);
-    const history = getGpsHistory();
-    if (!history.runs.includes(gpsCurrentRun)) history.runs.push(gpsCurrentRun);
-    saveGpsHistory(history);
-    setGpsTrailData(history);
+    gpsTrailCoords.push(coord);
+    if (gpsTrailCoords.length > 3000) gpsTrailCoords.shift();
+    const src = map.getSource('gps-trail');
+    if (src) src.setData({ type: 'Feature', geometry: { type: 'LineString', coordinates: gpsTrailCoords } });
   }
 
   if (gpsFollowing) {
@@ -6907,20 +6809,17 @@ function startGpsTracking() {
   }
   if (gpsWatchId != null) return;
   gpsFollowing = false;
-  gpsCurrentRun = { id: Date.now(), startedAt: new Date().toISOString(), points: [] };
   gpsWatchId = navigator.geolocation.watchPosition(onGpsPosition, onGpsError, {
     enableHighAccuracy: true, maximumAge: 2000, timeout: 20000,
   });
 }
 
-// Stops the live watch and removes the current-location marker, but
-// deliberately leaves the history line alone — it's persistent now, not a
-// per-session trail, so it stays visible (and keeps growing on the next
-// start) until something explicitly clears it.
 function stopGpsTracking() {
   if (gpsWatchId != null) { navigator.geolocation.clearWatch(gpsWatchId); gpsWatchId = null; }
   if (gpsMarker) { gpsMarker.remove(); gpsMarker = null; }
-  gpsCurrentRun = null;
+  gpsTrailCoords = [];
+  const src = map && map.getSource ? map.getSource('gps-trail') : null;
+  if (src) src.setData({ type: 'Feature', geometry: { type: 'LineString', coordinates: [] } });
   gpsFollowing = false;
   window.parent.postMessage({ type: 'gps-status', status: 'stopped' }, '*');
 }
