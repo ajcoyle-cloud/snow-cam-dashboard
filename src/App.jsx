@@ -181,8 +181,46 @@ function orderCamerasByResort(cameras, resort) {
   return [...cameras].sort((a, b) => rank(a) - rank(b))
 }
 
-function WeatherDisplay({ location }) {
+// Live lapse-rate temperature profile broadcast by the map iframe
+// (public/whakapapa-snow-forecast.html's pwBroadcastProfile) — fit from
+// exactly the two on-mountain PredictWind stations, not the valley/town ones
+// that skew a straight average. Stamped with the resort it came from since
+// 'sp-pw-profile' is one shared localStorage key written by every resort's
+// map page; a stale/other-resort profile must never be used to label
+// Whakapapa's webcams.
+function readPwProfile() {
+  try {
+    const raw = localStorage.getItem('sp-pw-profile')
+    return raw ? JSON.parse(raw) : null
+  } catch {
+    return null
+  }
+}
+
+function usePwProfile() {
+  const [profile, setProfile] = useState(readPwProfile)
+
+  useEffect(() => {
+    const onMessage = (e) => {
+      if (e.data?.type === 'pw-profile' && e.data.profile) setProfile(e.data.profile)
+    }
+    const onStorage = (e) => {
+      if (e.key === 'sp-pw-profile') setProfile(readPwProfile())
+    }
+    window.addEventListener('message', onMessage)
+    window.addEventListener('storage', onStorage)
+    return () => {
+      window.removeEventListener('message', onMessage)
+      window.removeEventListener('storage', onStorage)
+    }
+  }, [])
+
+  return profile
+}
+
+function WeatherDisplay({ location, elevation }) {
   const [weather, setWeather] = useState(null)
+  const pwProfile = usePwProfile()
 
   useEffect(() => {
     const fetchWeather = async () => {
@@ -222,14 +260,29 @@ function WeatherDisplay({ location }) {
     return () => clearInterval(interval)
   }, [location])
 
-  if (!weather) return null
+  // Live temp interpolated from the map's lapse-rate fit — restricted to
+  // Whakapapa cams (elevation is only meaningful/known for those) and to a
+  // profile that's actually Whakapapa's own (resort === 'ruapehu'), since
+  // pwProfile can be whichever resort's map tab was last open. Uses this
+  // camera's real elevation, not the meteoblue model temp above (which is a
+  // forecast value, not a genuine station reading).
+  const liveTemp = (
+    location === 'Whakapapa' &&
+    elevation != null &&
+    pwProfile?.resort === 'ruapehu' &&
+    typeof pwProfile.a === 'number' &&
+    typeof pwProfile.b === 'number'
+  ) ? pwProfile.a + pwProfile.b * elevation : null
 
-  // Only the condition icon is shown — the temperature is a meteoblue model
-  // value, not a genuine weather-station reading, so it's deliberately omitted
-  // (see also the removed per-cam lapse-rate temp overlay).
+  if (!weather && liveTemp == null) return null
+
+  // The condition icon is a meteoblue model value (see comment above); the
+  // temp shown next to it, when present, is the live station-derived one —
+  // never the meteoblue temp, which isn't a genuine reading.
   return (
     <div className="weather-display">
-      <span className="weather-icon">{weather.icon}</span>
+      {weather && <span className="weather-icon">{weather.icon}</span>}
+      {liveTemp != null && <span className="weather-temp">{liveTemp.toFixed(1)}°</span>}
     </div>
   )
 }
@@ -770,7 +823,7 @@ function CameraCard({ camera, allCameras = [] }) {
       >
         <div className="card-header">
           <h3>{camera.name}</h3>
-          <WeatherDisplay location={camera.location} />
+          <WeatherDisplay location={camera.location} elevation={camera.elevation} />
         </div>
         <div className="image-container" style={{ position: 'relative' }}>
           {isYouTube ? (

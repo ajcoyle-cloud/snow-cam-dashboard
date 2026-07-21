@@ -4747,6 +4747,12 @@ function setViewMode(mode) {
   document.getElementById('info-hourly').style.display = mode === 'hourly' ? 'block' : 'none';
   document.getElementById('info-accum').style.display = mode === 'accumulated' ? 'block' : 'none';
   document.getElementById('info-live').style.display = mode === 'live' ? 'block' : 'none';
+  // Radar and Isobars have no info-* panel of their own — none of the three
+  // above ever show for them, which used to leave #snow-info's own
+  // background/padding/shadow chrome floating bottom-left with nothing
+  // inside it (the reported blank rounded box). Hide the whole drawer for
+  // those two modes instead of just its (already-empty) children.
+  document.getElementById('snow-info').style.display = (mode === 'radar' || mode === 'isobars') ? 'none' : '';
   document.getElementById('live-timeline').style.display = mode === 'live' ? 'flex' : 'none';
   document.getElementById('radar-timeline').style.display = mode === 'radar' ? 'flex' : 'none';
   document.getElementById('isobar-timeline').style.display = mode === 'isobars' ? 'flex' : 'none';
@@ -5336,14 +5342,22 @@ function openFromQueryParams() {
 // temperatures at any elevation (e.g., webcam locations). Also persist to
 // localStorage so it's available on the Webcams tab even when the map iframe
 // isn't loaded.
+//
+// resortKey is stamped onto the payload because 'sp-pw-profile' is a single
+// shared localStorage key written by every resort's map page (this same HTML
+// file serves all of them via ?resort=) — without it, the React side has no
+// way to tell "this fit is Whakapapa's two on-mountain stations" apart from
+// "this fit is whichever resort's map tab was open last", and could show a
+// completely different mountain's temperature on Whakapapa's webcams.
 function pwBroadcastProfile() {
   if (pwProfile) {
+    const payload = { ...pwProfile, resort: resortKey };
     // Broadcast to parent if in an iframe
     if (window.parent !== window) {
-      window.parent.postMessage({ type: 'pw-profile', profile: pwProfile }, '*');
+      window.parent.postMessage({ type: 'pw-profile', profile: payload }, '*');
     }
     // Persist to localStorage for cross-tab availability
-    try { localStorage.setItem('sp-pw-profile', JSON.stringify(pwProfile)); } catch (e) {}
+    try { localStorage.setItem('sp-pw-profile', JSON.stringify(payload)); } catch (e) {}
   }
 }
 
