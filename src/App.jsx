@@ -3,6 +3,7 @@ import { useState, useEffect, useRef } from 'react'
 import { Camera, LineChart, Map as MapIcon, Snowflake, Settings, Wind, Newspaper, Volume2, Square, Loader2 } from 'lucide-react'
 import HLS from 'hls.js'
 import { computeStormArrival, STORM_BAND_LABELS } from './stormArrival'
+import { subscribeRuapehuProfile } from './pwObs'
 import './App.css'
 
 const METEOBLUE_API_KEY = import.meta.env.VITE_METEOBLUE_API_KEY || 'DEMO'
@@ -181,13 +182,20 @@ function orderCamerasByResort(cameras, resort) {
   return [...cameras].sort((a, b) => rank(a) - rank(b))
 }
 
-// Live lapse-rate temperature profile broadcast by the map iframe
-// (public/whakapapa-snow-forecast.html's pwBroadcastProfile) — fit from
-// exactly the two on-mountain PredictWind stations, not the valley/town ones
-// that skew a straight average. Stamped with the resort it came from since
-// 'sp-pw-profile' is one shared localStorage key written by every resort's
-// map page; a stale/other-resort profile must never be used to label
-// Whakapapa's webcams.
+// Live lapse-rate temperature profile for Whakapapa's two on-mountain
+// PredictWind stations — not the valley/town ones that skew a straight
+// average. Two independent sources feed this, both funnelled through the
+// same setProfile:
+//  1. subscribeRuapehuProfile (pwObs.js) fetches+decodes the stations
+//     directly, so it works even if the Map tab has never been opened this
+//     session — that gap was the reported "no live temp on webcams" bug,
+//     since the mechanism below alone depends on the map iframe having run.
+//  2. postMessage/localStorage ('sp-pw-profile'), broadcast by the map
+//     iframe (whakapapa-snow-forecast.html's pwBroadcastProfile) whenever
+//     it's open — a bit more live since it's driven by the map's own
+//     shorter poll, and kept as a fallback/fast-path when available.
+// 'sp-pw-profile' is a single shared key written by every resort's map page,
+// so both paths stamp/require resort === 'ruapehu' before use.
 function readPwProfile() {
   try {
     const raw = localStorage.getItem('sp-pw-profile')
@@ -209,9 +217,11 @@ function usePwProfile() {
     }
     window.addEventListener('message', onMessage)
     window.addEventListener('storage', onStorage)
+    const unsubscribe = subscribeRuapehuProfile(setProfile)
     return () => {
       window.removeEventListener('message', onMessage)
       window.removeEventListener('storage', onStorage)
+      unsubscribe()
     }
   }, [])
 
