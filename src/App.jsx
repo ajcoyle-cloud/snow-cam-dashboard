@@ -1,6 +1,6 @@
 // Updated with Loveland ski area and forecast view switcher
 import { useState, useEffect, useRef } from 'react'
-import { Camera, LineChart, Map as MapIcon, Snowflake, Settings, Wind, Newspaper, Volume2, Square, Loader2 } from 'lucide-react'
+import { Camera, LineChart, Map as MapIcon, Snowflake, Settings, Wind, Newspaper, Volume2, Square, Loader2, LocateFixed } from 'lucide-react'
 import HLS from 'hls.js'
 import { computeStormArrival, STORM_BAND_LABELS } from './stormArrival'
 import './App.css'
@@ -3329,6 +3329,57 @@ function MapSettingsMenu({ topIframeRef }) {
   )
 }
 
+// "Track Me" — live GPS position plotted on the 3D terrain. The actual
+// navigator.geolocation call, marker, and trail line live in
+// whakapapa-snow-forecast.html (startGpsTracking()/onGpsPosition()) since
+// that's the origin the browser's permission prompt is scoped to; this
+// button just starts/stops it via postMessage and mirrors the status
+// messages it reports back (granted/tracking/denied/unavailable/error).
+function TrackMeToggle({ topIframeRef }) {
+  const [status, setStatus] = useState('idle')
+
+  useEffect(() => {
+    const handleMessage = (event) => {
+      if (event.data?.type !== 'gps-status') return
+      setStatus(event.data.status === 'stopped' ? 'idle' : event.data.status)
+    }
+    window.addEventListener('message', handleMessage)
+    return () => window.removeEventListener('message', handleMessage)
+  }, [])
+
+  const toggle = () => {
+    if (status === 'tracking' || status === 'requesting') {
+      topIframeRef.current?.contentWindow?.postMessage({ type: 'stop-gps-tracking' }, '*')
+      setStatus('idle')
+    } else {
+      topIframeRef.current?.contentWindow?.postMessage({ type: 'start-gps-tracking' }, '*')
+      setStatus('requesting')
+    }
+  }
+
+  const active = status === 'tracking' || status === 'requesting'
+  const title =
+    status === 'denied' ? 'Location permission denied — check your browser/phone settings' :
+    status === 'unavailable' ? 'Geolocation not available on this device' :
+    active ? 'Stop tracking my location' :
+    'Track my live location on the map'
+
+  return (
+    <button
+      className="map-settings-toggle"
+      onClick={toggle}
+      aria-label="Track my location"
+      title={title}
+      style={{
+        color: active ? '#4285f4' : status === 'denied' ? '#ef4444' : '#fff',
+        background: active ? 'rgba(66,133,244,0.22)' : undefined,
+      }}
+    >
+      <LocateFixed size={18} />
+    </button>
+  )
+}
+
 function ForecastMap3D({ resort, setResort }) {
   const locations = {
     ruapehu: { name: 'Whakapapa' },
@@ -3411,7 +3462,14 @@ function ForecastMap3D({ resort, setResort }) {
     <div className="map-3d-wrap" style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
       <div className="map-resort-switch" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 0' }}>
         <ResortSelector resort={resort} setResort={setResort} />
-        <MapSettingsMenu topIframeRef={topIframeRef} />
+        {/* .map-controls-cluster takes over the margin-left:auto push-to-
+            right-edge role .map-settings-menu used to carry directly on
+            .map-resort-switch (both the desktop and mobile CSS override) —
+            see App.css. */}
+        <div className="map-controls-cluster">
+          <TrackMeToggle topIframeRef={topIframeRef} />
+          <MapSettingsMenu topIframeRef={topIframeRef} />
+        </div>
       </div>
       <div style={{ position: 'relative', width: '100%', flex: 1, minHeight: 0 }}>
         {frames.map((f, i) => {
@@ -3431,6 +3489,7 @@ function ForecastMap3D({ resort, setResort }) {
                 pointerEvents: isNewest && !f.ready ? 'none' : 'auto',
                 transition: 'opacity 0.4s ease',
               }}
+              allow="geolocation"
               allowFullScreen
             />
           )

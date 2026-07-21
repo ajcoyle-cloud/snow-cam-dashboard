@@ -423,6 +423,25 @@
     border: 2px solid #fff; box-shadow: 0 1px 4px rgba(0,0,0,0.5);
   }
 
+  /* ── "Track Me" GPS marker — blue dot + expanding pulse ring, same
+     language as Google Maps' own-location dot, see startGpsTracking() ───── */
+  .gps-me-marker { position: relative; width: 18px; height: 18px; }
+  .gps-me-dot {
+    position: absolute; inset: 0; border-radius: 50%;
+    background: #4285f4; border: 2px solid #fff;
+    box-shadow: 0 1px 6px rgba(0,0,0,0.5);
+  }
+  .gps-me-pulse {
+    position: absolute; top: 50%; left: 50%; width: 36px; height: 36px;
+    margin: -18px 0 0 -18px; border-radius: 50%;
+    background: rgba(66,133,244,0.35);
+    animation: gps-me-pulse-anim 2s ease-out infinite;
+  }
+  @keyframes gps-me-pulse-anim {
+    0% { transform: scale(0.3); opacity: 0.8; }
+    100% { transform: scale(1); opacity: 0; }
+  }
+
   /* ── Other-resort navigation pills (shown when zoomed out) ─────────────── */
   /* The pill itself used to sit centred right on the resort's coordinate,
      which meant its own body covered the ski field it was labelling. Now it
@@ -531,18 +550,19 @@
 
     /* Mode toggle (LIVE/HOURLY/ACCUMULATED) pinned to the TOP-RIGHT, on the
        same row as the location switcher (which floats top-left from the React
-       layer). Reserve ~152px on the left for that switcher, and ~46px on the
-       right for the React-layer settings cog (.map-settings-menu, also on
-       this row — 38px button + 12px margin, see App.css), so neither ever
-       collides. In accumulated mode the extra 5/10/15 period group wraps to a
-       second right-aligned row rather than growing left into the switcher. */
+       layer). Reserve ~152px on the left for that switcher, and ~104px on the
+       right for the React-layer button cluster (.map-controls-cluster, also
+       on this row — TrackMeToggle + settings cog, 2x38px buttons + 8px gap +
+       12px margin, see App.css), so neither ever collides. In accumulated
+       mode the extra 5/10/15 period group wraps to a second right-aligned row
+       rather than growing left into the switcher. */
     #top-controls {
       top: 14px;
       left: auto;
-      right: 58px;
+      right: 104px;
       transform: none;
       width: max-content;
-      max-width: calc(100vw - 198px);
+      max-width: calc(100vw - 256px);
       flex-wrap: wrap;
       justify-content: flex-end;
     }
@@ -6709,6 +6729,104 @@ document.getElementById('ltl-slider').addEventListener('input', (e) => {
 // and localStorage's sp-view-mode) only fires once, on initial load.
 window.addEventListener('message', (event) => {
   if (event.data?.type === 'set-view-mode' && event.data?.mode) setViewMode(event.data.mode);
+});
+
+// ── "Track Me" — live GPS position plotted on the 3D terrain ───────────────
+// Driven by the React-layer TrackMeToggle (App.jsx): it posts start/stop
+// messages and this iframe owns the actual navigator.geolocation call, since
+// that's what the permission prompt/grant is scoped to. Reports status back
+// via postMessage so the toggle button can show granted/denied/tracking
+// state without duplicating any geolocation logic on the React side.
+let gpsWatchId = null;
+let gpsMarker = null;
+let gpsTrailCoords = [];
+let gpsFollowing = false;
+
+function ensureGpsTrailLayer() {
+  if (map.getSource('gps-trail')) return;
+  map.addSource('gps-trail', { type: 'geojson', data: { type: 'Feature', geometry: { type: 'LineString', coordinates: [] } } });
+  map.addLayer({
+    id: 'gps-trail-line', type: 'line', source: 'gps-trail',
+    layout: { 'line-join': 'round', 'line-cap': 'round' },
+    paint: { 'line-color': '#4285f4', 'line-width': 4, 'line-opacity': 0.85 },
+  });
+}
+
+function onGpsPosition(pos) {
+  // A position fix can arrive before the map/style has finished loading
+  // (geolocation and the CDN'd maplibre-gl + terrain style race each other
+  // on startup) — drop this fix rather than throwing; the next watchPosition
+  // callback (a few seconds later) will land once the map exists.
+  if (!map || !mapStyleReady) return;
+
+  const { latitude: lat, longitude: lng, accuracy, speed, heading } = pos.coords;
+  const coord = [lng, lat];
+
+  if (!gpsMarker) {
+    ensureGpsTrailLayer();
+    const el = document.createElement('div');
+    el.className = 'gps-me-marker';
+    el.innerHTML = '<div class="gps-me-pulse"></div><div class="gps-me-dot"></div>';
+    gpsMarker = new maplibregl.Marker({ element: el, anchor: 'center' }).setLngLat(coord).addTo(map);
+  } else {
+    gpsMarker.setLngLat(coord);
+  }
+
+  // Only append to the trail once we've actually moved a few metres, so a
+  // stationary phone doesn't spam the line source with duplicate points.
+  const last = gpsTrailCoords[gpsTrailCoords.length - 1];
+  if (!last || Math.abs(last[0] - lng) > 0.00002 || Math.abs(last[1] - lat) > 0.00002) {
+    gpsTrailCoords.push(coord);
+    if (gpsTrailCoords.length > 3000) gpsTrailCoords.shift();
+    const src = map.getSource('gps-trail');
+    if (src) src.setData({ type: 'Feature', geometry: { type: 'LineString', coordinates: gpsTrailCoords } });
+  }
+
+  if (gpsFollowing) {
+    map.easeTo({ center: coord, duration: 900 });
+  } else {
+    // First fix: fly in to a street-scale view over it, then just re-centre
+    // (no further zoom/pitch changes) on every update after this.
+    gpsFollowing = true;
+    map.flyTo({ center: coord, zoom: 15.5, pitch: 55, bearing: heading || map.getBearing(), duration: 1800, essential: true });
+  }
+
+  window.parent.postMessage({
+    type: 'gps-status', status: 'tracking',
+    point: { lat, lng, accuracy, speed, heading, timestamp: pos.timestamp },
+  }, '*');
+}
+
+function onGpsError(err) {
+  const status = err.code === err.PERMISSION_DENIED ? 'denied' : 'error';
+  window.parent.postMessage({ type: 'gps-status', status, message: err.message }, '*');
+}
+
+function startGpsTracking() {
+  if (!('geolocation' in navigator)) {
+    window.parent.postMessage({ type: 'gps-status', status: 'unavailable' }, '*');
+    return;
+  }
+  if (gpsWatchId != null) return;
+  gpsFollowing = false;
+  gpsWatchId = navigator.geolocation.watchPosition(onGpsPosition, onGpsError, {
+    enableHighAccuracy: true, maximumAge: 2000, timeout: 20000,
+  });
+}
+
+function stopGpsTracking() {
+  if (gpsWatchId != null) { navigator.geolocation.clearWatch(gpsWatchId); gpsWatchId = null; }
+  if (gpsMarker) { gpsMarker.remove(); gpsMarker = null; }
+  gpsTrailCoords = [];
+  const src = map && map.getSource ? map.getSource('gps-trail') : null;
+  if (src) src.setData({ type: 'Feature', geometry: { type: 'LineString', coordinates: [] } });
+  gpsFollowing = false;
+  window.parent.postMessage({ type: 'gps-status', status: 'stopped' }, '*');
+}
+
+window.addEventListener('message', (event) => {
+  if (event.data?.type === 'start-gps-tracking') startGpsTracking();
+  else if (event.data?.type === 'stop-gps-tracking') stopGpsTracking();
 });
 </script>
 </body>
