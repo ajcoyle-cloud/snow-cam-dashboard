@@ -3352,7 +3352,7 @@ function SnowfallForecast({ resort, setResort, onOpenCompare }) {
 const COMPARE_FORECAST_DAYS = 7
 
 function useResortComparisonData() {
-  const [byResort, setByResort] = useState({}) // { [resortKey]: { status: 'loading'|'done'|'error', days: [...] } }
+  const [byResort, setByResort] = useState({}) // { [resortKey]: { status: 'loading'|'done'|'error', points: [...] } }
 
   useEffect(() => {
     let cancelled = false
@@ -3367,7 +3367,11 @@ function useResortComparisonData() {
         if (cancelled) return
         if (!summit?.hourly?.time || !base?.hourly?.time) throw new Error('missing hourly data')
 
-        const hours = summit.hourly.time.map((time, i) => {
+        // Hourly resolution kept all the way to the chart (not bucketed into
+        // daily bars) — the point of this page is to actually see the shape
+        // of each storm and each freezing-level swing, not a flattened daily
+        // average.
+        const points = summit.hourly.time.map((time, i) => {
           const summitTemp = summit.hourly.temperature_2m[i]
           const baseTemp = base.hourly.temperature_2m[i]
           let freezingLevel = r.baseElev
@@ -3379,34 +3383,27 @@ function useResortComparisonData() {
           const summitPrecip = summit.hourly.precipitation[i] || 0
           let summitSnowfall = (summit.hourly.snowfall[i] || 0) * 10 // cm -> mm
           if (summitTemp < 0 && summitPrecip > 0 && summitSnowfall === 0) summitSnowfall = summitPrecip * 7
-          return { datetime: new Date(time), freezingLevel, snowfallMm: summitSnowfall }
+          return { datetime: new Date(time), freezingLevel, snowCm: summitSnowfall / 10 }
         })
 
-        // Bucket into calendar days (each resort's own timezone, matching the
-        // hourly timestamps Open-Meteo already localized) — daily snow total
-        // (cm) for the bars, mean freezing level for the line.
-        const days = []
-        hours.forEach((h) => {
-          const dayKey = h.datetime.toDateString()
-          let day = days.find((d) => d.key === dayKey)
-          if (!day) {
-            day = { key: dayKey, date: h.datetime, snowCm: 0, freezingSum: 0, freezingCount: 0 }
-            days.push(day)
+        // Distinct calendar days (resort's own timezone, matching the hourly
+        // timestamps Open-Meteo already localized) — just for the shared
+        // date header, capped at COMPARE_FORECAST_DAYS.
+        const dayDates = []
+        const seenDays = new Set()
+        points.forEach((p) => {
+          const dayKey = p.datetime.toDateString()
+          if (!seenDays.has(dayKey) && dayDates.length < COMPARE_FORECAST_DAYS) {
+            seenDays.add(dayKey)
+            dayDates.push(p.datetime)
           }
-          day.snowCm += h.snowfallMm / 10
-          day.freezingSum += h.freezingLevel
-          day.freezingCount += 1
         })
-        const dayRows = days.slice(0, COMPARE_FORECAST_DAYS).map((d) => ({
-          date: d.date,
-          snowCm: d.snowCm,
-          freezingLevel: d.freezingCount ? d.freezingSum / d.freezingCount : 0,
-        }))
-        const accum3d = hours.slice(0, 3 * 24).reduce((sum, h) => sum + h.snowfallMm / 10, 0)
-        const accum7d = hours.reduce((sum, h) => sum + h.snowfallMm / 10, 0)
+
+        const accum3d = points.slice(0, 3 * 24).reduce((sum, p) => sum + p.snowCm, 0)
+        const accum7d = points.reduce((sum, p) => sum + p.snowCm, 0)
 
         if (!cancelled) {
-          setByResort((prev) => ({ ...prev, [key]: { status: 'done', days: dayRows, accum3d, accum7d } }))
+          setByResort((prev) => ({ ...prev, [key]: { status: 'done', points, dayDates, accum3d, accum7d } }))
         }
       } catch (e) {
         if (!cancelled) setByResort((prev) => ({ ...prev, [key]: { status: 'error' } }))
@@ -3418,24 +3415,25 @@ function useResortComparisonData() {
   return byResort
 }
 
-// One resort's row: label + mini chart. dayLabels/globalMaxSnow/freezingRange
-// are shared across every row so bars and line heights compare directly.
+// One resort's row: label + mini chart, drawn at the same hourly resolution
+// as the main forecast chart's Day view. globalMaxSnow/freezingRange are
+// shared across every row so bar and line heights compare directly.
 function ResortComparisonRow({ resortName, entry, globalMaxSnow, freezingRange, onSelect, active }) {
   const CHART_W = 1000
   const CHART_H = 90
   const padTop = 10
   const padBottom = 10
   const plotH = CHART_H - padTop - padBottom
-  const days = entry?.days || []
-  const n = Math.max(days.length, COMPARE_FORECAST_DAYS)
+  const points = entry?.points || []
+  const n = points.length || COMPARE_FORECAST_DAYS * 24
   const slotW = CHART_W / n
-  const barW = Math.max(slotW * 0.5, 4)
+  const barW = Math.max(slotW * 0.85, 1)
 
   const [minFz, maxFz] = freezingRange
   const fzY = (val) => padTop + plotH - ((val - minFz) / Math.max(maxFz - minFz, 1)) * plotH
-  const barHeight = (cm) => Math.max((Math.min(cm, globalMaxSnow) / Math.max(globalMaxSnow, 0.1)) * plotH, cm > 0 ? 2 : 0)
+  const barHeight = (cm) => Math.max((Math.min(cm, globalMaxSnow) / Math.max(globalMaxSnow, 0.1)) * plotH, cm > 0 ? 1 : 0)
 
-  const linePoints = days.map((d, i) => `${(i + 0.5) * slotW},${fzY(d.freezingLevel)}`).join(' ')
+  const linePoints = points.map((p, i) => `${(i + 0.5) * slotW},${fzY(p.freezingLevel)}`).join(' ')
 
   return (
     <div className={`compare-row ${active ? 'is-active' : ''}`} onClick={onSelect} role="button" tabIndex={0}
@@ -3454,21 +3452,19 @@ function ResortComparisonRow({ resortName, entry, globalMaxSnow, freezingRange, 
       <div className="compare-row-chart">
         {entry?.status === 'done' ? (
           <svg viewBox={`0 0 ${CHART_W} ${CHART_H}`} preserveAspectRatio="none" className="compare-row-svg">
-            {days.map((d, i) => {
-              const h = barHeight(d.snowCm)
+            {points.map((p, i) => {
+              if (p.snowCm <= 0) return null
+              const h = barHeight(p.snowCm)
               const x = (i + 0.5) * slotW - barW / 2
               const y = padTop + plotH - h
               return (
-                <rect key={`bar-${i}`} x={x} y={y} width={barW} height={h} rx={2}
+                <rect key={`bar-${i}`} x={x} y={y} width={barW} height={h}
                   fill="#4d9fff" opacity={0.85} />
               )
             })}
-            {days.length > 1 && (
-              <polyline points={linePoints} fill="none" stroke="#a9c9ff" strokeWidth={2} strokeLinejoin="round" strokeLinecap="round" />
+            {points.length > 1 && (
+              <polyline points={linePoints} fill="none" stroke="#1e4fb8" strokeWidth={1.75} strokeLinejoin="round" strokeLinecap="round" />
             )}
-            {days.map((d, i) => (
-              <circle key={`pt-${i}`} cx={(i + 0.5) * slotW} cy={fzY(d.freezingLevel)} r={2.5} fill="#a9c9ff" />
-            ))}
           </svg>
         ) : (
           <div className={`compare-row-placeholder ${entry?.status === 'error' ? 'is-error' : ''}`} />
@@ -3481,16 +3477,16 @@ function ResortComparisonRow({ resortName, entry, globalMaxSnow, freezingRange, 
 function ResortComparisonPage({ resort, setResort, onClose }) {
   const byResort = useResortComparisonData()
 
-  const allDays = Object.values(byResort).flatMap((e) => e.days || [])
-  const globalMaxSnow = Math.max(1, ...allDays.map((d) => d.snowCm))
-  const freezingLevels = allDays.map((d) => d.freezingLevel).filter((v) => Number.isFinite(v))
+  const allPoints = Object.values(byResort).flatMap((e) => e.points || [])
+  const globalMaxSnow = Math.max(1, ...allPoints.map((p) => p.snowCm))
+  const freezingLevels = allPoints.map((p) => p.freezingLevel).filter((v) => Number.isFinite(v))
   const freezingRange = freezingLevels.length
     ? [Math.min(0, ...freezingLevels) - 200, Math.max(...freezingLevels) + 200]
     : [0, 3600]
 
   // Shared date header — same x-scale as every row's chart — so we only
   // print day labels once instead of repeating them per resort.
-  const headerDays = Object.values(byResort).find((e) => e.status === 'done')?.days || []
+  const headerDays = Object.values(byResort).find((e) => e.status === 'done')?.dayDates || []
 
   return (
     <div className="compare-page">
@@ -3510,7 +3506,7 @@ function ResortComparisonPage({ resort, setResort, onClose }) {
           <div className="compare-row-chart compare-date-labels">
             {headerDays.map((d, i) => (
               <span key={i} style={{ width: `${100 / headerDays.length}%` }}>
-                {d.date.toLocaleDateString('en-NZ', { weekday: 'short' })}
+                {d.toLocaleDateString('en-NZ', { weekday: 'short' })}
               </span>
             ))}
           </div>
