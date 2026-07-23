@@ -3444,7 +3444,8 @@ function ResortComparisonRow({ resortName, entry, globalMaxSnow, freezingRange, 
         <div className="compare-row-name">{resortName}</div>
         {entry?.status === 'done' && (
           <div className="compare-row-accum">
-            3d <strong>{entry.accum3d.toFixed(0)}cm</strong> · 7d <strong>{entry.accum7d.toFixed(0)}cm</strong>
+            <div>3d <strong>{entry.accum3d.toFixed(0)}cm</strong></div>
+            <div>7d <strong>{entry.accum7d.toFixed(0)}cm</strong></div>
           </div>
         )}
         {entry?.status === 'loading' && <div className="compare-row-accum compare-row-loading">Loading…</div>}

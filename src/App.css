@@ -1706,6 +1706,9 @@
   color: rgba(255, 255, 255, 0.5);
   font-size: 0.68em;
   letter-spacing: 0.01em;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
 }
 .compare-row-accum strong {
   color: #cfe3ff;
