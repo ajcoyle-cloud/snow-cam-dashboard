@@ -1678,9 +1678,9 @@
 
 .compare-row {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 14px;
-  padding: 12px 6px;
+  padding: 18px 6px;
   border-bottom: 1px solid rgba(255, 255, 255, 0.08);
   cursor: pointer;
   transition: background 0.15s;
@@ -1745,7 +1745,7 @@
 .compare-row-chart {
   flex: 1;
   min-width: 0;
-  height: 64px;
+  height: 160px;
 }
 
 .compare-row-svg {
@@ -1783,7 +1783,7 @@
   }
   .compare-row {
     gap: 8px;
-    padding: 10px 2px;
+    padding: 14px 2px;
   }
   .compare-row-label {
     flex-basis: 78px;
@@ -1796,6 +1796,6 @@
     font-size: 0.62em;
   }
   .compare-row-chart {
-    height: 52px;
+    height: 120px;
   }
 }

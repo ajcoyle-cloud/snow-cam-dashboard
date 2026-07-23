@@ -3420,7 +3420,7 @@ function useResortComparisonData() {
 // shared across every row so bar and line heights compare directly.
 function ResortComparisonRow({ resortName, entry, globalMaxSnow, freezingRange, onSelect, active }) {
   const CHART_W = 1000
-  const CHART_H = 90
+  const CHART_H = 200
   const padTop = 10
   const padBottom = 10
   const plotH = CHART_H - padTop - padBottom
@@ -3434,6 +3434,27 @@ function ResortComparisonRow({ resortName, entry, globalMaxSnow, freezingRange, 
   const barHeight = (cm) => Math.max((Math.min(cm, globalMaxSnow) / Math.max(globalMaxSnow, 0.1)) * plotH, cm > 0 ? 1 : 0)
 
   const linePoints = points.map((p, i) => `${(i + 0.5) * slotW},${fzY(p.freezingLevel)}`).join(' ')
+
+  // Alternating day-shading bands, same convention as the main forecast
+  // chart — now that each row has real height, a flat field of bars reads
+  // as noise without something marking where one day ends and the next
+  // begins.
+  const dayBands = []
+  if (points.length > 1) {
+    let currentDay = points[0].datetime.toDateString()
+    let dayStart = 0
+    let isEven = false
+    points.forEach((p, i) => {
+      const day = p.datetime.toDateString()
+      if (day !== currentDay) {
+        dayBands.push({ x1: dayStart * slotW, x2: i * slotW, isEven })
+        currentDay = day
+        dayStart = i
+        isEven = !isEven
+      }
+    })
+    dayBands.push({ x1: dayStart * slotW, x2: points.length * slotW, isEven })
+  }
 
   return (
     <div className={`compare-row ${active ? 'is-active' : ''}`} onClick={onSelect} role="button" tabIndex={0}
@@ -3452,6 +3473,10 @@ function ResortComparisonRow({ resortName, entry, globalMaxSnow, freezingRange, 
       <div className="compare-row-chart">
         {entry?.status === 'done' ? (
           <svg viewBox={`0 0 ${CHART_W} ${CHART_H}`} preserveAspectRatio="none" className="compare-row-svg">
+            {dayBands.map((b, i) => (
+              <rect key={`day-${i}`} x={b.x1} y={0} width={b.x2 - b.x1} height={CHART_H}
+                fill={b.isEven ? '#ffffff' : 'transparent'} opacity={b.isEven ? 0.03 : 0} />
+            ))}
             {points.map((p, i) => {
               if (p.snowCm <= 0) return null
               const h = barHeight(p.snowCm)
@@ -3463,7 +3488,7 @@ function ResortComparisonRow({ resortName, entry, globalMaxSnow, freezingRange, 
               )
             })}
             {points.length > 1 && (
-              <polyline points={linePoints} fill="none" stroke="#1e4fb8" strokeWidth={1.75} strokeLinejoin="round" strokeLinecap="round" />
+              <polyline points={linePoints} fill="none" stroke="#1e4fb8" strokeWidth={2.25} strokeLinejoin="round" strokeLinecap="round" />
             )}
           </svg>
         ) : (
