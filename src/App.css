@@ -1270,9 +1270,9 @@
   /* Mobile: Top bar layout - selector left, toggle right */
   .forecast-top-bar {
     display: flex;
-    align-items: center;
+    align-items: flex-start;
     justify-content: space-between;
-    gap: 12px;
+    gap: 8px;
     margin-bottom: 10px;
   }
 
@@ -1280,7 +1280,19 @@
   .forecast-top-bar-right {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: 6px;
+  }
+
+  /* Three pills now live here (Hour/Day, the compare-resorts list icon,
+     Models) — on narrow phones or a long resort name they can outgrow the
+     row's share of the screen. flex-wrap + justify-end is a safety net so
+     the overflow item drops to its own right-aligned line instead of being
+     clipped off the right edge (which is what happened before this rule
+     existed: adding the list icon pushed Models partially off-screen). */
+  .forecast-top-bar-right {
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    row-gap: 6px;
   }
 
   .forecast-top-bar-left .resort-selector {
@@ -1321,6 +1333,15 @@
   }
   .forecast-top-bar-left .resort-button {
     padding: 0 16px;
+  }
+  /* Tighter than the base mobile .resort-button/.toggle-btn padding — three
+     pills (Hour/Day, list icon, Models) have to share the row now, so this
+     group gets a narrower cut than every other mobile pill in the app. */
+  .forecast-top-bar-right .forecast-models-mobile .resort-button {
+    padding: 0 12px;
+  }
+  .forecast-top-bar-right .elevation-toggle .toggle-btn {
+    padding: 7px 10px;
   }
 
   /* Hide desktop view mode toggle on mobile */
