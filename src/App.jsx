@@ -1,6 +1,6 @@
 // Updated with Loveland ski area and forecast view switcher
 import { useState, useEffect, useRef } from 'react'
-import { Camera, LineChart, Map as MapIcon, Snowflake, Settings, Wind, Newspaper, Volume2, Square, Loader2 } from 'lucide-react'
+import { Camera, LineChart, Map as MapIcon, Snowflake, Settings, Wind, Newspaper, Volume2, Square, Loader2, List, ArrowLeft } from 'lucide-react'
 import HLS from 'hls.js'
 import { computeStormArrival, STORM_BAND_LABELS } from './stormArrival'
 import { subscribeRuapehuProfile } from './pwObs'
@@ -1442,7 +1442,7 @@ function ResortSelector({ resort, setResort }) {
   )
 }
 
-function SnowfallForecast({ resort, setResort }) {
+function SnowfallForecast({ resort, setResort, onOpenCompare }) {
   const [forecastData, setForecastData] = useState(null)
   const [ecmwfForecastData, setEcmwfForecastData] = useState(null)
   const [aifsForecastData, setAifsForecastData] = useState(null)
@@ -2589,6 +2589,22 @@ function SnowfallForecast({ resort, setResort }) {
     )
   }
 
+  // "Compare all resorts" button — jumps to the full-page vertical list of
+  // every resort's mini freezing-level/snowfall graph (see
+  // ResortComparisonPage below). Same 38px circular pill as the AI-summary
+  // toggle so the two read as one family of top-controls icon buttons.
+  const renderCompareButton = (extraClassName) => (
+    <button
+      type="button"
+      className={`ai-summary-toggle compare-resorts-toggle ${extraClassName}`}
+      onClick={onOpenCompare}
+      aria-label="Compare all resorts"
+      title="Compare all resorts"
+    >
+      <List size={18} />
+    </button>
+  )
+
   const renderModelsMenu = (menuRef, className) => (
     <div className={`resort-selector ${className}`} ref={menuRef} style={{ paddingTop: 0 }}>
       <button
@@ -2714,6 +2730,7 @@ function SnowfallForecast({ resort, setResort }) {
               Day
             </button>
           </div>
+          {renderCompareButton('ai-summary-toggle-mobile')}
           {renderAiSummaryButton('ai-summary-toggle-mobile')}
           {renderModelsMenu(modelMenuMobileRef, 'forecast-models-mobile')}
         </div>
@@ -2769,6 +2786,7 @@ function SnowfallForecast({ resort, setResort }) {
             mobile (forecast-models-desktop); the mobile top bar gets its own
             copy at the far right instead — see forecast-top-bar above. */}
         <div className="forecast-right-column">
+          {renderCompareButton('ai-summary-toggle-desktop')}
           {renderAiSummaryButton('ai-summary-toggle-desktop')}
           {renderModelsMenu(modelMenuRef, 'forecast-models-desktop')}
         </div>
@@ -3318,6 +3336,203 @@ function SnowfallForecast({ resort, setResort }) {
   )
 }
 
+// Full-page "compare all resorts" view, opened from the small List icon in
+// the Forecast tab's top controls (see renderCompareButton above). One row
+// per resort — name on the left, a mini SVG spanning the rest of the row
+// with a freezing-level line + blue snowfall bars for the next 7 days, and
+// the 3-day/7-day accumulated snow totals as small text under the name.
+//
+// Deliberately a single lean GFS-only fetch per resort (not the full
+// multi-model machinery SnowfallForecast uses) — this page's whole point is
+// a fast side-by-side scan across every resort at once, not forecast-model
+// nuance. All resorts share one snowfall scale and one freezing-level scale
+// (computed after every fetch resolves) so bar heights and line heights are
+// directly comparable across rows — an independent per-row scale would make
+// every resort's bars look equally "full" and defeat the comparison.
+const COMPARE_FORECAST_DAYS = 7
+
+function useResortComparisonData() {
+  const [byResort, setByResort] = useState({}) // { [resortKey]: { status: 'loading'|'done'|'error', days: [...] } }
+
+  useEffect(() => {
+    let cancelled = false
+    Object.entries(RESORTS).forEach(async ([key, r]) => {
+      setByResort((prev) => (prev[key] ? prev : { ...prev, [key]: { status: 'loading' } }))
+      try {
+        const summitUrl = `https://api.open-meteo.com/v1/forecast?latitude=${r.lat}&longitude=${r.lon}&elevation=${r.summitElev}&hourly=temperature_2m,precipitation,snowfall&models=gfs_global&temperature_unit=celsius&timezone=${r.timezone}&forecast_days=${COMPARE_FORECAST_DAYS}`
+        const baseUrl = `https://api.open-meteo.com/v1/forecast?latitude=${r.lat}&longitude=${r.lon}&elevation=${r.baseElev}&hourly=temperature_2m,precipitation,snowfall&models=gfs_global&temperature_unit=celsius&timezone=${r.timezone}&forecast_days=${COMPARE_FORECAST_DAYS}`
+        const [summitRes, baseRes] = await Promise.all([fetchWithRetry(summitUrl), fetchWithRetry(baseUrl)])
+        if (!summitRes?.ok || !baseRes?.ok) throw new Error('fetch failed')
+        const [summit, base] = await Promise.all([summitRes.json(), baseRes.json()])
+        if (cancelled) return
+        if (!summit?.hourly?.time || !base?.hourly?.time) throw new Error('missing hourly data')
+
+        const hours = summit.hourly.time.map((time, i) => {
+          const summitTemp = summit.hourly.temperature_2m[i]
+          const baseTemp = base.hourly.temperature_2m[i]
+          let freezingLevel = r.baseElev
+          if (summitTemp !== baseTemp) {
+            freezingLevel = r.baseElev + (baseTemp * (r.summitElev - r.baseElev)) / (baseTemp - summitTemp)
+          } else {
+            freezingLevel = baseTemp > 0 ? 3600 : 0
+          }
+          const summitPrecip = summit.hourly.precipitation[i] || 0
+          let summitSnowfall = (summit.hourly.snowfall[i] || 0) * 10 // cm -> mm
+          if (summitTemp < 0 && summitPrecip > 0 && summitSnowfall === 0) summitSnowfall = summitPrecip * 7
+          return { datetime: new Date(time), freezingLevel, snowfallMm: summitSnowfall }
+        })
+
+        // Bucket into calendar days (each resort's own timezone, matching the
+        // hourly timestamps Open-Meteo already localized) — daily snow total
+        // (cm) for the bars, mean freezing level for the line.
+        const days = []
+        hours.forEach((h) => {
+          const dayKey = h.datetime.toDateString()
+          let day = days.find((d) => d.key === dayKey)
+          if (!day) {
+            day = { key: dayKey, date: h.datetime, snowCm: 0, freezingSum: 0, freezingCount: 0 }
+            days.push(day)
+          }
+          day.snowCm += h.snowfallMm / 10
+          day.freezingSum += h.freezingLevel
+          day.freezingCount += 1
+        })
+        const dayRows = days.slice(0, COMPARE_FORECAST_DAYS).map((d) => ({
+          date: d.date,
+          snowCm: d.snowCm,
+          freezingLevel: d.freezingCount ? d.freezingSum / d.freezingCount : 0,
+        }))
+        const accum3d = hours.slice(0, 3 * 24).reduce((sum, h) => sum + h.snowfallMm / 10, 0)
+        const accum7d = hours.reduce((sum, h) => sum + h.snowfallMm / 10, 0)
+
+        if (!cancelled) {
+          setByResort((prev) => ({ ...prev, [key]: { status: 'done', days: dayRows, accum3d, accum7d } }))
+        }
+      } catch (e) {
+        if (!cancelled) setByResort((prev) => ({ ...prev, [key]: { status: 'error' } }))
+      }
+    })
+    return () => { cancelled = true }
+  }, [])
+
+  return byResort
+}
+
+// One resort's row: label + mini chart. dayLabels/globalMaxSnow/freezingRange
+// are shared across every row so bars and line heights compare directly.
+function ResortComparisonRow({ resortName, entry, globalMaxSnow, freezingRange, onSelect, active }) {
+  const CHART_W = 1000
+  const CHART_H = 90
+  const padTop = 10
+  const padBottom = 10
+  const plotH = CHART_H - padTop - padBottom
+  const days = entry?.days || []
+  const n = Math.max(days.length, COMPARE_FORECAST_DAYS)
+  const slotW = CHART_W / n
+  const barW = Math.max(slotW * 0.5, 4)
+
+  const [minFz, maxFz] = freezingRange
+  const fzY = (val) => padTop + plotH - ((val - minFz) / Math.max(maxFz - minFz, 1)) * plotH
+  const barHeight = (cm) => Math.max((Math.min(cm, globalMaxSnow) / Math.max(globalMaxSnow, 0.1)) * plotH, cm > 0 ? 2 : 0)
+
+  const linePoints = days.map((d, i) => `${(i + 0.5) * slotW},${fzY(d.freezingLevel)}`).join(' ')
+
+  return (
+    <div className={`compare-row ${active ? 'is-active' : ''}`} onClick={onSelect} role="button" tabIndex={0}
+      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') onSelect() }}>
+      <div className="compare-row-label">
+        <div className="compare-row-name">{resortName}</div>
+        {entry?.status === 'done' && (
+          <div className="compare-row-accum">
+            3d <strong>{entry.accum3d.toFixed(0)}cm</strong> · 7d <strong>{entry.accum7d.toFixed(0)}cm</strong>
+          </div>
+        )}
+        {entry?.status === 'loading' && <div className="compare-row-accum compare-row-loading">Loading…</div>}
+        {entry?.status === 'error' && <div className="compare-row-accum compare-row-error">No data</div>}
+      </div>
+      <div className="compare-row-chart">
+        {entry?.status === 'done' ? (
+          <svg viewBox={`0 0 ${CHART_W} ${CHART_H}`} preserveAspectRatio="none" className="compare-row-svg">
+            {days.map((d, i) => {
+              const h = barHeight(d.snowCm)
+              const x = (i + 0.5) * slotW - barW / 2
+              const y = padTop + plotH - h
+              return (
+                <rect key={`bar-${i}`} x={x} y={y} width={barW} height={h} rx={2}
+                  fill="#4d9fff" opacity={0.85} />
+              )
+            })}
+            {days.length > 1 && (
+              <polyline points={linePoints} fill="none" stroke="#a9c9ff" strokeWidth={2} strokeLinejoin="round" strokeLinecap="round" />
+            )}
+            {days.map((d, i) => (
+              <circle key={`pt-${i}`} cx={(i + 0.5) * slotW} cy={fzY(d.freezingLevel)} r={2.5} fill="#a9c9ff" />
+            ))}
+          </svg>
+        ) : (
+          <div className={`compare-row-placeholder ${entry?.status === 'error' ? 'is-error' : ''}`} />
+        )}
+      </div>
+    </div>
+  )
+}
+
+function ResortComparisonPage({ resort, setResort, onClose }) {
+  const byResort = useResortComparisonData()
+
+  const allDays = Object.values(byResort).flatMap((e) => e.days || [])
+  const globalMaxSnow = Math.max(1, ...allDays.map((d) => d.snowCm))
+  const freezingLevels = allDays.map((d) => d.freezingLevel).filter((v) => Number.isFinite(v))
+  const freezingRange = freezingLevels.length
+    ? [Math.min(0, ...freezingLevels) - 200, Math.max(...freezingLevels) + 200]
+    : [0, 3600]
+
+  // Shared date header — same x-scale as every row's chart — so we only
+  // print day labels once instead of repeating them per resort.
+  const headerDays = Object.values(byResort).find((e) => e.status === 'done')?.days || []
+
+  return (
+    <div className="compare-page">
+      <div className="compare-page-header">
+        <button type="button" className="compare-back-btn" onClick={onClose} aria-label="Back to forecast">
+          <ArrowLeft size={18} />
+        </button>
+        <div className="compare-page-title">
+          <div>Compare Resorts</div>
+          <div className="compare-page-subtitle">Freezing level &amp; snowfall — next {COMPARE_FORECAST_DAYS} days</div>
+        </div>
+      </div>
+
+      {headerDays.length > 0 && (
+        <div className="compare-row compare-row-header">
+          <div className="compare-row-label" />
+          <div className="compare-row-chart compare-date-labels">
+            {headerDays.map((d, i) => (
+              <span key={i} style={{ width: `${100 / headerDays.length}%` }}>
+                {d.date.toLocaleDateString('en-NZ', { weekday: 'short' })}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <div className="compare-list">
+        {Object.entries(RESORTS).map(([key, r]) => (
+          <ResortComparisonRow
+            key={key}
+            resortName={r.name}
+            entry={byResort[key]}
+            globalMaxSnow={globalMaxSnow}
+            freezingRange={freezingRange}
+            active={key === resort}
+            onSelect={() => { setResort(key); onClose() }}
+          />
+        ))}
+      </div>
+    </div>
+  )
+}
+
 // Map settings — "Winter snow" and "Dark mode" toggles. The actual layer/sky
 // manipulation lives inside whakapapa-snow-forecast.html (applyWinterSnow(),
 // setDarkMode()) since that's where the MapLibre `map` instance lives; this
@@ -3616,8 +3831,15 @@ export default function App() {
     } catch (e) {}
     return 'webcams'
   })
+  // "Compare all resorts" full-page view within the Forecast tab (see
+  // ResortComparisonPage) — swaps out SnowfallForecast entirely rather than
+  // overlaying it, so its own multi-model fetch doesn't keep running behind
+  // the comparison page. Reset whenever the user navigates away from
+  // Forecast so returning to the tab never resurrects it unasked.
+  const [forecastCompareOpen, setForecastCompareOpen] = useState(false)
   const goToTab = (id) => {
     setActiveTab(id)
+    if (id !== 'forecast') setForecastCompareOpen(false)
     const path = NAV_ITEMS.find(n => n.id === id)?.path
     if (path && path !== window.location.pathname) window.history.pushState({}, '', path)
   }
@@ -3695,7 +3917,11 @@ export default function App() {
 
         {activeTab === 'forecast' && (
           <section className="region-section forecast-section">
-            <SnowfallForecast resort={resort} setResort={setResort} />
+            {forecastCompareOpen ? (
+              <ResortComparisonPage resort={resort} setResort={setResort} onClose={() => setForecastCompareOpen(false)} />
+            ) : (
+              <SnowfallForecast resort={resort} setResort={setResort} onOpenCompare={() => setForecastCompareOpen(true)} />
+            )}
           </section>
         )}
 

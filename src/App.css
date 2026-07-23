@@ -1596,3 +1596,182 @@
 .ai-summary-voice-fallback {
   color: #c9a15a;
 }
+
+/* ── Compare Resorts page (Forecast tab → list icon) ─────────────────────
+   Vertical list, one row per resort: name + 3d/7d accum on the left, a mini
+   freezing-level/snowfall SVG filling the rest of the row. All rows share
+   one snowfall scale and one freezing-level scale (computed once across
+   every resort in ResortComparisonPage) so bar/line heights are directly
+   comparable at a glance — that's the whole point of the page. */
+.compare-page {
+  background: #111;
+  padding: 20px;
+  max-width: 1000px;
+  margin: 0 auto;
+}
+
+.compare-page-header {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-bottom: 18px;
+}
+
+.compare-back-btn {
+  width: 38px;
+  height: 38px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: rgba(54, 54, 62, 0.85);
+  backdrop-filter: blur(14px);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  color: #fff;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  padding: 0;
+  transition: background 0.15s;
+}
+.compare-back-btn:hover {
+  background: rgba(70, 70, 80, 0.9);
+}
+
+.compare-page-title {
+  color: #fff;
+  font-size: 1.15em;
+  font-weight: 700;
+}
+
+.compare-page-subtitle {
+  color: rgba(255, 255, 255, 0.45);
+  font-size: 0.7em;
+  font-weight: 500;
+  margin-top: 2px;
+}
+
+.compare-list {
+  display: flex;
+  flex-direction: column;
+}
+
+.compare-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 6px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.compare-row:hover {
+  background: rgba(255, 255, 255, 0.04);
+}
+.compare-row:focus-visible {
+  outline: 2px solid #4d9fff;
+  outline-offset: -2px;
+}
+.compare-row.is-active {
+  background: rgba(77, 159, 255, 0.08);
+}
+.compare-row.is-active .compare-row-name {
+  color: #a9c9ff;
+}
+
+.compare-row-header {
+  cursor: default;
+  padding-bottom: 6px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+}
+.compare-row-header:hover {
+  background: none;
+}
+
+.compare-row-label {
+  flex: 0 0 118px;
+  width: 118px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.compare-row-name {
+  color: #fff;
+  font-size: 0.9em;
+  font-weight: 600;
+  line-height: 1.25;
+}
+
+.compare-row-accum {
+  color: rgba(255, 255, 255, 0.5);
+  font-size: 0.68em;
+  letter-spacing: 0.01em;
+}
+.compare-row-accum strong {
+  color: #cfe3ff;
+  font-weight: 700;
+}
+.compare-row-loading {
+  color: #666;
+}
+.compare-row-error {
+  color: #c97a7a;
+}
+
+.compare-row-chart {
+  flex: 1;
+  min-width: 0;
+  height: 64px;
+}
+
+.compare-row-svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.compare-row-placeholder {
+  width: 100%;
+  height: 100%;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.03);
+}
+.compare-row-placeholder.is-error {
+  background: rgba(201, 122, 122, 0.06);
+}
+
+.compare-date-labels {
+  display: flex;
+  height: auto;
+}
+.compare-date-labels span {
+  text-align: center;
+  color: rgba(255, 255, 255, 0.4);
+  font-size: 0.68em;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+@media (max-width: 700px) {
+  .compare-page {
+    padding: 14px 12px;
+  }
+  .compare-row {
+    gap: 8px;
+    padding: 10px 2px;
+  }
+  .compare-row-label {
+    flex-basis: 78px;
+    width: 78px;
+  }
+  .compare-row-name {
+    font-size: 0.78em;
+  }
+  .compare-row-accum {
+    font-size: 0.62em;
+  }
+  .compare-row-chart {
+    height: 52px;
+  }
+}
