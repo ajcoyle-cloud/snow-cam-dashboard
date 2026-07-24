@@ -61,7 +61,14 @@ export async function resolveRainbowCam(cam, { debug = false } = {}) {
     throw { status: 400, body: { error: 'unknown cam', valid: Object.keys(CAM_PAGES) } };
   }
 
-  const pageResp = await fetch(pageUrl, { headers: BROWSER_HEADERS });
+  // cache: 'no-store' so this fetch never gets served from any HTTP cache
+  // this runtime might maintain, and a cache-busting query param in case a
+  // CDN sitting in front of webcam.io itself caches by exact URL — both
+  // defensive (Vercel's Node runtime shouldn't cache outbound fetches
+  // between invocations anyway) but cost nothing and rule out one class of
+  // "why is this frame stale" report.
+  const bustedPageUrl = `${pageUrl}${pageUrl.includes('?') ? '&' : '?'}_=${Date.now()}`;
+  const pageResp = await fetch(bustedPageUrl, { headers: BROWSER_HEADERS, cache: 'no-store' });
   if (!pageResp.ok) {
     throw { status: 502, body: { error: 'page fetch failed', status: pageResp.status } };
   }
@@ -77,6 +84,7 @@ export async function resolveRainbowCam(cam, { debug = false } = {}) {
 
   const imgResp = await fetch(frameUrl, {
     headers: { ...BROWSER_HEADERS, Referer: pageUrl },
+    cache: 'no-store',
   });
   if (!imgResp.ok) {
     throw { status: 502, body: { error: 'image fetch failed', status: imgResp.status, url: frameUrl } };
