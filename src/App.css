@@ -247,7 +247,6 @@
 .camera-card {
   background: #000;
   cursor: pointer;
-  transition: opacity 0.3s ease;
   border: 1px solid #222;
   display: flex;
   flex-direction: column;
@@ -277,10 +276,6 @@
   border-radius: 3px;
   font-weight: 600;
   z-index: 5;
-}
-
-.camera-card:hover {
-  opacity: 0.8;
 }
 
 .card-header {
