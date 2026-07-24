@@ -1,6 +1,6 @@
 // Updated with Loveland ski area and forecast view switcher
 import { useState, useEffect, useRef } from 'react'
-import { Camera, LineChart, Map as MapIcon, Snowflake, Settings, Wind, Newspaper, Volume2, Square, Loader2, List, ArrowLeft } from 'lucide-react'
+import { Camera, LineChart, Map as MapIcon, Snowflake, Settings, Wind, Newspaper, Volume2, Square, Loader2, List, ArrowLeft, Video } from 'lucide-react'
 import HLS from 'hls.js'
 import { computeStormArrival, STORM_BAND_LABELS } from './stormArrival'
 import { subscribeRuapehuProfile } from './pwObs'
@@ -343,6 +343,12 @@ function VideoPlayer({ url }) {
       controls
       autoPlay
       muted
+      // Without this, iOS Safari yanks an autoplaying <video> straight into
+      // its native fullscreen player as soon as playback starts — no tap
+      // involved. playsInline (plus the legacy webkit- attribute for older
+      // iOS) keeps it inline so fullscreen only happens via our own modal.
+      playsInline
+      webkit-playsinline="true"
       style={{
         width: '100%',
         height: '100%',
@@ -931,6 +937,14 @@ function CameraCard({ camera, allCameras = [] }) {
                         onError={() => setBrokenSidebar(prev => new Set([...prev, cam.name]))}
                         style={thumbStyle}
                       />
+                    ) : cam.isVideo ? (
+                      // HLS stream cams have no still-image URL to point an <img> at
+                      // (their .m3u8 would always 404/error as an image and permanently
+                      // hide the thumbnail via the onError below) — use a static
+                      // placeholder instead so they stay selectable in the stack.
+                      <div style={{ ...thumbStyle, display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#1a1a1a' }}>
+                        <Video size={28} color="#888" />
+                      </div>
                     ) : (
                       <img
                         src={thumbUrl}
