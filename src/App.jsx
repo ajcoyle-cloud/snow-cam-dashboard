@@ -3499,6 +3499,19 @@ function ResortComparisonRow({ resortName, entry, globalMaxSnow, freezingRange, 
   )
 }
 
+// Colorado resorts pushed to the bottom of the comparison list — the NZ
+// resorts are the ones people are actually weighing against each other day
+// to day, so they lead; Loveland/Mt Vernon (different hemisphere, different
+// season logic entirely) trail rather than interleaving alphabetically.
+// Array.sort is stable, so within each group the original RESORTS order
+// (and every other Object.entries(RESORTS) usage elsewhere) is untouched.
+const COMPARE_TRAILING_RESORTS = ['loveland', 'mtvernon']
+const COMPARE_RESORT_ENTRIES = Object.entries(RESORTS).sort(([a], [b]) => {
+  const aTrailing = COMPARE_TRAILING_RESORTS.includes(a) ? 1 : 0
+  const bTrailing = COMPARE_TRAILING_RESORTS.includes(b) ? 1 : 0
+  return aTrailing - bTrailing
+})
+
 function ResortComparisonPage({ resort, setResort, onClose }) {
   const byResort = useResortComparisonData()
 
@@ -3539,7 +3552,7 @@ function ResortComparisonPage({ resort, setResort, onClose }) {
       )}
 
       <div className="compare-list">
-        {Object.entries(RESORTS).map(([key, r]) => (
+        {COMPARE_RESORT_ENTRIES.map(([key, r]) => (
           <ResortComparisonRow
             key={key}
             resortName={r.name}
