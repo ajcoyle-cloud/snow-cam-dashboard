@@ -2054,6 +2054,12 @@ function initMap() {
   // Tap-to-dismiss instead of .click-popup's 4s auto-fade: this pill names
   // the whole line, not a snapshot value that goes stale, so there's no
   // "it'll be wrong in a few seconds" pressure to clear it automatically.
+  // Tapping the pill itself closes it directly (below); tapping elsewhere
+  // closes it via the plain `removeLiftPopup()` the two click handlers below
+  // already call whenever a tap doesn't land on a lift — deliberately NOT a
+  // fresh map.once('click', ...) registered on every open, which stacks a
+  // new listener per popup and depends on assumptions about MapLibre's
+  // internal event-dispatch ordering that aren't worth the risk here.
   function showLiftPopup(x, y, text) {
     removeLiftPopup();
     const el = document.createElement('div');
@@ -2061,20 +2067,9 @@ function initMap() {
     el.style.left = x + 'px';
     el.style.top = y + 'px';
     el.textContent = text;
-    liftPopupEl = el;
-    // Guarded rather than a bare removeLiftPopup: tapping lift A then
-    // immediately lift B fires THIS popup's tap-away listener (still
-    // pending from A) during B's click, after B's own popup has already
-    // replaced it — an unguarded removal would wipe B's fresh popup out
-    // instead of A's stale one. Only close if this is still the popup
-    // showing (i.e. nothing newer opened since).
-    const closeThis = () => { if (liftPopupEl === el) removeLiftPopup(); };
-    el.addEventListener('click', (ev) => { ev.stopPropagation(); closeThis(); });
+    el.addEventListener('click', (ev) => { ev.stopPropagation(); removeLiftPopup(); });
     document.getElementById('map-screen').appendChild(el);
-    // Tap-away-to-close: 'once' listeners registered during an event's own
-    // dispatch only fire on the NEXT occurrence, so this can't immediately
-    // self-cancel on the very click that opened it.
-    map.once('click', closeThis);
+    liftPopupEl = el;
   }
 
   function showLiftClickPopup(point, feature) {
@@ -2096,6 +2091,7 @@ function initMap() {
     // depth probe below) since it has nothing to do with snowfall data.
     const liftFeature = liftFeatureAt(e.point);
     if (liftFeature) { showLiftClickPopup(e.point, liftFeature); return; }
+    removeLiftPopup(); // tapped elsewhere — close any lift popup left open
     // The click-to-probe popup reports snow depth (cm) for the snowfall/
     // accumulated views; it has no meaning on the Live temperature map or
     // the Isobars map, so skip it there.
@@ -2127,6 +2123,7 @@ function initMap() {
     if (!isHighResMode) return;
     const liftFeatureHiRes = liftFeatureAt(e.point);
     if (liftFeatureHiRes) { showLiftClickPopup(e.point, liftFeatureHiRes); return; }
+    removeLiftPopup(); // tapped elsewhere — close any lift popup left open
     const rawElevTap = sampleElevationMedian(e.lngLat);
     if (rawElevTap == null) return;
     const elevTap = Math.min(rawElevTap, TOP_ELEV);
