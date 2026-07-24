@@ -1973,11 +1973,60 @@ function initMap() {
     observer.observe(attribInner, { childList: true, characterData: true, subtree: true });
   }
 
+  // ── Tap-to-select a lift line — name, length, vertical rise pill ─────────
+  // A bare point hit-test against a 1.4px-wide line is a near-impossible
+  // touch target, so query a small box around the tap instead of the exact
+  // pixel — the standard trick for making thin line layers tappable.
+  function liftFeatureAt(point) {
+    if (!map.getLayer('resort-lifts-line')) return null;
+    const bbox = [[point.x - 8, point.y - 8], [point.x + 8, point.y + 8]];
+    const feats = map.queryRenderedFeatures(bbox, { layers: ['resort-lifts-line'] });
+    return feats[0] || null;
+  }
+
+  function formatLiftLength(m) {
+    return m >= 1000 ? `${(m / 1000).toFixed(2)}km` : `${Math.round(m)}m`;
+  }
+
+  // Sums segment lengths along the line (approxDistanceKm's equirectangular
+  // approximation — plenty accurate at lift-line scale, see its own comment),
+  // then reads DEM elevation at every vertex via queryTerrainElevation for
+  // vertical rise. max-min rather than first-vs-last: OSM doesn't guarantee
+  // a lift's coordinate order runs bottom station to top station.
+  function liftStats(coordinates) {
+    let lengthM = 0;
+    for (let i = 1; i < coordinates.length; i++) {
+      const [lon1, lat1] = coordinates[i - 1];
+      const [lon2, lat2] = coordinates[i];
+      const cosAvgLatRad = Math.cos(((lat1 + lat2) / 2) * Math.PI / 180);
+      lengthM += approxDistanceKm(lat1, lon1, lat2, lon2, cosAvgLatRad) * 1000;
+    }
+    const elevations = coordinates
+      .map((c) => { try { return map.queryTerrainElevation(c, { exaggerated: false }); } catch (e) { return null; } })
+      .filter((v) => v != null);
+    const riseM = elevations.length >= 2 ? Math.max(...elevations) - Math.min(...elevations) : null;
+    return { lengthM, riseM };
+  }
+
+  function showLiftClickPopup(point, feature) {
+    const p = feature.properties;
+    const name = p.name || p.ref || (p.aerialway ? p.aerialway.replace(/_/g, ' ') : 'Lift');
+    const { lengthM, riseM } = liftStats(feature.geometry.coordinates);
+    const parts = [name, formatLiftLength(lengthM)];
+    if (riseM != null) parts.push(`↑${Math.round(riseM)}m`);
+    showClickPopup(point.x, point.y, parts.join(' · '));
+  }
+
   map.on('click', (e) => {
     // High-Res has its own precise, position-aware probe (see below) — this
     // generic one reports a single flat per-hour/per-elevation number with
     // no real x/y variation, which is exactly what High-Res must NOT show.
     if (isHighResMode) return;
+    // Tap-to-select a lift line wins over the snow-depth probe underneath
+    // it, and works in every view mode (including Live/Isobars, unlike the
+    // depth probe below) since it has nothing to do with snowfall data.
+    const liftFeature = liftFeatureAt(e.point);
+    if (liftFeature) { showLiftClickPopup(e.point, liftFeature); return; }
     // The click-to-probe popup reports snow depth (cm) for the snowfall/
     // accumulated views; it has no meaning on the Live temperature map or
     // the Isobars map, so skip it there.
@@ -2007,6 +2056,8 @@ function initMap() {
   // the drape.
   map.on('click', (e) => {
     if (!isHighResMode) return;
+    const liftFeatureHiRes = liftFeatureAt(e.point);
+    if (liftFeatureHiRes) { showLiftClickPopup(e.point, liftFeatureHiRes); return; }
     const rawElevTap = sampleElevationMedian(e.lngLat);
     if (rawElevTap == null) return;
     const elevTap = Math.min(rawElevTap, TOP_ELEV);
