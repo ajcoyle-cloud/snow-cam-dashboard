@@ -970,7 +970,12 @@ const RESORT_CONFIG = {
     name: 'Turoa',
     lat: -39.3062323, lon: 175.5269647, summitElev: 2322, baseElev: 1600, timezone: 'Pacific/Auckland',
     topElev: 2750,
-    center: [175.5269647, -39.3062323], zoom: 13.2, pitch: 62, bearing: 0
+    // bearing = compass bearing from center toward Ruapehu's own crater
+    // (175.567,-39.281), so the peak sits up/back in frame instead of an
+    // arbitrary north-up view — same convention as ruapehu's own hand-tuned
+    // bearing:160 (which is within 3° of that same calculation done for
+    // Whakapapa's center, confirming the sign/direction).
+    center: [175.5269647, -39.3062323], zoom: 13.2, pitch: 62, bearing: 51
   },
   // Same volcano, eastern flank — small club field (Tukino Alpine Sports
   // Club). lat/lon is TUKINO_LIFTS' own lowest-elevation point (Whangaehu
@@ -981,7 +986,9 @@ const RESORT_CONFIG = {
     name: 'Tukino',
     lat: -39.2794225, lon: 175.6117867, summitElev: 2000, baseElev: 1680, timezone: 'Pacific/Auckland',
     topElev: 2750,
-    center: [175.6117867, -39.2794225], zoom: 13.2, pitch: 62, bearing: 0
+    // bearing = compass bearing from center toward the summit, same
+    // reasoning as turoa above.
+    center: [175.6117867, -39.2794225], zoom: 13.2, pitch: 62, bearing: 267
   }
 };
 
