@@ -1023,7 +1023,7 @@ function CameraGrid({ cameras, cols = 4 }) {
 function GridSizeSwitcher({ cols, setCols }) {
   return (
     <div className="grid-size-switcher" title="Cameras per row">
-      {[2, 3, 4, 5].map((n) => (
+      {[1, 2, 3, 4, 5].map((n) => (
         <button
           key={n}
           className={`grid-size-option ${cols === n ? 'active' : ''}`}
@@ -3931,7 +3931,7 @@ export default function App() {
   const [gridCols, setGridCols] = useState(() => {
     try {
       const c = parseInt(localStorage.getItem('sc-grid-cols'), 10)
-      if (c >= 2 && c <= 5) return c
+      if (c >= 1 && c <= 5) return c
     } catch (e) {}
     return 4
   })
