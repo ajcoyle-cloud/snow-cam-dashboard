@@ -1,14 +1,18 @@
 // Live-image proxy/scraper for Rainbow Ski Area's webcam(s).
 //
 // skirainbow.co.nz/webcams/ embeds a webcam.io "timelapse-player" widget
-// (https://webcam.io/webcams/9kKjj9?embed=true is the actual iframed page —
-// confirmed via devtools). Its current-frame <img id="timelapse-player-image">
-// src is a per-frame timestamped file — e.g.
-// https://assets2.webcam.io/w13/zlAYDM/20260724/031001-6ccd35.jpg — and the
-// old one 404s once a new frame lands, so a hard-coded URL goes stale within
-// minutes. Same shape of problem as Mt Lyford's webcams (api/lyford-cam.js),
-// solved the same way: scrape the embed page for the current frame's URL and
-// stream that back from a stable app-internal path.
+// (https://webcam.io/webcams/zlAYDM?embed=true is the actual iframed page for
+// Shirt Front — confirmed via devtools; note this ID also shows up as the
+// path segment in the asset host below, which is the more reliable tell than
+// whatever embed/session ID a captured API call happens to reference — an
+// earlier capture pointed at a *different* webcam.io ID, 9kKjj9, that turned
+// out to serve the Learners area cam instead). Its current-frame
+// <img id="timelapse-player-image"> src is a per-frame timestamped file —
+// e.g. https://assets2.webcam.io/w13/zlAYDM/20260724/031001-6ccd35.jpg — and
+// the old one 404s once a new frame lands, so a hard-coded URL goes stale
+// within minutes. Same shape of problem as Mt Lyford's webcams
+// (api/lyford-cam.js), solved the same way: scrape the embed page for the
+// current frame's URL and stream that back from a stable app-internal path.
 //
 // webcam.io also expose a dated-range images.json API (see devtools capture),
 // but it's guarded by a session-bound x-csrf-token that a server-side fetch
@@ -26,7 +30,7 @@
 // below, if a different camera ever lives under a different assetN.webcam.io
 // host) if more Rainbow cameras get added later.
 const CAM_PAGES = {
-  'shirt-front': 'https://webcam.io/webcams/9kKjj9?embed=true',
+  'shirt-front': 'https://webcam.io/webcams/zlAYDM?embed=true',
 };
 
 // Desktop browser UA + matching headers — sites fronted by bot-detection
