@@ -3886,7 +3886,7 @@ function removeSnowfallMarker() {
 
 // Hourly: persistent pill at the field (no fade). Empty label hides it.
 function showSnowfallMarker(label) {
-  // This pins a single flat "mm/hr" reading to one fixed point (LOC.center)
+  // This pins a single flat "cm/hr" reading to one fixed point (LOC.center)
   // regardless of where snow actually falls harder or lighter — exactly the
   // position-blind reading High-Res's precise tap-to-probe replaced. Showing
   // it there by default (with no tap) both duplicates and contradicts the
@@ -3982,7 +3982,7 @@ function openMapView(index) {
     // Update pseudo pills to show forecasted temperature
     pwRenderPseudoPills();
     // Snowfall pin/pill at the field (only while snow is falling this hour)
-    showSnowfallMarker(hour.snowfallMm >= SNOWFALL_THRESHOLD_MM ? `❄ ${hour.snowfallMm.toFixed(1)} mm/hr` : '');
+    showSnowfallMarker(hour.snowfallMm >= SNOWFALL_THRESHOLD_MM ? `❄ ${(hour.snowfallMm / 10).toFixed(2)} cm/hr` : '');
   }
 
   setTimeout(() => { if (map) map.resize(); }, 60);
@@ -5284,7 +5284,7 @@ function startPlay() {
     const blendedSnowing = blended.snowfallMm >= SNOWFALL_THRESHOLD_MM;
     currentSnowLine = blendedSnowing ? blended.freezingLevel - SNOW_OFFSET : blended.freezingLevel;
     currentHourCm = blendedSnowing ? blended.snowfallMm / 10 : 0;
-    showSnowfallMarker(blendedSnowing ? `❄ ${blended.snowfallMm.toFixed(1)} mm/hr` : '');
+    showSnowfallMarker(blendedSnowing ? `❄ ${(blended.snowfallMm / 10).toFixed(2)} cm/hr` : '');
 
     if (t >= 1) {
       openMapView(currentIndex + 1);
