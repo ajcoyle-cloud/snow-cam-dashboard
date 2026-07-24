@@ -755,11 +755,15 @@
   flex-wrap: wrap;
 }
 
+/* Row, not column, so the compare-resorts button sits right next to the
+   resort switcher instead of stacking under it — previously held only the
+   switcher itself, hence flex-direction:column, but that layout never
+   mattered until a second item joined it here. */
 .forecast-left-column {
   display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 6px;
+  flex-direction: row;
+  align-items: center;
+  gap: 10px;
 }
 
 .forecast-right-column {

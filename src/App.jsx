@@ -2784,6 +2784,7 @@ function SnowfallForecast({ resort, setResort, onOpenCompare }) {
       <div className="forecast-top-bar">
         <div className="forecast-top-bar-left">
           <ResortSelector resort={resort} setResort={setResort} />
+          {renderCompareButton('ai-summary-toggle-mobile')}
         </div>
         <div className="forecast-top-bar-right">
           <div className="elevation-toggle">
@@ -2800,7 +2801,6 @@ function SnowfallForecast({ resort, setResort, onOpenCompare }) {
               Day
             </button>
           </div>
-          {renderCompareButton('ai-summary-toggle-mobile')}
           {renderAiSummaryButton('ai-summary-toggle-mobile')}
           {renderModelsMenu(modelMenuMobileRef, 'forecast-models-mobile')}
         </div>
@@ -2815,6 +2815,7 @@ function SnowfallForecast({ resort, setResort, onOpenCompare }) {
           <div className="forecast-selector-desktop">
             <ResortSelector resort={resort} setResort={setResort} />
           </div>
+          {renderCompareButton('ai-summary-toggle-desktop')}
         </div>
 
         <div className="forecast-controls-toggles">
@@ -2856,7 +2857,6 @@ function SnowfallForecast({ resort, setResort, onOpenCompare }) {
             mobile (forecast-models-desktop); the mobile top bar gets its own
             copy at the far right instead — see forecast-top-bar above. */}
         <div className="forecast-right-column">
-          {renderCompareButton('ai-summary-toggle-desktop')}
           {renderAiSummaryButton('ai-summary-toggle-desktop')}
           {renderModelsMenu(modelMenuRef, 'forecast-models-desktop')}
         </div>
