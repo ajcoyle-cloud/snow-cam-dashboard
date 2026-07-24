@@ -31,7 +31,9 @@ const WEATHER_LOCATIONS = {
   'Mt Hutt': { lat: -43.2, lon: 171.5, elevation: 2100 },
   Cardrona: { lat: -44.5, lon: 169.0, elevation: 1860 },
   'Treble Cone': { lat: -44.4, lon: 169.2, elevation: 2088 },
-  'The Remarkables': { lat: -44.4, lon: 168.7, elevation: 1960 },
+  // Was -44.4/168.7 (~65km off, an old placeholder) — corrected to the real
+  // ski field base area coordinates when 'remarkables' was added to RESORTS.
+  'The Remarkables': { lat: -45.052892, lon: 168.815148, elevation: 1622 },
   'Coronet Peak': { lat: -44.4, lon: 168.8, elevation: 1649 },
   'Loveland': { lat: 39.65, lon: -105.49, elevation: 3290 },
   'Roundhill': { lat: -43.825421, lon: 170.656220, elevation: 1800 },
@@ -159,17 +161,21 @@ function cameraRegion(cam) {
   if (cam.location === 'Roundhill') return 'roundhill'
   if (cam.location === 'Mt Lyford') return 'mtlyford'
   if (cam.location === 'Mt Hutt') return 'mthutt'
-  return 'southisland' // Treble Cone, The Remarkables, Coronet Peak
+  if (cam.location === 'The Remarkables') return 'remarkables'
+  return 'southisland' // Treble Cone, Coronet Peak
 }
 
 // Per-resort priority of region buckets. Buckets not listed fall to the end.
 const CAMERA_REGION_ORDER = {
-  ruapehu: ['whakapapa', 'northisland', 'cardrona', 'southisland', 'roundhill', 'loveland', 'mtlyford', 'mthutt'],
-  cardrona: ['cardrona', 'southisland', 'roundhill', 'whakapapa', 'northisland', 'loveland', 'mtlyford', 'mthutt'],
-  roundhill: ['roundhill', 'cardrona', 'southisland', 'whakapapa', 'northisland', 'loveland', 'mtlyford', 'mthutt'],
-  loveland: ['loveland', 'whakapapa', 'northisland', 'cardrona', 'roundhill', 'southisland', 'mtlyford', 'mthutt'],
-  mtlyford: ['mtlyford', 'southisland', 'roundhill', 'cardrona', 'whakapapa', 'northisland', 'loveland', 'mthutt'],
-  mthutt: ['mthutt', 'southisland', 'roundhill', 'mtlyford', 'cardrona', 'whakapapa', 'northisland', 'loveland'],
+  ruapehu: ['whakapapa', 'northisland', 'cardrona', 'southisland', 'remarkables', 'roundhill', 'loveland', 'mtlyford', 'mthutt'],
+  cardrona: ['cardrona', 'southisland', 'remarkables', 'roundhill', 'whakapapa', 'northisland', 'loveland', 'mtlyford', 'mthutt'],
+  roundhill: ['roundhill', 'cardrona', 'southisland', 'remarkables', 'whakapapa', 'northisland', 'loveland', 'mtlyford', 'mthutt'],
+  loveland: ['loveland', 'whakapapa', 'northisland', 'cardrona', 'roundhill', 'southisland', 'remarkables', 'mtlyford', 'mthutt'],
+  mtlyford: ['mtlyford', 'southisland', 'remarkables', 'roundhill', 'cardrona', 'whakapapa', 'northisland', 'loveland', 'mthutt'],
+  mthutt: ['mthutt', 'southisland', 'remarkables', 'roundhill', 'mtlyford', 'cardrona', 'whakapapa', 'northisland', 'loveland'],
+  // Queenstown/Wanaka neighbours (cardrona, the southisland catch-all — Treble
+  // Cone/Coronet Peak) lead, same logic as cardrona's own list above.
+  remarkables: ['remarkables', 'cardrona', 'southisland', 'roundhill', 'whakapapa', 'northisland', 'loveland', 'mtlyford', 'mthutt'],
 }
 
 // Stable sort keeps original within-bucket order; unknown buckets sort last.
@@ -1096,6 +1102,12 @@ const RESORTS = {
   // all confirmed directly. baseElev picks the low end of the stated
   // 1400-1438m car park range.
   mthutt: { name: 'Mt Hutt', lat: -43.4956, lon: 171.539722, summitElev: 2086, baseElev: 1400, timezone: 'Pacific/Auckland', metservicePath: 'mountains-and-parks/national-parks/canterbury-high-country' },
+  // NZSki resort (same operator as Coronet Peak/Mt Hutt) — no PredictWind
+  // station coverage there, so no pwObsStations (matches cardrona/mthutt,
+  // which also go without). lat/lon is the ski field's base area (NZ Topo
+  // Map); summit/base elevations and the MetService slug confirmed via
+  // multiple independent sources.
+  remarkables: { name: 'The Remarkables', lat: -45.052892, lon: 168.815148, summitElev: 1943, baseElev: 1622, timezone: 'Pacific/Auckland', metservicePath: 'mountains-and-parks/ski-fields/remarkables' },
 }
 
 // --- MetService freezing-level helpers ---------------------------------------
