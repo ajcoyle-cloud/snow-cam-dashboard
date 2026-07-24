@@ -1,6 +1,7 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import { resolveLyfordCam } from './api/lyford-cam.js'
+import { resolveRainbowCam } from './api/rainbow-cam.js'
 import { resolveWhakapapaReport } from './api/whakapapa-report.js'
 import { resolveCardronaReport, resolveTrebleconeReport } from './api/cardrona-report.js'
 import { resolveMthuttReport } from './api/mthutt-report.js'
@@ -18,6 +19,36 @@ function lyfordCamDev() {
         const cam = url.pathname.replace(/^\/+/, '').split('/')[0]
         try {
           const result = await resolveLyfordCam(cam, { debug: url.searchParams.has('debug') })
+          if (result.debug) {
+            res.setHeader('Content-Type', 'application/json')
+            res.end(JSON.stringify(result.debug))
+            return
+          }
+          res.setHeader('Content-Type', result.contentType)
+          res.setHeader('Cache-Control', 'public, max-age=60')
+          res.end(result.buffer)
+        } catch (e) {
+          const status = e && typeof e.status === 'number' ? e.status : 502
+          res.statusCode = status
+          res.setHeader('Content-Type', 'application/json')
+          res.end(JSON.stringify(e && e.body ? e.body : { error: String((e && e.message) || e) }))
+        }
+      })
+    },
+  }
+}
+
+// Dev parity for the Rainbow webcam scraper — same reasoning as
+// lyfordCamDev above.
+function rainbowCamDev() {
+  return {
+    name: 'rainbow-cam-dev',
+    configureServer(server) {
+      server.middlewares.use('/rainbow-cam', async (req, res) => {
+        const url = new URL(req.url, 'http://localhost')
+        const cam = url.pathname.replace(/^\/+/, '').split('/')[0]
+        try {
+          const result = await resolveRainbowCam(cam, { debug: url.searchParams.has('debug') })
           if (result.debug) {
             res.setHeader('Content-Type', 'application/json')
             res.end(JSON.stringify(result.debug))
@@ -65,6 +96,7 @@ export default defineConfig({
   plugins: [
     react(),
     lyfordCamDev(),
+    rainbowCamDev(),
     snowReportDev('/whakapapa-report', resolveWhakapapaReport),
     snowReportDev('/cardrona-report', resolveCardronaReport),
     snowReportDev('/treblecone-report', resolveTrebleconeReport),

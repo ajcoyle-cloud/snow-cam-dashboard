@@ -45,6 +45,10 @@
       "destination": "/api/lyford-cam?cam=:cam"
     },
     {
+      "source": "/rainbow-cam/:cam",
+      "destination": "/api/rainbow-cam?cam=:cam"
+    },
+    {
       "source": "/whakapapa-report",
       "destination": "/api/whakapapa-report"
     },

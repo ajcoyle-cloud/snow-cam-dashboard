@@ -142,6 +142,13 @@ const SOUTH_ISLAND = [
   // stable and always resolves to the current frame.
   { name: 'Mt Lyford - Stella Hut', url: '/lyford-cam/stella-hut', location: 'Mt Lyford' },
   { name: 'Mt Lyford - Lyford North', url: '/lyford-cam/lyford-north', location: 'Mt Lyford' },
+  // Rainbow's webcam is a webcam.io timelapse-player embed whose current
+  // frame is a per-timestamp file — old ones 404 within minutes (see
+  // api/rainbow-cam.js). Point at the scraper proxy, same pattern as Mt
+  // Lyford above, so the URL stays stable and always resolves to the
+  // current frame. Only Shirt Front wired up so far — Top T-Bar and
+  // Learners Slope exist on the site but aren't sourced yet.
+  { name: 'Rainbow - Shirt Front', url: '/rainbow-cam/shirt-front', location: 'Rainbow' },
 ]
 
 const USA_RESORTS = [
