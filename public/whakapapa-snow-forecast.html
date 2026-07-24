@@ -1659,6 +1659,13 @@ function fmtTime(iso) {
 // ── Map ────────────────────────────────────────────────────────────────────
 let map = null;
 
+// The original, un-clipped lift-line FeatureCollection for whichever resort
+// is loaded (set alongside the 'resort-lifts' source below) — queried lift
+// taps look the full geometry up here by id rather than trusting whatever
+// queryRenderedFeatures hands back, which can be tile-clipped (see
+// liftFeatureAt's own comment for why that matters).
+let currentLiftData = null;
+
 // Tells the parent app (if embedded) once there's actually something worth
 // looking at, so it can hold a cover overlay over the old content until this
 // new resort's map is ready instead of flashing a blank/half-loaded map
@@ -1910,7 +1917,12 @@ function initMap() {
       : resortKey === 'rainbow' ? RAINBOW_LIFTS
       : null;
     if (liftData) {
-      map.addSource('resort-lifts', { type: 'geojson', data: liftData });
+      currentLiftData = liftData;
+      // generateId assigns each feature a stable id = its index in
+      // liftData.features, so a tap can look the untouched original
+      // geometry back up (see liftFeatureAt) instead of trusting whatever
+      // queryRenderedFeatures returns, which is tile-clipped.
+      map.addSource('resort-lifts', { type: 'geojson', data: liftData, generateId: true });
       map.addLayer({
         id: 'resort-lifts-line',
         type: 'line',
@@ -1978,10 +1990,19 @@ function initMap() {
   // touch target, so query a small box around the tap instead of the exact
   // pixel — the standard trick for making thin line layers tappable.
   function liftFeatureAt(point) {
-    if (!map.getLayer('resort-lifts-line')) return null;
+    if (!map.getLayer('resort-lifts-line') || !currentLiftData) return null;
     const bbox = [[point.x - 8, point.y - 8], [point.x + 8, point.y + 8]];
     const feats = map.queryRenderedFeatures(bbox, { layers: ['resort-lifts-line'] });
-    return feats[0] || null;
+    if (!feats[0]) return null;
+    // queryRenderedFeatures clips a line's geometry to whatever internal
+    // tile the hit landed in — fine for a short lift fully inside one tile,
+    // but a long one (e.g. Sky Waka Gondola, ~1.8km) spans several tiles at
+    // closer zooms, so the clipped hit alone drastically under-reports
+    // length/vertical rise. generateId (set on the source above) gives each
+    // feature a stable id = its index into currentLiftData.features, so look
+    // the real, un-clipped feature back up there instead of trusting the
+    // rendered geometry.
+    return currentLiftData.features[feats[0].id] || feats[0];
   }
 
   function formatLiftLength(m) {
