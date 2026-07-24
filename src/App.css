@@ -1744,7 +1744,7 @@
 .compare-row-chart {
   flex: 1;
   min-width: 0;
-  height: 160px;
+  height: 107px;
   position: relative;
 }
 
@@ -1829,7 +1829,7 @@
     font-size: 0.62em;
   }
   .compare-row-chart {
-    height: 120px;
+    height: 80px;
   }
   /* Hover tooltip is a desktop (mouse) feature — hide it here rather than
      rely only on touch never triggering mousemove, which some mobile
