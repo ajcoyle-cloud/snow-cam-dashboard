@@ -930,6 +930,18 @@ const RESORT_CONFIG = {
     // default centred on the resort's own coordinates, same starting point
     // mthutt got. Needs a real capture once this is live.
     center: [168.815148, -45.052892], zoom: 13.2, pitch: 62, bearing: 0
+  },
+  rainbow: {
+    name: 'Rainbow',
+    lat: -41.871435, lon: 172.860638, summitElev: 1758, baseElev: 1540, timezone: 'Pacific/Auckland',
+    // St Arnaud Range ridgelines around the field run a bit above the ski
+    // area's own ~1758m top lift — same margin philosophy as mtlyford/
+    // roundhill's smaller ~100-190m buffers, not treblecone/remarkables'
+    // bigger ones (no single dominant nearby peak here like Double Cone).
+    topElev: 1950,
+    // No hand-picked camera framing yet — plain top-down default centred on
+    // the resort's own coordinates, same starting point mthutt/remarkables got.
+    center: [172.860638, -41.871435], zoom: 13.2, pitch: 62, bearing: 0
   }
 };
 
@@ -1036,7 +1048,7 @@ const RESORT_PILL_MAX_ZOOM = 11;
 const RESORT_PILL_LABELS = {
   ruapehu: 'Whakapapa', cardrona: 'Cardrona', loveland: 'Loveland',
   mtlyford: 'Mt Lyford', roundhill: 'Roundhill', mtvernon: 'Mt Vernon', treblecone: 'Treble Cone',
-  mthutt: 'Mt Hutt', remarkables: 'The Remarkables'
+  mthutt: 'Mt Hutt', remarkables: 'The Remarkables', rainbow: 'Rainbow'
 };
 let resortPillMarkers = {};
 
@@ -1072,7 +1084,10 @@ const TREBLE_CONE_LIFTS = {"type":"FeatureCollection","features":[{"type":"Featu
 // for mtvernon, which also has no dataset) until real geodata is sourced —
 // see chat writeup for how to supply it (e.g. an Overpass Turbo export).
 const REMARKABLES_LIFTS = null;
-const MTHUTT_LIFTS = {"type":"FeatureCollection","features":[{"type":"Feature","geometry":{"type":"LineString","coordinates":[[171.5394971,-43.4948342],[171.5393494,-43.4946439],[171.5393015,-43.4945773],[171.5389854,-43.4941379],[171.5385077,-43.4934666],[171.5379537,-43.492684],[171.53792,-43.4926357],[171.5370519,-43.4914293],[171.5368856,-43.4911923],[171.5365549,-43.4907344],[171.5362987,-43.4903725],[171.5356871,-43.4895173],[171.5348638,-43.4883641],[171.5343164,-43.4876],[171.5337699,-43.4868372],[171.5333637,-43.4862707],[171.5331671,-43.4860007],[171.5324916,-43.4850514],[171.5323371,-43.4848318],[171.5323128,-43.484791],[171.5322839,-43.4847472],[171.5321455,-43.4845617]]},"properties":{"aerialway":"chair_lift","aerialway:bubble":"no","aerialway:heating":"no","aerialway:occupancy":"6","name":"Summit Six Chair","oneway":"no"}},{"type":"Feature","geometry":{"type":"LineString","coordinates":[[171.5387458,-43.4947771],[171.5370823,-43.4949567]]},"properties":{"aerialway":"magic_carpet","name":"Magic Carpet"}},{"type":"Feature","geometry":{"type":"LineString","coordinates":[[171.5369939,-43.4992739],[171.5368617,-43.4989018],[171.5367107,-43.4983405],[171.5365725,-43.4978904],[171.5363174,-43.4970495],[171.5362371,-43.4967943],[171.5359708,-43.4959199],[171.5359646,-43.4958995],[171.5359153,-43.4957176],[171.5359015,-43.4956733],[171.5358775,-43.4956048],[171.5356573,-43.4948525],[171.5356515,-43.4948337],[171.5355555,-43.4945373],[171.5352458,-43.4935066],[171.5350076,-43.4927297],[171.5348857,-43.492318],[171.5346861,-43.4916587],[171.534355,-43.4905631],[171.5341643,-43.4899163],[171.5338679,-43.4889506],[171.5338303,-43.4888241],[171.5337985,-43.4887203]]},"properties":{"aerialway":"chair_lift","aerialway:occupancy":"3","name":"Towers Triple Chair"}},{"type":"Feature","geometry":{"type":"LineString","coordinates":[[171.5401309,-43.4951497],[171.5400033,-43.4949055],[171.5399855,-43.4948712],[171.5398149,-43.4945447],[171.5395626,-43.4940823],[171.5389883,-43.4930297],[171.5385483,-43.4922233],[171.5381263,-43.4914497],[171.5376112,-43.4905055],[171.537478,-43.4902614],[171.5373478,-43.49001]]},"properties":{"aerialway":"chair_lift","aerialway:bubble":"no","aerialway:capacity":"3000","aerialway:duration":"2","aerialway:heating":"no","aerialway:occupancy":"8","name":"Norwest Express","oneway":"yes"}},{"type":"Feature","geometry":{"type":"LineString","coordinates":[[171.5364813,-43.495414],[171.5370208,-43.4951519]]},"properties":{"aerialway":"magic_carpet","aerialway:duration":"2","name":"Sunkid Carpet"}}]};
+// Same story as REMARKABLES_LIFTS above — no sourced OSM data for Rainbow's
+// lifts either.
+const RAINBOW_LIFTS = null;
+const MTHUTT_LIFTS ={"type":"FeatureCollection","features":[{"type":"Feature","geometry":{"type":"LineString","coordinates":[[171.5394971,-43.4948342],[171.5393494,-43.4946439],[171.5393015,-43.4945773],[171.5389854,-43.4941379],[171.5385077,-43.4934666],[171.5379537,-43.492684],[171.53792,-43.4926357],[171.5370519,-43.4914293],[171.5368856,-43.4911923],[171.5365549,-43.4907344],[171.5362987,-43.4903725],[171.5356871,-43.4895173],[171.5348638,-43.4883641],[171.5343164,-43.4876],[171.5337699,-43.4868372],[171.5333637,-43.4862707],[171.5331671,-43.4860007],[171.5324916,-43.4850514],[171.5323371,-43.4848318],[171.5323128,-43.484791],[171.5322839,-43.4847472],[171.5321455,-43.4845617]]},"properties":{"aerialway":"chair_lift","aerialway:bubble":"no","aerialway:heating":"no","aerialway:occupancy":"6","name":"Summit Six Chair","oneway":"no"}},{"type":"Feature","geometry":{"type":"LineString","coordinates":[[171.5387458,-43.4947771],[171.5370823,-43.4949567]]},"properties":{"aerialway":"magic_carpet","name":"Magic Carpet"}},{"type":"Feature","geometry":{"type":"LineString","coordinates":[[171.5369939,-43.4992739],[171.5368617,-43.4989018],[171.5367107,-43.4983405],[171.5365725,-43.4978904],[171.5363174,-43.4970495],[171.5362371,-43.4967943],[171.5359708,-43.4959199],[171.5359646,-43.4958995],[171.5359153,-43.4957176],[171.5359015,-43.4956733],[171.5358775,-43.4956048],[171.5356573,-43.4948525],[171.5356515,-43.4948337],[171.5355555,-43.4945373],[171.5352458,-43.4935066],[171.5350076,-43.4927297],[171.5348857,-43.492318],[171.5346861,-43.4916587],[171.534355,-43.4905631],[171.5341643,-43.4899163],[171.5338679,-43.4889506],[171.5338303,-43.4888241],[171.5337985,-43.4887203]]},"properties":{"aerialway":"chair_lift","aerialway:occupancy":"3","name":"Towers Triple Chair"}},{"type":"Feature","geometry":{"type":"LineString","coordinates":[[171.5401309,-43.4951497],[171.5400033,-43.4949055],[171.5399855,-43.4948712],[171.5398149,-43.4945447],[171.5395626,-43.4940823],[171.5389883,-43.4930297],[171.5385483,-43.4922233],[171.5381263,-43.4914497],[171.5376112,-43.4905055],[171.537478,-43.4902614],[171.5373478,-43.49001]]},"properties":{"aerialway":"chair_lift","aerialway:bubble":"no","aerialway:capacity":"3000","aerialway:duration":"2","aerialway:heating":"no","aerialway:occupancy":"8","name":"Norwest Express","oneway":"yes"}},{"type":"Feature","geometry":{"type":"LineString","coordinates":[[171.5364813,-43.495414],[171.5370208,-43.4951519]]},"properties":{"aerialway":"magic_carpet","aerialway:duration":"2","name":"Sunkid Carpet"}}]};
 const TOP_ELEV = LOC.topElev;
 const SNOW_OFFSET = 300; // snow falls to 300m below the freezing level
 
@@ -1900,6 +1915,7 @@ function initMap() {
       : resortKey === 'treblecone' ? TREBLE_CONE_LIFTS
       : resortKey === 'mthutt' ? MTHUTT_LIFTS
       : resortKey === 'remarkables' ? REMARKABLES_LIFTS
+      : resortKey === 'rainbow' ? RAINBOW_LIFTS
       : null;
     if (liftData) {
       map.addSource('resort-lifts', { type: 'geojson', data: liftData });
@@ -3353,7 +3369,7 @@ function toggleContours() {
 // own demo style.json, not guessed.
 const RESORT_COUNTRY_ISO3 = {
   ruapehu: 'NZL', cardrona: 'NZL', mtlyford: 'NZL', roundhill: 'NZL', treblecone: 'NZL', mthutt: 'NZL',
-  remarkables: 'NZL',
+  remarkables: 'NZL', rainbow: 'NZL',
   loveland: 'USA', mtvernon: 'USA',
 };
 
@@ -4931,7 +4947,10 @@ const REGIONAL_CALIBRATIONS = {
 // Nearest covering station per resort (by distance to each station's quad
 // centroid, cross-checked against which administrative region the resort is
 // actually in — see chat writeup). No entry = no coverage close enough to
-// be worth showing (loveland/mtvernon, both Colorado).
+// be worth showing (loveland/mtvernon, both Colorado — and rainbow: Nelson
+// Lakes/St Arnaud doesn't clearly fall inside any of the three composite
+// crops below, and guessing wrong would show radar imagery from the wrong
+// region labeled as if it were local).
 const RESORT_REGIONS = {
   ruapehu: 'bayofplenty',
   cardrona: 'otago',

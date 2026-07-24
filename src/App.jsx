@@ -39,6 +39,7 @@ const WEATHER_LOCATIONS = {
   'Roundhill': { lat: -43.825421, lon: 170.656220, elevation: 1800 },
   'Mt Vernon': { lat: 39.72011925175132, lon: -105.26872905339022, elevation: 2190 },
   'Mt Lyford': { lat: -42.446503, lon: 173.143418, elevation: 1800 },
+  Rainbow: { lat: -41.871435, lon: 172.860638, elevation: 1758 },
 }
 
 const getWeatherIcon = (pictocode) => {
@@ -162,20 +163,25 @@ function cameraRegion(cam) {
   if (cam.location === 'Mt Lyford') return 'mtlyford'
   if (cam.location === 'Mt Hutt') return 'mthutt'
   if (cam.location === 'The Remarkables') return 'remarkables'
+  if (cam.location === 'Rainbow') return 'rainbow'
   return 'southisland' // Treble Cone, Coronet Peak
 }
 
 // Per-resort priority of region buckets. Buckets not listed fall to the end.
 const CAMERA_REGION_ORDER = {
-  ruapehu: ['whakapapa', 'northisland', 'cardrona', 'southisland', 'remarkables', 'roundhill', 'loveland', 'mtlyford', 'mthutt'],
-  cardrona: ['cardrona', 'southisland', 'remarkables', 'roundhill', 'whakapapa', 'northisland', 'loveland', 'mtlyford', 'mthutt'],
-  roundhill: ['roundhill', 'cardrona', 'southisland', 'remarkables', 'whakapapa', 'northisland', 'loveland', 'mtlyford', 'mthutt'],
-  loveland: ['loveland', 'whakapapa', 'northisland', 'cardrona', 'roundhill', 'southisland', 'remarkables', 'mtlyford', 'mthutt'],
-  mtlyford: ['mtlyford', 'southisland', 'remarkables', 'roundhill', 'cardrona', 'whakapapa', 'northisland', 'loveland', 'mthutt'],
-  mthutt: ['mthutt', 'southisland', 'remarkables', 'roundhill', 'mtlyford', 'cardrona', 'whakapapa', 'northisland', 'loveland'],
+  ruapehu: ['whakapapa', 'northisland', 'cardrona', 'southisland', 'remarkables', 'roundhill', 'loveland', 'mtlyford', 'rainbow', 'mthutt'],
+  cardrona: ['cardrona', 'southisland', 'remarkables', 'roundhill', 'whakapapa', 'northisland', 'loveland', 'mtlyford', 'rainbow', 'mthutt'],
+  roundhill: ['roundhill', 'cardrona', 'southisland', 'remarkables', 'whakapapa', 'northisland', 'loveland', 'mtlyford', 'rainbow', 'mthutt'],
+  loveland: ['loveland', 'whakapapa', 'northisland', 'cardrona', 'roundhill', 'southisland', 'remarkables', 'mtlyford', 'rainbow', 'mthutt'],
+  mtlyford: ['mtlyford', 'rainbow', 'southisland', 'remarkables', 'roundhill', 'cardrona', 'whakapapa', 'northisland', 'loveland', 'mthutt'],
+  mthutt: ['mthutt', 'southisland', 'remarkables', 'roundhill', 'mtlyford', 'rainbow', 'cardrona', 'whakapapa', 'northisland', 'loveland'],
   // Queenstown/Wanaka neighbours (cardrona, the southisland catch-all — Treble
   // Cone/Coronet Peak) lead, same logic as cardrona's own list above.
-  remarkables: ['remarkables', 'cardrona', 'southisland', 'roundhill', 'whakapapa', 'northisland', 'loveland', 'mtlyford', 'mthutt'],
+  remarkables: ['remarkables', 'cardrona', 'southisland', 'roundhill', 'whakapapa', 'northisland', 'loveland', 'mtlyford', 'rainbow', 'mthutt'],
+  // Nelson Lakes/St Arnaud, top of the South Island — no close neighbour in
+  // this list, so mtlyford (the other small, remote South Island club-ish
+  // field, North Canterbury) is the nearest thing to "closest" here.
+  rainbow: ['rainbow', 'mtlyford', 'roundhill', 'cardrona', 'southisland', 'remarkables', 'whakapapa', 'northisland', 'loveland', 'mthutt'],
 }
 
 // Stable sort keeps original within-bucket order; unknown buckets sort last.
@@ -1108,6 +1114,12 @@ const RESORTS = {
   // Map); summit/base elevations and the MetService slug confirmed via
   // multiple independent sources.
   remarkables: { name: 'The Remarkables', lat: -45.052892, lon: 168.815148, summitElev: 1943, baseElev: 1622, timezone: 'Pacific/Auckland', metservicePath: 'mountains-and-parks/ski-fields/remarkables' },
+  // Small club-adjacent field in the St Arnaud Range, Nelson Lakes — not
+  // NZSki, no PredictWind coverage (no pwObsStations, same as cardrona/
+  // mthutt/remarkables). lat/lon is the ski field itself (NZ Topo Map);
+  // base/summit elevations and the MetService slug ('rainbow-valley', not
+  // just 'rainbow') confirmed via its own official site's stats.
+  rainbow: { name: 'Rainbow', lat: -41.871435, lon: 172.860638, summitElev: 1758, baseElev: 1540, timezone: 'Pacific/Auckland', metservicePath: 'mountains-and-parks/ski-fields/rainbow-valley' },
 }
 
 // --- MetService freezing-level helpers ---------------------------------------
