@@ -1627,8 +1627,7 @@
 .compare-page {
   background: #111;
   padding: 20px;
-  max-width: 1000px;
-  margin: 0 auto;
+  max-width: 100%;
 }
 
 .compare-page-header {
@@ -1746,12 +1745,46 @@
   flex: 1;
   min-width: 0;
   height: 160px;
+  position: relative;
 }
 
 .compare-row-svg {
   width: 100%;
   height: 100%;
   display: block;
+}
+
+/* Hover tooltip for the mini snowfall/freezing-level charts — desktop only
+   (mouse hover, not touch): most hourly bars are 1-2px wide, unhittable
+   directly, so the tooltip follows nearest-point lookup off cursor X
+   instead. Fixed near the top of the row so it doesn't jump around as the
+   cursor crosses bars of very different heights. */
+.compare-tooltip {
+  position: absolute;
+  top: 4px;
+  transform: translateX(-50%);
+  pointer-events: none;
+  background: rgba(0, 0, 0, 0.9);
+  border-radius: 8px;
+  padding: 6px 10px;
+  font-size: 11px;
+  color: #fff;
+  white-space: nowrap;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.5);
+  z-index: 5;
+}
+.compare-tooltip-time {
+  color: #888;
+  font-weight: 600;
+  margin-bottom: 2px;
+}
+.compare-tooltip-snow {
+  color: #cfe3ff;
+  font-weight: 700;
+}
+.compare-tooltip-fz {
+  color: #7a97c9;
+  margin-top: 1px;
 }
 
 .compare-row-placeholder {
@@ -1797,5 +1830,11 @@
   }
   .compare-row-chart {
     height: 120px;
+  }
+  /* Hover tooltip is a desktop (mouse) feature — hide it here rather than
+     rely only on touch never triggering mousemove, which some mobile
+     browsers do simulate on tap right before a click. */
+  .compare-tooltip {
+    display: none;
   }
 }

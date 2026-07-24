@@ -3440,9 +3440,10 @@ function useResortComparisonData() {
 }
 
 // One resort's row: label + mini chart, drawn at the same hourly resolution
-// as the main forecast chart's Day view. globalMaxSnow/freezingRange are
-// shared across every row so bar and line heights compare directly.
-function ResortComparisonRow({ resortName, entry, globalMaxSnow, freezingRange, onSelect, active }) {
+// as the main forecast chart's Day view. globalMaxSnow is shared across every
+// row so bar heights compare directly; the freezing-level Y-scale is NOT
+// shared (see below) — each row scales it to its own base/summit band.
+function ResortComparisonRow({ resortName, entry, globalMaxSnow, summitElev, baseElev, onSelect, active }) {
   const CHART_W = 1000
   const CHART_H = 200
   const padTop = 10
@@ -3452,12 +3453,43 @@ function ResortComparisonRow({ resortName, entry, globalMaxSnow, freezingRange, 
   const n = points.length || COMPARE_FORECAST_DAYS * 24
   const slotW = CHART_W / n
   const barW = Math.max(slotW * 0.85, 1)
+  const svgRef = useRef(null)
+  // Desktop-only hover (see .compare-tooltip's hover-capable media query) —
+  // nearest-point lookup off mouse X, not literal per-bar hit-testing, since
+  // most hourly bars are only 1-2px wide and unhittable directly. hoverPx is
+  // pixel space (for positioning the HTML tooltip); hoverIndex drives what
+  // it shows.
+  const [hoverIndex, setHoverIndex] = useState(null)
+  const [hoverPx, setHoverPx] = useState(0)
 
-  const [minFz, maxFz] = freezingRange
+  // Freezing-level Y-scale is per-resort, not shared globally — a shared
+  // scale across every resort got dominated by Loveland/Mt Vernon (Colorado,
+  // freezing levels 1500-2000m higher than any NZ resort), which squashed
+  // every other resort's line to a near-flat smear. Anchored to THIS
+  // resort's own base/summit band (extended if the freezing level actually
+  // swings outside it, so nothing clips) — that's also the natural frame for
+  // the base/summit reference lines below, and gives the line real
+  // amplitude to show its actual hourly movement.
+  const freezingLevels = points.map((p) => p.freezingLevel).filter((v) => Number.isFinite(v))
+  const rangeMargin = 150
+  const minFz = Math.min(baseElev, ...(freezingLevels.length ? freezingLevels : [baseElev])) - rangeMargin
+  const maxFz = Math.max(summitElev, ...(freezingLevels.length ? freezingLevels : [summitElev])) + rangeMargin
   const fzY = (val) => padTop + plotH - ((val - minFz) / Math.max(maxFz - minFz, 1)) * plotH
   const barHeight = (cm) => Math.max((Math.min(cm, globalMaxSnow) / Math.max(globalMaxSnow, 0.1)) * plotH, cm > 0 ? 1 : 0)
 
   const linePoints = points.map((p, i) => `${(i + 0.5) * slotW},${fzY(p.freezingLevel)}`).join(' ')
+
+  const handleHoverMove = (e) => {
+    if (!svgRef.current || points.length === 0) return
+    const rect = svgRef.current.getBoundingClientRect()
+    const xPx = e.clientX - rect.left
+    const fraction = Math.min(Math.max(xPx / rect.width, 0), 1)
+    setHoverIndex(Math.min(points.length - 1, Math.round(fraction * (points.length - 1))))
+    setHoverPx(xPx)
+  }
+  const handleHoverLeave = () => setHoverIndex(null)
+  const hoverPoint = hoverIndex !== null ? points[hoverIndex] : null
+  const hoverLineX = hoverIndex !== null ? (hoverIndex + 0.5) * slotW : null
 
   // Alternating day-shading bands, same convention as the main forecast
   // chart — now that each row has real height, a flat field of bars reads
@@ -3496,25 +3528,55 @@ function ResortComparisonRow({ resortName, entry, globalMaxSnow, freezingRange, 
       </div>
       <div className="compare-row-chart">
         {entry?.status === 'done' ? (
-          <svg viewBox={`0 0 ${CHART_W} ${CHART_H}`} preserveAspectRatio="none" className="compare-row-svg">
-            {dayBands.map((b, i) => (
-              <rect key={`day-${i}`} x={b.x1} y={0} width={b.x2 - b.x1} height={CHART_H}
-                fill={b.isEven ? '#ffffff' : 'transparent'} opacity={b.isEven ? 0.03 : 0} />
-            ))}
-            {points.map((p, i) => {
-              if (p.snowCm <= 0) return null
-              const h = barHeight(p.snowCm)
-              const x = (i + 0.5) * slotW - barW / 2
-              const y = padTop + plotH - h
-              return (
-                <rect key={`bar-${i}`} x={x} y={y} width={barW} height={h}
-                  fill="#4d9fff" opacity={0.85} />
-              )
-            })}
-            {points.length > 1 && (
-              <polyline points={linePoints} fill="none" stroke="#1e4fb8" strokeWidth={2.25} strokeLinejoin="round" strokeLinecap="round" />
+          <>
+            <svg ref={svgRef} viewBox={`0 0 ${CHART_W} ${CHART_H}`} preserveAspectRatio="none" className="compare-row-svg"
+              onMouseMove={handleHoverMove} onMouseLeave={handleHoverLeave}>
+              {dayBands.map((b, i) => (
+                <rect key={`day-${i}`} x={b.x1} y={0} width={b.x2 - b.x1} height={CHART_H}
+                  fill={b.isEven ? '#ffffff' : 'transparent'} opacity={b.isEven ? 0.03 : 0} />
+              ))}
+              {/* Faint base/summit elevation lines — the same frame the
+                  freezing-level Y-scale is anchored to, so the freezing line's
+                  position relative to them reads directly as "above the
+                  mountain" (rain) vs "below it" (snow) without needing axis
+                  labels on a chart this small. */}
+              <line x1={0} y1={fzY(summitElev)} x2={CHART_W} y2={fzY(summitElev)} stroke="#999" strokeWidth={1} strokeDasharray="5 4" opacity={0.28} />
+              <line x1={0} y1={fzY(baseElev)} x2={CHART_W} y2={fzY(baseElev)} stroke="#999" strokeWidth={1} strokeDasharray="5 4" opacity={0.28} />
+              {points.map((p, i) => {
+                if (p.snowCm <= 0) return null
+                const h = barHeight(p.snowCm)
+                const x = (i + 0.5) * slotW - barW / 2
+                const y = padTop + plotH - h
+                return (
+                  <rect key={`bar-${i}`} x={x} y={y} width={barW} height={h}
+                    fill="#4d9fff" opacity={i === hoverIndex ? 1 : 0.85} />
+                )
+              })}
+              {points.length > 1 && (
+                <polyline points={linePoints} fill="none" stroke="#1e4fb8" strokeWidth={2.25} strokeLinejoin="round" strokeLinecap="round" />
+              )}
+              {hoverPoint && (
+                <>
+                  <line x1={hoverLineX} y1={0} x2={hoverLineX} y2={CHART_H} stroke="#fff" strokeWidth={1.5} opacity={0.3} />
+                  <circle cx={hoverLineX} cy={fzY(hoverPoint.freezingLevel)} r={4} fill="#1e4fb8" stroke="#fff" strokeWidth={1.2} />
+                </>
+              )}
+            </svg>
+            {hoverPoint && (
+              <div className="compare-tooltip" style={{ left: `${hoverPx}px` }}>
+                <div className="compare-tooltip-time">
+                  {hoverPoint.datetime.toLocaleDateString('en-NZ', { weekday: 'short' })} {(() => {
+                    const h = hoverPoint.datetime.getHours()
+                    return `${h % 12 || 12}${h >= 12 ? 'pm' : 'am'}`
+                  })()}
+                </div>
+                <div className="compare-tooltip-snow">
+                  {hoverPoint.snowCm > 0 ? `❄️ ${hoverPoint.snowCm.toFixed(1)}cm` : 'No snow'}
+                </div>
+                <div className="compare-tooltip-fz">FL {Math.round(hoverPoint.freezingLevel)}m</div>
+              </div>
             )}
-          </svg>
+          </>
         ) : (
           <div className={`compare-row-placeholder ${entry?.status === 'error' ? 'is-error' : ''}`} />
         )}
@@ -3541,10 +3603,6 @@ function ResortComparisonPage({ resort, setResort, onClose }) {
 
   const allPoints = Object.values(byResort).flatMap((e) => e.points || [])
   const globalMaxSnow = Math.max(1, ...allPoints.map((p) => p.snowCm))
-  const freezingLevels = allPoints.map((p) => p.freezingLevel).filter((v) => Number.isFinite(v))
-  const freezingRange = freezingLevels.length
-    ? [Math.min(0, ...freezingLevels) - 200, Math.max(...freezingLevels) + 200]
-    : [0, 3600]
 
   // Shared date header — same x-scale as every row's chart — so we only
   // print day labels once instead of repeating them per resort.
@@ -3582,7 +3640,8 @@ function ResortComparisonPage({ resort, setResort, onClose }) {
             resortName={r.name}
             entry={byResort[key]}
             globalMaxSnow={globalMaxSnow}
-            freezingRange={freezingRange}
+            summitElev={r.summitElev}
+            baseElev={r.baseElev}
             active={key === resort}
             onSelect={() => { setResort(key); onClose() }}
           />
