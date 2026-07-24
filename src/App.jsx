@@ -323,14 +323,55 @@ function VideoPlayer({ url }) {
     const video = videoRef.current
     if (!video) return
 
+    // ipcamlive's timeshift HLS streams regularly drop/stall a fragment for
+    // a beat (mobile-network-fed mountain cams) — with no error handling at
+    // all, hls.js just froze on the spot forever, which read as "plays a
+    // couple seconds then stops". Recover instead of doing nothing: retry
+    // network hiccups in place, swap the decoder on media errors, and fully
+    // reinit on anything else fatal. A short-buffer config keeps us close to
+    // the live edge so a stall is a couple of seconds, not a big rebuffer.
     if (HLS.isSupported()) {
-      const hls = new HLS({
-        debug: false
-      })
-      hls.loadSource(url)
-      hls.attachMedia(video)
+      let hls
+      let watchdog
+      let stopped = false
+
+      const armWatchdog = () => {
+        clearTimeout(watchdog)
+        // No playback progress for 10s with no fatal HLS error to react to —
+        // the stream has silently wedged. Tear down and reconnect from
+        // scratch rather than leaving it frozen indefinitely.
+        watchdog = setTimeout(() => { if (!stopped) init() }, 10000)
+      }
+
+      const init = () => {
+        if (hls) hls.destroy()
+        hls = new HLS({
+          debug: false,
+          maxBufferLength: 15,
+          liveSyncDurationCount: 4,
+          liveMaxLatencyDurationCount: 8,
+        })
+        hls.loadSource(url)
+        hls.attachMedia(video)
+        hls.on(HLS.Events.ERROR, (_evt, data) => {
+          if (!data.fatal) return
+          if (data.type === HLS.ErrorTypes.NETWORK_ERROR) hls.startLoad()
+          else if (data.type === HLS.ErrorTypes.MEDIA_ERROR) hls.recoverMediaError()
+          else init()
+        })
+        armWatchdog()
+      }
+
+      init()
+      video.addEventListener('timeupdate', armWatchdog)
+      video.addEventListener('playing', armWatchdog)
+
       return () => {
-        hls.destroy()
+        stopped = true
+        clearTimeout(watchdog)
+        video.removeEventListener('timeupdate', armWatchdog)
+        video.removeEventListener('playing', armWatchdog)
+        if (hls) hls.destroy()
       }
     } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
       video.src = url
