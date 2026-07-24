@@ -1163,10 +1163,9 @@ const RESORTS = {
   turoa: { name: 'Turoa', lat: -39.3062323, lon: 175.5269647, summitElev: 2322, baseElev: 1600, timezone: 'Pacific/Auckland', metservicePath: 'mountains-and-parks/national-parks/tongariro' },
   // Same volcano, eastern flank — small club field (Tukino Alpine Sports
   // Club). lat/lon is real OSM lift data's own lowest-elevation point, same
-  // sourcing as turoa above. summitElev/baseElev are a rough estimate (LOW
-  // confidence, unlike turoa) pending real confirmation. No webcams sourced
-  // yet and no pwObsStations.
-  tukino: { name: 'Tukino', lat: -39.2794225, lon: 175.6117867, summitElev: 2000, baseElev: 1600, timezone: 'Pacific/Auckland', metservicePath: 'mountains-and-parks/national-parks/tongariro' },
+  // sourcing as turoa above. summitElev/baseElev confirmed directly (2000m
+  // top / 1680m base). No webcams sourced yet and no pwObsStations.
+  tukino: { name: 'Tukino', lat: -39.2794225, lon: 175.6117867, summitElev: 2000, baseElev: 1680, timezone: 'Pacific/Auckland', metservicePath: 'mountains-and-parks/national-parks/tongariro' },
 }
 
 // --- MetService freezing-level helpers ---------------------------------------
