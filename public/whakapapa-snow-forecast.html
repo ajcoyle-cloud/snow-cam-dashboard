@@ -213,6 +213,22 @@
     pointer-events: none;
   }
 
+  /* ── Lift-line tap popup ───────────────────────────────────────────── */
+  /* Names the whole line you tapped, not a value AT the tap point the way
+     the snow-depth probe above is — no stem/dot pointing at a spot. Red to
+     match 'resort-lifts-line's own paint colour (white on High-Res, where
+     the line itself renders white against the bold drape instead of red).
+     pointer-events:auto (unlike .click-popup) so a tap ON the pill is
+     caught here instead of falling through to the map underneath it. */
+  .lift-popup {
+    position: absolute; z-index: 30; transform: translate(-50%, calc(-100% - 8px));
+    background: #e60000; color: #fff; font-weight: 700; font-size: 0.8rem; line-height: 1;
+    padding: 6px 12px; border-radius: 999px; white-space: nowrap;
+    border: 1px solid rgba(255,255,255,0.55); box-shadow: 0 2px 8px rgba(0,0,0,0.55);
+    cursor: pointer;
+  }
+  .lift-popup.hi-res { background: #ffffff; color: #111; }
+
   /* ── Top mode/period switchers ──────────────────────────────────────── */
   /* Desktop: left edge fixed at calc(50% + 8px) rather than self-centered
      via translateX(-50%) — pairs with the React-layer resort switcher
@@ -2029,13 +2045,45 @@ function initMap() {
     return { lengthM, riseM };
   }
 
+  let liftPopupEl = null;
+
+  function removeLiftPopup() {
+    if (liftPopupEl) { liftPopupEl.remove(); liftPopupEl = null; }
+  }
+
+  // Tap-to-dismiss instead of .click-popup's 4s auto-fade: this pill names
+  // the whole line, not a snapshot value that goes stale, so there's no
+  // "it'll be wrong in a few seconds" pressure to clear it automatically.
+  function showLiftPopup(x, y, text) {
+    removeLiftPopup();
+    const el = document.createElement('div');
+    el.className = isHighResMode ? 'lift-popup hi-res' : 'lift-popup';
+    el.style.left = x + 'px';
+    el.style.top = y + 'px';
+    el.textContent = text;
+    liftPopupEl = el;
+    // Guarded rather than a bare removeLiftPopup: tapping lift A then
+    // immediately lift B fires THIS popup's tap-away listener (still
+    // pending from A) during B's click, after B's own popup has already
+    // replaced it — an unguarded removal would wipe B's fresh popup out
+    // instead of A's stale one. Only close if this is still the popup
+    // showing (i.e. nothing newer opened since).
+    const closeThis = () => { if (liftPopupEl === el) removeLiftPopup(); };
+    el.addEventListener('click', (ev) => { ev.stopPropagation(); closeThis(); });
+    document.getElementById('map-screen').appendChild(el);
+    // Tap-away-to-close: 'once' listeners registered during an event's own
+    // dispatch only fire on the NEXT occurrence, so this can't immediately
+    // self-cancel on the very click that opened it.
+    map.once('click', closeThis);
+  }
+
   function showLiftClickPopup(point, feature) {
     const p = feature.properties;
     const name = p.name || p.ref || (p.aerialway ? p.aerialway.replace(/_/g, ' ') : 'Lift');
     const { lengthM, riseM } = liftStats(feature.geometry.coordinates);
     const parts = [name, formatLiftLength(lengthM)];
     if (riseM != null) parts.push(`↑${Math.round(riseM)}m`);
-    showClickPopup(point.x, point.y, parts.join(' · '));
+    showLiftPopup(point.x, point.y, parts.join(' · '));
   }
 
   map.on('click', (e) => {
