@@ -1504,6 +1504,10 @@ function SnowfallForecast({ resort, setResort, onOpenCompare }) {
   // tracks which date is currently at the left edge, to show in the sticky
   // corner cell in its place.
   const [visibleHourlyDate, setVisibleHourlyDate] = useState(null)
+  // Set when a day column is tapped in Day view — the index (into the full
+  // hourly array) to center the chart/table on once the switch to Hour view
+  // has rendered. Cleared immediately after the scroll effect applies it.
+  const [scrollToHourIndex, setScrollToHourIndex] = useState(null)
   const chartRef = useRef(null)
   const tableRef = useRef(null)
   const svgRef = useRef(null)
@@ -2178,6 +2182,33 @@ function SnowfallForecast({ resort, setResort, onOpenCompare }) {
     setIsSpeaking(false)
   }
 
+  // Runs once after a day-column tap switches into Hour view: scrolls the
+  // (scroll-synced) chart + table so the tapped day's 6am column sits in the
+  // middle of the viewport, rather than landing wherever hour 0 happens to
+  // scroll to. Must sit above the loading-state early return below (Rules of
+  // Hooks), so it can't reuse the cellWidth/snowChartWidth computed further
+  // down — it recomputes hourly mode's own width formula (see snowChartWidth
+  // and cellWidth below; keep in sync if those change) directly off
+  // forecastData instead.
+  useEffect(() => {
+    if (viewMode !== 'hourly' || scrollToHourIndex == null) return
+    if (!forecastData || forecastData.length === 0) return
+    const chart = chartRef.current
+    const table = tableRef.current
+    if (!chart || !table) return
+    const paddingLeft = isMobile ? 70 : 95
+    const paddingRight = isMobile ? 18 : 40
+    const hourlyChartWidth = Math.max(1200, forecastData.length * 46)
+    const hourlyCellWidth = (hourlyChartWidth - paddingLeft - paddingRight) / forecastData.length
+    const targetX = paddingLeft + (scrollToHourIndex + 0.5) * hourlyCellWidth
+    const viewportWidth = chart.clientWidth
+    const maxScroll = Math.max(0, hourlyChartWidth - viewportWidth)
+    const scrollLeft = Math.min(Math.max(targetX - viewportWidth / 2, 0), maxScroll)
+    chart.scrollLeft = scrollLeft
+    table.scrollLeft = scrollLeft
+    setScrollToHourIndex(null)
+  }, [viewMode, scrollToHourIndex, forecastData, isMobile])
+
   if (!forecastData || !Array.isArray(forecastData) || forecastData.length === 0) {
     return (
       <div className="forecast-container">
@@ -2195,6 +2226,16 @@ function SnowfallForecast({ resort, setResort, onOpenCompare }) {
 
   // In fit mode, aggregate 6 hours per table column so each column aligns with 6 bars
   const FIT_GROUP = 24
+
+  // Tapping a day column in Day view: jump to Hour view centered on 6am of
+  // that day. Day view's column index doubles as the day index (one column
+  // per day, FIT_GROUP hours each), so the target hourly index is just
+  // dayIndex*24 + 6 — no date math needed, and it stays correct even if the
+  // forecast's first hour isn't local midnight for some resort/timezone.
+  const handleDayTap = (dayIndex) => {
+    setScrollToHourIndex(dayIndex * FIT_GROUP + 6)
+    setViewMode('hourly')
+  }
   const tableData = viewMode === 'fit'
     ? Array.from({ length: Math.ceil(activeData.length / FIT_GROUP) }, (_, gi) => {
         const group = activeData.slice(gi * FIT_GROUP, (gi + 1) * FIT_GROUP)
@@ -3189,11 +3230,15 @@ function SnowfallForecast({ resort, setResort, onOpenCompare }) {
                   ? d.datetime.toLocaleDateString('en-NZ', { weekday: 'short', day: 'numeric' })
                   : `${hour}${ampm}`
                 return (
-                  <th key={i} data-date={viewMode === 'hourly' ? d.datetime.toLocaleDateString('en-NZ', { weekday: 'short', day: 'numeric' }) : undefined} style={{
+                  <th key={i} data-date={viewMode === 'hourly' ? d.datetime.toLocaleDateString('en-NZ', { weekday: 'short', day: 'numeric' }) : undefined}
+                    onClick={viewMode === 'fit' ? () => handleDayTap(i) : undefined}
+                    title={viewMode === 'fit' ? 'View hourly detail for this day' : undefined}
+                    style={{
                     width: `${tableCellWidth}px`,
                     background: 'rgba(26, 26, 26, 0.15)',
                     padding: '4px 2px',
-                    height: '24px'
+                    height: '24px',
+                    cursor: viewMode === 'fit' ? 'pointer' : 'default'
                   }}>
                     {label}
                   </th>
@@ -3214,6 +3259,7 @@ function SnowfallForecast({ resort, setResort, onOpenCompare }) {
                   const prob = data.precipProbability
                   const hasSnow = snowfall >= 0.1
                   const clickable = m.key === 'gfs' && viewMode === 'hourly'
+                  const dayTap = viewMode === 'fit'
                   const bg = hasSnow ? `rgba(${m.rgb}, ${isDayEven ? 0.12 : 0.08})` : (isDayEven ? 'rgba(26, 26, 26, 0.3)' : 'rgba(15, 15, 15, 0.3)')
                   return (
                     <td
@@ -3221,9 +3267,9 @@ function SnowfallForecast({ resort, setResort, onOpenCompare }) {
                       onClick={clickable ? () => {
                         const iso = d.datetime.toISOString().slice(0, 16)
                         window.open(`/whakapapa-snow-forecast.html?resort=${resort}&time=${iso}`, '_blank')
-                      } : undefined}
-                      title={clickable ? 'Open 3D snow elevation view for this hour' : undefined}
-                      style={{ width: `${tableCellWidth}px`, color: m.key === 'gfs' ? '#3b82f6' : m.color, fontWeight: 'bold', background: bg, lineHeight: 1.1, paddingTop: '1px', paddingBottom: '1px', cursor: clickable ? 'pointer' : 'default' }}>
+                      } : dayTap ? () => handleDayTap(i) : undefined}
+                      title={clickable ? 'Open 3D snow elevation view for this hour' : dayTap ? 'View hourly detail for this day' : undefined}
+                      style={{ width: `${tableCellWidth}px`, color: m.key === 'gfs' ? '#3b82f6' : m.color, fontWeight: 'bold', background: bg, lineHeight: 1.1, paddingTop: '1px', paddingBottom: '1px', cursor: (clickable || dayTap) ? 'pointer' : 'default' }}>
                       <div>{snowfall < 0.1 ? '' : (snowfall / 10).toFixed(1)}</div>
                       {hasSnow && prob !== null && prob >= 5 && <div style={{ fontSize: '9px', color: '#5b9bd5', fontWeight: 'normal' }}>{prob}%</div>}
                     </td>
@@ -3239,7 +3285,10 @@ function SnowfallForecast({ resort, setResort, onOpenCompare }) {
                   const val = m.getFreezing(d)
                   const isAboveSummit = val > RESORTS[resort].summitElev
                   return (
-                    <td key={i} style={{ width: `${tableCellWidth}px`, color: isAboveSummit ? '#ef4444' : m.color, background: 'rgba(26, 26, 26, 0.15)' }}>{val || '—'}</td>
+                    <td key={i}
+                      onClick={viewMode === 'fit' ? () => handleDayTap(i) : undefined}
+                      title={viewMode === 'fit' ? 'View hourly detail for this day' : undefined}
+                      style={{ width: `${tableCellWidth}px`, color: isAboveSummit ? '#ef4444' : m.color, background: 'rgba(26, 26, 26, 0.15)', cursor: viewMode === 'fit' ? 'pointer' : 'default' }}>{val || '—'}</td>
                   )
                 })}
               </tr>
@@ -3251,7 +3300,10 @@ function SnowfallForecast({ resort, setResort, onOpenCompare }) {
                 {m.data.map((d, i) => {
                   const val = elevation === 'summit' ? d.summit.temp : d.base.temp
                   return (
-                    <td key={i} style={{ width: `${tableCellWidth}px`, background: 'rgba(26, 26, 26, 0.15)', color: m.key === 'gfs' ? undefined : m.color }}>
+                    <td key={i}
+                      onClick={viewMode === 'fit' ? () => handleDayTap(i) : undefined}
+                      title={viewMode === 'fit' ? 'View hourly detail for this day' : undefined}
+                      style={{ width: `${tableCellWidth}px`, background: 'rgba(26, 26, 26, 0.15)', color: m.key === 'gfs' ? undefined : m.color, cursor: viewMode === 'fit' ? 'pointer' : 'default' }}>
                       {val != null ? val.toFixed(1) : '—'}
                     </td>
                   )
@@ -3268,7 +3320,10 @@ function SnowfallForecast({ resort, setResort, onOpenCompare }) {
                     ? getWeatherConditionIcon(data.weatherCode)
                     : getWeatherIcon(data.pictocode)
                   return (
-                    <td key={i} style={{ width: `${tableCellWidth}px`, fontSize: '14px', textAlign: 'center', background: 'rgba(26, 26, 26, 0.15)', color: m.key === 'gfs' ? undefined : m.color }}>
+                    <td key={i}
+                      onClick={viewMode === 'fit' ? () => handleDayTap(i) : undefined}
+                      title={viewMode === 'fit' ? 'View hourly detail for this day' : undefined}
+                      style={{ width: `${tableCellWidth}px`, fontSize: '14px', textAlign: 'center', background: 'rgba(26, 26, 26, 0.15)', color: m.key === 'gfs' ? undefined : m.color, cursor: viewMode === 'fit' ? 'pointer' : 'default' }}>
                       {icon}
                     </td>
                   )
@@ -3289,7 +3344,10 @@ function SnowfallForecast({ resort, setResort, onOpenCompare }) {
                   const isSnow = (freezingLevel - SNOW_LINE_BUFFER_M) < elev && snowfall > 0.1
                   const mainVal = isSnow ? '' : (precip < 0.1 ? '' : precip.toFixed(1))
                   return (
-                    <td key={i} style={{ width: `${tableCellWidth}px`, background: 'rgba(26, 26, 26, 0.15)', lineHeight: 1.1, paddingTop: '1px', paddingBottom: '1px', color: m.key === 'gfs' ? undefined : m.color }}>
+                    <td key={i}
+                      onClick={viewMode === 'fit' ? () => handleDayTap(i) : undefined}
+                      title={viewMode === 'fit' ? 'View hourly detail for this day' : undefined}
+                      style={{ width: `${tableCellWidth}px`, background: 'rgba(26, 26, 26, 0.15)', lineHeight: 1.1, paddingTop: '1px', paddingBottom: '1px', color: m.key === 'gfs' ? undefined : m.color, cursor: viewMode === 'fit' ? 'pointer' : 'default' }}>
                       <div>{mainVal}</div>
                       {!isSnow && prob !== null && prob >= 5 && <div style={{ fontSize: '9px', color: m.key === 'gfs' ? '#666' : '#5b9bd5', fontWeight: 'normal' }}>{prob}%</div>}
                     </td>
@@ -3305,7 +3363,10 @@ function SnowfallForecast({ resort, setResort, onOpenCompare }) {
                   const windKmh = d.summit.wind != null ? Math.round(d.summit.wind) : null
                   const arrow = getWindArrow(d.summit.windDir)
                   return (
-                    <td key={i} style={{ width: `${tableCellWidth}px`, background: 'rgba(26, 26, 26, 0.15)', color: m.key === 'gfs' ? undefined : m.color }}>
+                    <td key={i}
+                      onClick={viewMode === 'fit' ? () => handleDayTap(i) : undefined}
+                      title={viewMode === 'fit' ? 'View hourly detail for this day' : undefined}
+                      style={{ width: `${tableCellWidth}px`, background: 'rgba(26, 26, 26, 0.15)', color: m.key === 'gfs' ? undefined : m.color, cursor: viewMode === 'fit' ? 'pointer' : 'default' }}>
                       {windKmh != null ? <>{windKmh} <span style={{ fontSize: '18px' }}>{arrow}</span></> : '—'}
                     </td>
                   )
@@ -3320,7 +3381,10 @@ function SnowfallForecast({ resort, setResort, onOpenCompare }) {
                   const windKmh = d.base.wind != null ? Math.round(d.base.wind) : null
                   const arrow = getWindArrow(d.base.windDir)
                   return (
-                    <td key={i} style={{ width: `${tableCellWidth}px`, background: 'rgba(26, 26, 26, 0.15)', color: m.key === 'gfs' ? undefined : m.color }}>
+                    <td key={i}
+                      onClick={viewMode === 'fit' ? () => handleDayTap(i) : undefined}
+                      title={viewMode === 'fit' ? 'View hourly detail for this day' : undefined}
+                      style={{ width: `${tableCellWidth}px`, background: 'rgba(26, 26, 26, 0.15)', color: m.key === 'gfs' ? undefined : m.color, cursor: viewMode === 'fit' ? 'pointer' : 'default' }}>
                       {windKmh != null ? <>{windKmh} <span style={{ fontSize: '18px' }}>{arrow}</span></> : '—'}
                     </td>
                   )
