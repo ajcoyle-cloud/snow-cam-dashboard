@@ -573,6 +573,7 @@ const SNOW_REPORT_SOURCES = {
   'Mt Hutt': { endpoint: '/mthutt-report', title: 'Mt Hutt Snow Report' },
   Turoa: { endpoint: '/turoa-report', title: 'Tūroa Snow Report' },
   Tukino: { endpoint: '/tukino-report', title: 'Tukino Snow Report' },
+  Rainbow: { endpoint: '/rainbow-report', title: 'Rainbow Snow Report' },
 }
 
 // Dedicated "Snow Reports" tab — a row of location pills (same .toggle-btn
@@ -858,11 +859,18 @@ function CameraCard({ camera, allCameras = [] }) {
                         onError={() => setBrokenSidebar(prev => new Set([...prev, cam.name]))}
                         style={thumbStyle}
                       />
+                    ) : cam.ipcamliveAlias ? (
+                      // ipcamlive cams have no still-image URL to point an <img>
+                      // at, but unlike a raw HLS stream their player is just an
+                      // iframe — embed it small instead of a static placeholder,
+                      // so the sidebar shows the same live view as everywhere else.
+                      <div style={{ ...thumbStyle, background: '#1a1a1a' }}>
+                        <IpcamliveEmbed alias={cam.ipcamliveAlias} />
+                      </div>
                     ) : cam.isVideo ? (
-                      // HLS stream cams have no still-image URL to point an <img> at
-                      // (their .m3u8 would always 404/error as an image and permanently
-                      // hide the thumbnail via the onError below) — use a static
-                      // placeholder instead so they stay selectable in the stack.
+                      // Video cams with no preview source at all (no still image,
+                      // no embeddable player) — static placeholder so they stay
+                      // selectable in the stack.
                       <div style={{ ...thumbStyle, display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#1a1a1a' }}>
                         <Video size={28} color="#888" />
                       </div>
