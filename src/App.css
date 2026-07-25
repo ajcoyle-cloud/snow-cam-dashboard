@@ -495,7 +495,7 @@
 
 /* Snow Base / 24h / 7 Day snowfall per on-mountain location — appended to
    the bottom of the snow report summary, scraped from the same official
-   report page's "Conditions" table (see api/whakapapa-report.js). Several
+   report page's "Conditions" table (see lib/reports/whakapapa-report.js). Several
    locations can be reported (e.g. "Top of Knoll T-bar", "Top of Gondola"),
    so this wraps into as many compact cards as came back rather than
    assuming exactly one. */

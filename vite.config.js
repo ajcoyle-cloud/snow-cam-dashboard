@@ -2,15 +2,15 @@ import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import { resolveLyfordCam } from './api/lyford-cam.js'
 import { resolveRainbowCam } from './api/rainbow-cam.js'
-import { resolveWhakapapaReport } from './api/whakapapa-report.js'
-import { resolveCardronaReport, resolveTrebleconeReport } from './api/cardrona-report.js'
-import { resolveMthuttReport } from './api/mthutt-report.js'
-import { resolveTuroaReport } from './api/turoa-report.js'
-import { resolveTukinoReport } from './api/tukino-report.js'
-import { resolveRainbowReport } from './api/rainbow-report.js'
-import { resolveRemarkablesReport } from './api/remarkables-report.js'
-import { resolveRoundhillReport } from './api/roundhill-report.js'
-import { resolveMtLyfordReport } from './api/mtlyford-report.js'
+import { resolveWhakapapaReport } from './lib/reports/whakapapa-report.js'
+import { resolveCardronaReport, resolveTrebleconeReport } from './lib/reports/cardrona-report.js'
+import { resolveMthuttReport } from './lib/reports/mthutt-report.js'
+import { resolveTuroaReport } from './lib/reports/turoa-report.js'
+import { resolveTukinoReport } from './lib/reports/tukino-report.js'
+import { resolveRainbowReport } from './lib/reports/rainbow-report.js'
+import { resolveRemarkablesReport } from './lib/reports/remarkables-report.js'
+import { resolveRoundhillReport } from './lib/reports/roundhill-report.js'
+import { resolveMtLyfordReport } from './lib/reports/mtlyford-report.js'
 
 // Dev parity for the Mt Lyford webcam scraper. In prod, /lyford-cam/<cam> is a
 // Vercel function (api/lyford-cam.js); the Vite dev server doesn't run that, so
@@ -74,9 +74,11 @@ function rainbowCamDev() {
   }
 }
 
-// Dev parity for the snow-report scrapers (api/*-report.js) — each is a
-// single JSON-returning function, so one middleware factory covers all of
-// them rather than repeating the same wiring per resort.
+// Dev parity for the snow-report scrapers (lib/reports/*.js, dispatched in
+// prod by the single api/report.js function — see its comment for why
+// they're not one-file-per-resort there) — each is a single JSON-returning
+// function, so one middleware factory covers all of them rather than
+// repeating the same wiring per resort.
 function snowReportDev(path, resolver) {
   return {
     name: `${path.slice(1)}-dev`,

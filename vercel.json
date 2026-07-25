@@ -49,10 +49,6 @@
       "destination": "/api/rainbow-cam?cam=:cam"
     },
     {
-      "source": "/whakapapa-report",
-      "destination": "/api/whakapapa-report"
-    },
-    {
       "source": "/forecast-summary",
       "destination": "/api/forecast-summary"
     },
@@ -61,40 +57,44 @@
       "destination": "/api/elevenlabs-tts"
     },
     {
+      "source": "/whakapapa-report",
+      "destination": "/api/report?resort=whakapapa"
+    },
+    {
       "source": "/cardrona-report",
-      "destination": "/api/cardrona-report"
+      "destination": "/api/report?resort=cardrona"
     },
     {
       "source": "/treblecone-report",
-      "destination": "/api/treblecone-report"
+      "destination": "/api/report?resort=treblecone"
     },
     {
       "source": "/mthutt-report",
-      "destination": "/api/mthutt-report"
+      "destination": "/api/report?resort=mthutt"
     },
     {
       "source": "/turoa-report",
-      "destination": "/api/turoa-report"
+      "destination": "/api/report?resort=turoa"
     },
     {
       "source": "/tukino-report",
-      "destination": "/api/tukino-report"
+      "destination": "/api/report?resort=tukino"
     },
     {
       "source": "/rainbow-report",
-      "destination": "/api/rainbow-report"
+      "destination": "/api/report?resort=rainbow"
     },
     {
       "source": "/remarkables-report",
-      "destination": "/api/remarkables-report"
+      "destination": "/api/report?resort=remarkables"
     },
     {
       "source": "/roundhill-report",
-      "destination": "/api/roundhill-report"
+      "destination": "/api/report?resort=roundhill"
     },
     {
       "source": "/mtlyford-report",
-      "destination": "/api/mtlyford-report"
+      "destination": "/api/report?resort=mtlyford"
     },
     {
       "source": "/((?!whakapapa-snow-forecast\\.html|radar-map\\.html|radar-test|assets|api).*)",

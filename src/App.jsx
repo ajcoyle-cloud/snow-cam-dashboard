@@ -295,7 +295,7 @@ function WeatherDisplay({ location, elevation }) {
   // Fallback live-temp source for every resort that has neither a real
   // weather-station API (only Whakapapa does, see the lapse-rate liveTemp
   // below) nor an obvious one: whatever current temperature reading its own
-  // scraped snow report happens to publish (see api/*-report.js — a handful
+  // scraped snow report happens to publish (see lib/reports/*.js — a handful
   // include one, e.g. Tukino's XML feed's <weather><temperature>). Most
   // resorts' reports don't have one, in which case liveTemp stays null and
   // this card just shows the meteoblue icon as before.
@@ -564,7 +564,7 @@ function NzSkiCamera({ manifest, cameraKey, angle = 'Angle1', alt, onError, styl
   return <img src={src} alt={alt} onError={onError} style={style} />
 }
 
-// Resorts with a scraped daily snow report available (see api/*-report.js),
+// Resorts with a scraped daily snow report available (see lib/reports/*.js),
 // keyed by the same `location` string used on camera entries below. Each
 // scraper fetches its resort's official report page server-side (the sites
 // block non-browser fetches and/or enforce same-origin, so the dashboard
