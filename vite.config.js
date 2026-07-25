@@ -9,6 +9,7 @@ import { resolveTuroaReport } from './api/turoa-report.js'
 import { resolveTukinoReport } from './api/tukino-report.js'
 import { resolveRainbowReport } from './api/rainbow-report.js'
 import { resolveRemarkablesReport } from './api/remarkables-report.js'
+import { resolveRoundhillReport } from './api/roundhill-report.js'
 
 // Dev parity for the Mt Lyford webcam scraper. In prod, /lyford-cam/<cam> is a
 // Vercel function (api/lyford-cam.js); the Vite dev server doesn't run that, so
@@ -109,6 +110,7 @@ export default defineConfig({
     snowReportDev('/tukino-report', resolveTukinoReport),
     snowReportDev('/rainbow-report', resolveRainbowReport),
     snowReportDev('/remarkables-report', resolveRemarkablesReport),
+    snowReportDev('/roundhill-report', resolveRoundhillReport),
   ],
   server: {
     port: 5173,
