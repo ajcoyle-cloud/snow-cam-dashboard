@@ -672,13 +672,19 @@ function SnowReportsPage({ resort, setResort }) {
           {/* Freshness line — the whole point is a 7am check making clear
               whether these are last night's numbers or this morning's.
               reportUpdated is the resort's OWN "last updated" stamp (e.g.
-              "Today, 5:03pm"), scraped from each resort's report page —
-              the only timestamp shown here, since it's the meaningful one
-              (our own fetchedAt just says when we last polled, not
-              anything about the resort's data itself). */}
-          {report.reportUpdated && (
+              "Today, 5:03pm" — currently only Mt Hutt's page publishes one
+              scrapably); fetchedAt is when our scraper pulled the page
+              (within the endpoint's 15-min edge cache). Show both when we
+              have both — the resort stamp is the meaningful one, the fetch
+              time proves the pull is current. */}
+          {(report.reportUpdated || report.fetchedAt) && (
             <div className="snow-reports-fetched">
-              Report updated {report.reportUpdated}
+              {report.reportUpdated ? `Report updated ${report.reportUpdated}` : ''}
+              {report.reportUpdated && report.fetchedAt ? ' · ' : ''}
+              {report.fetchedAt ? `Data fetched ${new Date(report.fetchedAt).toLocaleString('en-NZ', {
+                weekday: 'short', day: 'numeric', month: 'short',
+                hour: 'numeric', minute: '2-digit', hour12: true,
+              })}` : ''}
             </div>
           )}
           {paragraphs.length > 0 && (
