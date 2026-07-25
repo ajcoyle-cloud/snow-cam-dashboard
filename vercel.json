@@ -73,6 +73,10 @@
       "destination": "/api/mthutt-report"
     },
     {
+      "source": "/turoa-report",
+      "destination": "/api/turoa-report"
+    },
+    {
       "source": "/tukino-temp",
       "destination": "/api/tukino-temp"
     },

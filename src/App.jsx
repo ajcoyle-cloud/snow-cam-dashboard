@@ -581,6 +581,7 @@ const SNOW_REPORT_SOURCES = {
   // the site ever drops the WAF or exposes TC differently, just not wired up
   // here — so the frontend doesn't hammer their WAF on every page load.
   'Mt Hutt': { endpoint: '/mthutt-report', title: 'Mt Hutt Snow Report' },
+  Turoa: { endpoint: '/turoa-report', title: 'Tūroa Snow Report' },
 }
 
 // Dedicated "Snow Reports" tab — a row of location pills (same .toggle-btn
