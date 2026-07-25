@@ -3,3 +3,4 @@ dist
 .env
 .DS_Store
 .claude
+scripts/.browser-check-last.png

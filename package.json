@@ -5,7 +5,8 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "browser-check": "node scripts/browser-check.mjs"
   },
   "dependencies": {
     "@vercel/analytics": "^2.0.1",
@@ -16,6 +17,7 @@
   },
   "devDependencies": {
     "@vitejs/plugin-react": "^4.2.1",
+    "playwright": "^1.62.0",
     "vite": "^5.0.8"
   }
 }
