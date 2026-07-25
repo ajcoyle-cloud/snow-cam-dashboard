@@ -1659,6 +1659,14 @@
 .compare-row-header:hover {
   background: none;
 }
+/* The day-label row reuses .compare-row-chart for column alignment, but that
+   class's fixed height (sized for the actual mini snowfall/freezing charts
+   below) left a tall empty gap under the plain text labels here — override
+   it back to content height. Two-class selector so it wins over both the
+   base and the max-width:700px mobile height rule regardless of source order. */
+.compare-row-header .compare-row-chart {
+  height: auto;
+}
 
 .compare-row-label {
   flex: 0 0 118px;
