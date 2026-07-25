@@ -402,14 +402,22 @@
   margin: 0;
 }
 
-/* Scale-to-fill: the image covers the entire panel with no letterboxing,
-   cropping whatever overflows rather than shrinking to fit (object-fit:
-   contain, the old behaviour, left black bars top/bottom on any photo whose
-   aspect ratio didn't match the panel's). */
+/* Scale-to-fill on desktop/landscape: the image covers the entire panel with
+   no letterboxing, cropping whatever overflows rather than shrinking to fit.
+   Portrait (tablet/phone, see the orientation media query below) flips this
+   to scale-to-fit instead — cropping a whole ski field down to a phone's
+   narrow width loses too much of the frame, so showing the full image with
+   black bars reads better there than on a wide desktop panel. */
 .fullscreen-image-wrapper img {
   width: 100%;
   height: 100%;
   object-fit: cover;
+}
+
+@media (orientation: portrait) {
+  .fullscreen-image-wrapper img {
+    object-fit: contain;
+  }
 }
 
 .nav-btn {

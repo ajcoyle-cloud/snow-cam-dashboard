@@ -916,11 +916,16 @@ function CameraCard({ camera, allCameras = [] }) {
               ) : activeCam.archiveBase && !isMultiCamera ? (
                 <CameraHistory archiveBase={activeCam.archiveBase} refreshKey={refreshKey} />
               ) : nzCam ? (
+                // No inline style here (unlike the grid thumbnail's NzSkiCamera,
+                // which does need one) — inherits width/height/object-fit from
+                // .fullscreen-image-wrapper img in App.css, same as every other
+                // fullscreen camera image, so it scales identically (cover on
+                // desktop, contain in portrait) instead of the fixed 'contain'
+                // this used to hardcode regardless of orientation.
                 <NzSkiCamera
                   {...nzCam}
                   alt={displayName}
                   onError={(e) => { if (e?.target) e.target.style.opacity = '0.2' }}
-                  style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }}
                 />
               ) : (
                 <img
