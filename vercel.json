@@ -93,6 +93,10 @@
       "destination": "/api/roundhill-report"
     },
     {
+      "source": "/mtlyford-report",
+      "destination": "/api/mtlyford-report"
+    },
+    {
       "source": "/((?!whakapapa-snow-forecast\\.html|radar-map\\.html|radar-test|assets|api).*)",
       "destination": "/index.html"
     }

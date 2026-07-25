@@ -576,6 +576,7 @@ const SNOW_REPORT_SOURCES = {
   Rainbow: { endpoint: '/rainbow-report', title: 'Rainbow Snow Report' },
   'The Remarkables': { endpoint: '/remarkables-report', title: 'The Remarkables Snow Report' },
   Roundhill: { endpoint: '/roundhill-report', title: 'Roundhill Snow Report' },
+  'Mt Lyford': { endpoint: '/mtlyford-report', title: 'Mt Lyford Snow Report' },
 }
 
 // Dedicated "Snow Reports" tab — a row of location pills (same .toggle-btn
