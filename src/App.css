@@ -362,8 +362,8 @@
   flex-shrink: 0;
   display: flex;
   flex-direction: column;
-  gap: 2px;
-  padding: 2px 2px 2px 0;
+  gap: 0;
+  padding: 0;
 }
 
 .fullscreen-content > div:not(.fullscreen-sidebar) {
@@ -372,21 +372,6 @@
   min-height: 0;
   display: flex;
   flex-direction: column;
-}
-
-/* Expanded snow report ("See more" tapped): the webcam must not shrink to
-   make room for the now-unclamped, potentially long report text below it.
-   The image wrapper's exact pre-expand pixel height is captured in JS
-   (CameraCard's handleExpandReport) and applied as an inline style — a
-   fixed vh guess here would (and did) end up smaller than the collapsed
-   state's actual flex:1 size on tall viewports, so the "fix" still looked
-   like a shrink. This rule only makes the column scrollable so the extra
-   report text is reached by scrolling down past the (JS-pinned, truly
-   unchanged) image rather than by squeezing it or nesting a second
-   scrollbar inside the report panel. Collapsed state is untouched — :has()
-   only matches once .snow-report-summary carries .expanded. */
-.fullscreen-content > div:not(.fullscreen-sidebar):has(.snow-report-summary.expanded) {
-  overflow-y: auto;
 }
 
 /* Overlaid on top of the image (not its own header row) so the photo fills
@@ -492,64 +477,6 @@
 
 .close-btn:hover {
   background: rgba(255, 255, 255, 0.2);
-}
-
-.snow-report-summary {
-  flex-shrink: 0;
-  margin: 0 15px 15px;
-  padding: 10px 14px;
-  background: rgba(255, 255, 255, 0.06);
-  border-radius: 8px;
-}
-
-.snow-report-summary h4 {
-  margin: 0 0 4px;
-  font-size: 0.58em;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: rgba(255, 255, 255, 0.5);
-}
-
-.snow-report-summary p {
-  margin: 0;
-  color: rgba(255, 255, 255, 0.9);
-  font-size: 0.72em;
-  line-height: 1.5;
-}
-
-.snow-report-summary p + p {
-  margin-top: 6px;
-}
-
-.report-summary-clamp-wrap {
-  position: relative;
-}
-
-.report-summary-clamped {
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-  /* Reserved gutter the clamped text never reaches — the absolutely
-     positioned "See more" button below sits in it, at the end of the
-     visible text, without covering any real words. */
-  padding-right: 58px;
-}
-
-.report-toggle-btn {
-  background: none;
-  border: none;
-  padding: 0;
-  color: #8ec7ff;
-  font-size: 0.72em;
-  font-weight: 700;
-  cursor: pointer;
-  white-space: nowrap;
-}
-
-.report-toggle-btn:hover {
-  text-decoration: underline;
 }
 
 .report-toggle-inline {
@@ -816,6 +743,16 @@
   background: rgba(92, 92, 106, 0.95);
   color: #fff;
   box-shadow: none;
+}
+
+/* Icon-only variant (Forecast page's summit/base elevation switcher) — square
+   and compact instead of the text pill's wide horizontal padding, since
+   there's no label width to accommodate. */
+.toggle-btn-icon {
+  padding: 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
 
 /* Resort Selector Dropdown */
@@ -1172,8 +1109,8 @@
     flex-direction: row;
     overflow-x: auto;
     overflow-y: hidden;
-    gap: 2px;
-    padding: 2px;
+    gap: 0;
+    padding: 0;
     border-top: 1px solid #222;
   }
 
@@ -1399,6 +1336,9 @@
   }
   .forecast-container .toggle-btn {
     padding: 7px 12px;
+  }
+  .forecast-container .toggle-btn-icon {
+    padding: 7px;
   }
 
   /* The chart + table scroll horizontally together (scroll-synced in JS).

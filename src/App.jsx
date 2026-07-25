@@ -1,6 +1,6 @@
 // Updated with Loveland ski area and forecast view switcher
 import { useState, useEffect, useRef } from 'react'
-import { Camera, LineChart, Map as MapIcon, Snowflake, Settings, Wind, Newspaper, Volume2, Square, Loader2, List, ArrowLeft, Video } from 'lucide-react'
+import { Camera, LineChart, Map as MapIcon, Snowflake, Settings, Wind, Newspaper, Volume2, Square, Loader2, List, ArrowLeft, Video, ArrowUpToLine, ArrowDownToLine } from 'lucide-react'
 import { computeStormArrival, STORM_BAND_LABELS } from './stormArrival'
 import { subscribeRuapehuProfile } from './pwObs'
 import './App.css'
@@ -583,103 +583,12 @@ const SNOW_REPORT_SOURCES = {
   'Mt Hutt': { endpoint: '/mthutt-report', title: 'Mt Hutt Snow Report' },
 }
 
-// Text summary from a resort's official daily snow report. Renders nothing
-// while loading, if the resort has no report source, or if the scrape comes
-// up empty — rather than showing a placeholder/error — same pattern as
-// StormArrivalBanner above.
-//
-// `expanded`/`onExpand`/`onCollapse` are controlled by CameraCard rather than
-// owned here, because expanding needs to snapshot the webcam image's current
-// height *before* the report grows (see handleExpandReport below) — that
-// coordination has to happen a level up, where the image wrapper lives.
-function SnowReportSummary({ location, expanded, onExpand, onCollapse }) {
-  const source = SNOW_REPORT_SOURCES[location]
-  const [report, setReport] = useState(null)
-
-  useEffect(() => {
-    setReport(null)
-    if (!source) return
-    let cancelled = false
-    fetch(source.endpoint)
-      .then((r) => (r.ok ? r.json() : Promise.reject()))
-      .then((data) => { if (!cancelled) setReport(data) })
-      .catch(() => { if (!cancelled) setReport(null) })
-    return () => { cancelled = true }
-  }, [location])
-
-  const hasConditions = report?.conditions?.length > 0
-  if (!source || (!report?.summary && !hasConditions)) return null
-
-  // The scraper joins the report's multiple paragraphs with blank lines —
-  // split them back out so the expanded view renders each as its own <p>.
-  const paragraphs = report.summary ? report.summary.split(/\n{2,}/).map((s) => s.trim()).filter(Boolean) : []
-
-  return (
-    <div className={`snow-report-summary ${expanded ? 'expanded' : ''}`}>
-      <h4>{source.title}</h4>
-      {paragraphs.length > 0 && (expanded ? (
-        <>
-          {paragraphs.map((para, i) => <p key={i}>{para}</p>)}
-          <button className="report-toggle-btn" onClick={onCollapse}>See less</button>
-        </>
-      ) : (
-        // Collapsed to 2 lines via -webkit-line-clamp — reliable across
-        // widths, unlike a fixed character count. The right padding reserves
-        // a gutter the clamped text never reaches, so "See more" (absolutely
-        // positioned into that gutter) sits at the end of the visible text
-        // without ever overlapping/covering real words.
-        <div className="report-summary-clamp-wrap">
-          <p className="report-summary-clamped">{paragraphs.join(' ')}</p>
-          <button className="report-toggle-btn report-toggle-inline" onClick={onExpand}>See more</button>
-        </div>
-      ))}
-      {/* Snow Base / 24h / 7 Day snowfall per on-mountain location, scraped
-          from the same official report page's "Conditions" table — shown
-          regardless of expand state, unlike the prose above, since it's
-          already compact structured data rather than something that needs
-          clamping. */}
-      {hasConditions && (
-        <div className="snow-report-conditions">
-          {report.conditions.map((c, i) => (
-            <div className="src-location" key={i}>
-              <div className="src-location-name">{c.location}</div>
-              <div className="src-stats">
-                {c.snowBase && (
-                  <div className="src-stat">
-                    <span className="src-stat-label">Snow Base</span>
-                    <span className="src-stat-value">{c.snowBase}</span>
-                  </div>
-                )}
-                {c.snowfall24h && (
-                  <div className="src-stat">
-                    <span className="src-stat-label">24h Snowfall</span>
-                    <span className="src-stat-value">{c.snowfall24h}</span>
-                  </div>
-                )}
-                {c.snowfall7day && (
-                  <div className="src-stat">
-                    <span className="src-stat-label">7 Day Snowfall</span>
-                    <span className="src-stat-value">{c.snowfall7day}</span>
-                  </div>
-                )}
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  )
-}
-
 // Dedicated "Snow Reports" tab — a row of location pills (same .toggle-btn
 // pill styling used at the top of the Forecast page's Hourly/Fit and
-// Summit/Base switches) instead of SnowReportSummary's compact, collapsible
-// card. Selecting a location shows its full written report plus the same
-// per-location Snow Base/24h/7 Day snowfall cards SnowReportSummary shows at
-// the bottom of the webcam page — same data (SNOW_REPORT_SOURCES/report.json
-// shape), same conditions markup, just as this page's main content rather
-// than a footnote under a camera. Shares the global resort/setResort state
-// so picking a location here stays in sync with the rest of the app.
+// Summit/Base switches). Selecting a location shows its full written report
+// plus per-location Snow Base/24h/7 Day snowfall cards (SNOW_REPORT_SOURCES/
+// report.json shape). Shares the global resort/setResort state so picking a
+// location here stays in sync with the rest of the app.
 function SnowReportsPage({ resort, setResort }) {
   const source = SNOW_REPORT_SOURCES[RESORTS[resort].name]
   // Only resorts we can actually pull a report for get a pill — the row is
@@ -814,26 +723,6 @@ function CameraCard({ camera, allCameras = [] }) {
   const [broken, setBroken] = useState(false)
   const [brokenSidebar, setBrokenSidebar] = useState(new Set())
   const modalRef = useRef(null)
-  const imageWrapperRef = useRef(null)
-  const [reportExpanded, setReportExpanded] = useState(false)
-  // Pixel height (not a guessed vh%) of the webcam image wrapper, captured
-  // right before the snow report expands, so the image can be pinned to
-  // *exactly* the size it already was — not some fixed fraction of the
-  // viewport that may be smaller than what the collapsed 2-line report left
-  // it at. Cleared on collapse so the wrapper goes back to its normal
-  // flexible sizing.
-  const [lockedImageHeight, setLockedImageHeight] = useState(null)
-
-  const handleExpandReport = () => {
-    if (imageWrapperRef.current) {
-      setLockedImageHeight(imageWrapperRef.current.getBoundingClientRect().height)
-    }
-    setReportExpanded(true)
-  }
-  const handleCollapseReport = () => {
-    setReportExpanded(false)
-    setLockedImageHeight(null)
-  }
 
   useEffect(() => {
     const interval = setInterval(() => {
@@ -844,14 +733,6 @@ function CameraCard({ camera, allCameras = [] }) {
 
   const activeCam = fullscreenCam || camera
 
-  // Switching cameras (sidebar click / arrow keys) while the modal stays
-  // open must drop any expanded report + locked image height from the
-  // previous camera — otherwise the new camera's image would inherit a
-  // pixel height measured for a different photo/aspect ratio.
-  useEffect(() => {
-    setReportExpanded(false)
-    setLockedImageHeight(null)
-  }, [activeCam.name])
   const activeCameras = activeCam.cameras || []
   const isMultiCamera = activeCameras.length > 1
   const safeIndex = Math.min(cameraIndex, Math.max(activeCameras.length - 1, 0))
@@ -1028,15 +909,7 @@ function CameraCard({ camera, allCameras = [] }) {
             <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
               <button className="close-btn" onClick={() => setFullscreenCam(null)}>✕</button>
               <h2>{displayName}</h2>
-              <div
-                className="fullscreen-image-wrapper"
-                ref={imageWrapperRef}
-                style={
-                  lockedImageHeight
-                    ? { position: 'relative', flex: '0 0 auto', height: lockedImageHeight }
-                    : { position: 'relative' }
-                }
-              >
+              <div className="fullscreen-image-wrapper" style={{ position: 'relative' }}>
               {isYouTube ? (
                 <iframe
                   src={`https://www.youtube.com/embed/${activeCam.youtubeId}?autoplay=1&mute=1&controls=0&modestbranding=1&rel=0&iv_load_policy=3&disablekb=1&fs=0`}
@@ -1070,14 +943,6 @@ function CameraCard({ camera, allCameras = [] }) {
                 </>
               )}
             </div>
-            {activeCam.location !== 'Whakapapa' && activeCam.location !== 'Turoa' && (
-              <SnowReportSummary
-                location={activeCam.location}
-                expanded={reportExpanded}
-                onExpand={handleExpandReport}
-                onCollapse={handleCollapseReport}
-              />
-            )}
             </div>
           </div>
         </div>
@@ -2867,19 +2732,25 @@ function SnowfallForecast({ resort, setResort, onOpenCompare }) {
         </div>
 
         <div className="forecast-controls-toggles">
-          {/* Elevation toggle */}
-          <div className="elevation-toggle">
+          {/* Elevation toggle — icon-only (top/bottom of the mountain), not
+              the metre numbers themselves; those move to a small caption
+              below the table instead (see forecast-elevation-caption). */}
+          <div className="elevation-toggle elevation-toggle-icons">
             <button
-              className={`toggle-btn ${elevation === 'summit' ? 'active' : ''}`}
+              className={`toggle-btn toggle-btn-icon ${elevation === 'summit' ? 'active' : ''}`}
               onClick={() => setElevation('summit')}
+              aria-label={`Summit (${RESORTS[resort].summitElev}m)`}
+              title={`Summit — ${RESORTS[resort].summitElev}m`}
             >
-              {RESORTS[resort].summitElev}m
+              <ArrowUpToLine size={16} />
             </button>
             <button
-              className={`toggle-btn ${elevation === 'base' ? 'active' : ''}`}
+              className={`toggle-btn toggle-btn-icon ${elevation === 'base' ? 'active' : ''}`}
               onClick={() => setElevation('base')}
+              aria-label={`Base (${RESORTS[resort].baseElev}m)`}
+              title={`Base — ${RESORTS[resort].baseElev}m`}
             >
-              {RESORTS[resort].baseElev}m
+              <ArrowDownToLine size={16} />
             </button>
           </div>
 
@@ -3442,6 +3313,14 @@ function SnowfallForecast({ resort, setResort, onOpenCompare }) {
             ))}
           </tbody>
         </table>
+      </div>
+
+      {/* Selected elevation — the toggle above is icon-only (top/bottom of
+          the mountain), so the actual metre figure it maps to for this
+          resort is shown here instead. */}
+      <div style={{ textAlign: 'center', color: '#666', fontSize: '11px', marginTop: '6px' }}>
+        Showing {elevation === 'summit' ? RESORTS[resort].summitElev : RESORTS[resort].baseElev}m
+        {' '}({elevation === 'summit' ? 'summit' : 'base'})
       </div>
 
       {/* Model run update countdowns */}
@@ -4053,8 +3932,6 @@ const NAV_ITEMS = [
   // Own tab, deliberately not integrated into the Map tab or Snow Test —
   // see HighResSnowPage above.
   { id: 'highres', label: 'High-Res', Icon: Wind, path: '/highres' },
-  // Full-page version of SnowReportSummary's compact webcam-page card — see
-  // SnowReportsPage above.
   { id: 'reports', label: 'Snow Reports', Icon: Newspaper, path: '/reports' },
   // 'Snow Test' hidden from prod nav now that its two production-ready
   // trials (slope-aware snow overlay, dark-terrain basemap+contours) have
