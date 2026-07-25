@@ -204,7 +204,8 @@ export async function resolveMthuttReport({ debug = false } = {}) {
       : null;
 
     if (!debug && (summary || conditions)) {
-      return { summary, conditions, source: pageUrl, fetchedAt: new Date().toISOString() };
+      const reportUpdated = extractReportUpdated(html);
+      return { summary, conditions, reportUpdated, source: pageUrl, fetchedAt: new Date().toISOString() };
     }
 
     // Discovery diagnostics — same pattern as the Cardrona/Treble Cone

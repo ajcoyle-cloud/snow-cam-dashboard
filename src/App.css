@@ -550,17 +550,12 @@
 }
 
 /* Reuses .elevation-toggle's pill-group chrome (same as the Forecast page's
-   Hourly/Fit and Summit/Base switches), but with as many location pills as
-   there are resorts — wrap instead of the toggle's usual fixed 2-button
-   width, and left-align rather than centering a multi-row wrapped group.
-   .elevation-toggle's 24px border-radius reads fine on one row but looks
-   like a misshapen capsule once wrapped to two — a smaller radius here
-   suits a multi-row rectangular block instead. Combined-class selector
-   (not just .snow-reports-location-row) so this reliably outranks
-   .elevation-toggle's own border-radius regardless of which rule happens to
-   come first in the stylesheet — same-specificity cascade order otherwise
-   left the plain single-class override losing to the later .elevation-toggle
-   rule further down this file. */
+   Hourly/Fit and Summit/Base switches, and every other pill toggle in the
+   app), but with as many location pills as there are resorts — wrap instead
+   of the toggle's usual fixed 2-button width, and left-align rather than
+   centering a multi-row wrapped group. Border-radius is left at the same
+   24px/20px every other pill toggle uses (not overridden here) so it reads
+   as the same control, just wider. */
 .elevation-toggle.snow-reports-location-row {
   display: flex;
   flex-wrap: wrap;
@@ -568,10 +563,6 @@
   gap: 4px;
   margin: 0 0 20px;
   width: fit-content;
-  border-radius: 10px;
-}
-.snow-reports-location-row .toggle-btn {
-  border-radius: 8px;
 }
 
 .snow-reports-empty {
