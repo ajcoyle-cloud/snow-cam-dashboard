@@ -101,6 +101,14 @@ const NORTH_ISLAND = [
   { name: 'Alpine Meadow', url: 'https://s90.ipcamlive.com/streams_timeshift/5atchtxmmzd0vqrb9/stream.m3u8', isVideo: true, location: 'Turoa' },
   { name: 'High Noon T-Bar', url: 'https://s116.ipcamlive.com/streams_timeshift/7424mbdewizxgjsvl/stream.m3u8', isVideo: true, location: 'Turoa' },
   { name: 'Ohakune', isYouTube: true, youtubeId: 'GxxT-Cv3r3g', location: 'Turoa' },
+  // tukino.org/snow-report links straight to these two static stills on
+  // tukino.nz (its own domain, separate from the squarespace-hosted main
+  // site) — no rotating-filename/embed-player trickery like Lyford/Rainbow,
+  // just a plain JPEG that the field's own camera overwrites in place, so
+  // it's hotlinked directly (confirmed no referer/UA needed, no CORS issue
+  // for an <img> tag).
+  { name: 'Tukino - Skifield', url: 'https://tukino.nz/latest.jpg', location: 'Tukino' },
+  { name: 'Tukino - Village', url: 'https://tukino.nz/latest2.jpg', location: 'Tukino' },
   {
     name: 'Ruapehu',
     location: 'Ruapehu',
@@ -1164,7 +1172,7 @@ const RESORTS = {
   // Same volcano, eastern flank — small club field (Tukino Alpine Sports
   // Club). lat/lon is real OSM lift data's own lowest-elevation point, same
   // sourcing as turoa above. summitElev/baseElev confirmed directly (2000m
-  // top / 1680m base). No webcams sourced yet and no pwObsStations.
+  // top / 1680m base). No pwObsStations.
   tukino: { name: 'Tukino', lat: -39.2794225, lon: 175.6117867, summitElev: 2000, baseElev: 1680, timezone: 'Pacific/Auckland', metservicePath: 'mountains-and-parks/national-parks/tongariro' },
 }
 
