@@ -574,6 +574,7 @@ const SNOW_REPORT_SOURCES = {
   Turoa: { endpoint: '/turoa-report', title: 'Tūroa Snow Report' },
   Tukino: { endpoint: '/tukino-report', title: 'Tukino Snow Report' },
   Rainbow: { endpoint: '/rainbow-report', title: 'Rainbow Snow Report' },
+  'The Remarkables': { endpoint: '/remarkables-report', title: 'The Remarkables Snow Report' },
 }
 
 // Dedicated "Snow Reports" tab — a row of location pills (same .toggle-btn

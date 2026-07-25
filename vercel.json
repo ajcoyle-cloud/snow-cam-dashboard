@@ -85,6 +85,10 @@
       "destination": "/api/rainbow-report"
     },
     {
+      "source": "/remarkables-report",
+      "destination": "/api/remarkables-report"
+    },
+    {
       "source": "/((?!whakapapa-snow-forecast\\.html|radar-map\\.html|radar-test|assets|api).*)",
       "destination": "/index.html"
     }
