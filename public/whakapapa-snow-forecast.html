@@ -944,8 +944,9 @@ const RESORT_CONFIG = {
     topElev: 2400,
     // No hand-picked camera framing yet (unlike cardrona's) — plain top-down
     // default centred on the resort's own coordinates, same starting point
-    // mthutt got. Needs a real capture once this is live.
-    center: [168.815148, -45.052892], zoom: 13.2, pitch: 62, bearing: 0
+    // mthutt got. Needs a real capture once this is live. bearing turned
+    // 180° from the original 0 per direct request.
+    center: [168.815148, -45.052892], zoom: 13.2, pitch: 62, bearing: 180
   },
   rainbow: {
     name: 'Rainbow',
