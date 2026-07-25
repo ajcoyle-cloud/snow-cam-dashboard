@@ -567,11 +567,10 @@
 .elevation-toggle.snow-reports-location-row {
   display: flex;
   flex-wrap: wrap;
-  justify-content: flex-start;
+  justify-content: center;
   gap: 4px;
   margin: 0 0 20px;
-  width: fit-content;
-  max-width: 100%;
+  width: 100%;
 }
 
 /* The report content itself stays a narrow, readable column — only the
