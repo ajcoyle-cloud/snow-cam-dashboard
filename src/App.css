@@ -559,18 +559,23 @@
 
 /* Reuses .elevation-toggle's pill-group chrome (same as the Forecast page's
    Hourly/Fit and Summit/Base switches, and every other pill toggle in the
-   app), but with as many location pills as there are resorts — wrap instead
-   of the toggle's usual fixed 2-button width, and left-align rather than
-   centering a multi-row wrapped group. Border-radius is left at the same
-   24px/20px every other pill toggle uses (not overridden here) so it reads
-   as the same control, just wider. */
+   app), but with as many location pills as there are resorts. Stays one row
+   (nowrap) regardless of resort count — scrolls horizontally rather than
+   wrapping to a second row, so it reads as a single control pinned to the
+   top of the page. Border-radius is left at the same 24px/20px every other
+   pill toggle uses (not overridden here) so it reads as the same control,
+   just wider. */
 .elevation-toggle.snow-reports-location-row {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   justify-content: flex-start;
   gap: 4px;
   margin: 0 0 20px;
-  width: fit-content;
+  max-width: 100%;
+  overflow-x: auto;
+}
+.snow-reports-location-row .toggle-btn {
+  flex-shrink: 0;
 }
 
 .snow-reports-empty {
@@ -578,6 +583,16 @@
   font-size: 0.95em;
   padding: 40px 0;
   text-align: center;
+}
+
+/* Subtle frame around the report itself, separating it from the page's flat
+   black background and from the location switcher above it — the switcher
+   stays outside this frame (it's navigation, not report content). */
+.snow-reports-content {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 12px;
+  padding: 20px 24px;
 }
 
 .snow-reports-title {
