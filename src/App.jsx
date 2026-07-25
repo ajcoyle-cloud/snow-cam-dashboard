@@ -3956,11 +3956,26 @@ const TAB_SLUG_TO_ID = Object.fromEntries(
 )
 const DEFAULT_RESORT = 'ruapehu'
 
-// URL shape is "/<tab>/<resort>" with both segments optional and the resort
-// only ever appended when it isn't the app's default — so every link that
-// predates this (bare "/", "/forecast", …) keeps resolving exactly as
-// before. Examples: "/" -> Webcams+default, "/tukino" -> Webcams+Tukino,
-// "/forecast/cardrona" -> Forecast+Cardrona.
+// URL slugs use each resort's display name, not its internal RESORTS key —
+// most match already (cardrona -> "cardrona"), but a few don't (ruapehu's
+// display name is "Whakapapa", the key predates that name and was never
+// renamed). A URL should read as what's on screen, so slugify the name
+// instead of exposing the internal key.
+function slugify(name) {
+  return name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '')
+}
+const RESORT_SLUG_BY_KEY = Object.fromEntries(Object.entries(RESORTS).map(([key, r]) => [key, slugify(r.name)]))
+const RESORT_KEY_BY_SLUG = Object.fromEntries(Object.entries(RESORT_SLUG_BY_KEY).map(([key, slug]) => [slug, key]))
+
+// URL shape is "/<tab>/<resort>", e.g. "/tukino" (Webcams is the default tab
+// so it has no path prefix), "/forecast/cardrona". buildPath always writes
+// the resort segment explicitly (even the app default, ruapehu/Whakapapa) —
+// every resort gets an equally real, distinct URL, which matters both for
+// bookmarking a specific one and for Vercel Analytics' per-path breakdown
+// (a resort that could hide as a bare "/forecast" would undercount against
+// ones that always show up explicitly). parsePath still reads a bare/legacy
+// path fine (falls back to the caller's default), it just won't ever write
+// one anymore.
 function parsePath(pathname) {
   const [seg0, seg1] = pathname.split('/').filter(Boolean)
   let tabId = 'webcams'
@@ -3969,14 +3984,14 @@ function parsePath(pathname) {
     tabId = TAB_SLUG_TO_ID[seg0]
     resortSlug = seg1
   }
-  const resortKey = (resortSlug && RESORTS[resortSlug]) ? resortSlug : null
+  const resortKey = resortSlug ? (RESORT_KEY_BY_SLUG[resortSlug] || (RESORTS[resortSlug] ? resortSlug : null)) : null
   return { tabId, resortKey }
 }
 
 function buildPath(tabId, resortKey) {
   const base = TAB_PATH_BY_ID[tabId] || '/'
-  if (!resortKey || resortKey === DEFAULT_RESORT) return base
-  return base === '/' ? `/${resortKey}` : `${base}/${resortKey}`
+  const slug = RESORT_SLUG_BY_KEY[resortKey || DEFAULT_RESORT] || resortKey || DEFAULT_RESORT
+  return base === '/' ? `/${slug}` : `${base}/${slug}`
 }
 
 export default function App() {
