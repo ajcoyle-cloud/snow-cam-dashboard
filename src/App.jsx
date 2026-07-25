@@ -1,7 +1,6 @@
 // Updated with Loveland ski area and forecast view switcher
 import { useState, useEffect, useRef } from 'react'
 import { Camera, LineChart, Map as MapIcon, Snowflake, Settings, Wind, Newspaper, Volume2, Square, Loader2, List, ArrowLeft, Video } from 'lucide-react'
-import HLS from 'hls.js'
 import { computeStormArrival, STORM_BAND_LABELS } from './stormArrival'
 import { subscribeRuapehuProfile } from './pwObs'
 import './App.css'
@@ -95,11 +94,25 @@ const NORTH_ISLAND = [
   { name: 'Far West T-Bar', url: 'https://webcams.whakapapa.com/farwesttbar/latest.jpg', location: 'Whakapapa', elevation: 2200 },
   { name: 'Turoa - Camera 1', url: 'https://s128.ipcamlive.com/streams_timeshift/80bze0dwhrnofue8a/snapshot.jpg', location: 'Turoa' },
   { name: 'Turoa - Camera 2', url: 'https://s128.ipcamlive.com/streams_timeshift/80eabuzmxklvr7gvj/snapshot.jpg', location: 'Turoa' },
-  // pureturoa.nz/webcams' live feeds (ipcamlive HLS, not periodic snapshots
-  // like the two above) — one .m3u8 per named camera, played via VideoPlayer.
-  { name: 'Movenpick', url: 'https://s112.ipcamlive.com/streams_timeshift/70qhetpo2wxiianyw/stream.m3u8', isVideo: true, location: 'Turoa' },
-  { name: 'Alpine Meadow', url: 'https://s90.ipcamlive.com/streams_timeshift/5atchtxmmzd0vqrb9/stream.m3u8', isVideo: true, location: 'Turoa' },
-  { name: 'High Noon T-Bar', url: 'https://s116.ipcamlive.com/streams_timeshift/7424mbdewizxgjsvl/stream.m3u8', isVideo: true, location: 'Turoa' },
+  // pureturoa.nz/webcams' live feeds. Previously scraped as raw ipcamlive
+  // "streams_timeshift" .m3u8 URLs out of devtools and played through our own
+  // hls.js <video> (see git history for VideoPlayer) — that playlist turns out
+  // to be a frozen/dead snapshot (identical content + unchanged media sequence
+  // across repeated fetches, one cam's URL was outright 404) rather than a
+  // true live-updating stream, which is exactly why playback would run a few
+  // seconds off the initial segments then stall forever waiting for segments
+  // that never arrive. ipcamlive's actual live delivery for these cams is
+  // token-gated (see the player.php response) and not reproducible by hand.
+  // pureturoa.nz itself embeds ipcamlive's own official player iframe instead
+  // of touching the stream URL at all, so we do the same — same aliases as
+  // the live site, confirmed embeddable (no X-Frame-Options/CSP frame
+  // restriction, domainlockenabled=0). Also picked up two cams pureturoa.nz
+  // has that this dashboard never had (The Giant, Mountain View).
+  { name: 'Movenpick Line', ipcamliveAlias: '68368cb01bc1f', isVideo: true, location: 'Turoa' },
+  { name: 'Alpine Meadow', ipcamliveAlias: '683679c54ce4d', isVideo: true, location: 'Turoa' },
+  { name: 'The Giant', ipcamliveAlias: '683687ca7d42f', isVideo: true, location: 'Turoa' },
+  { name: 'Mountain View', ipcamliveAlias: '6836870069b7a', isVideo: true, location: 'Turoa' },
+  { name: 'High Noon Return', ipcamliveAlias: '6886aba078e9e', isVideo: true, location: 'Turoa' },
   { name: 'Ohakune', isYouTube: true, youtubeId: 'GxxT-Cv3r3g', location: 'Turoa' },
   // tukino.org/snow-report links straight to these two static stills on
   // tukino.nz (its own domain, separate from the squarespace-hosted main
@@ -332,45 +345,70 @@ function WeatherDisplay({ location, elevation }) {
   )
 }
 
-function VideoPlayer({ url }) {
-  const videoRef = useRef(null)
+// Tukino has no weather-station API coverage (see RESORTS.tukino), so unlike
+// every other resort's badge above, there's no live reading to fetch — the
+// only current temperature that exists for it is OCR'd server-side (see
+// api/tukino-temp.js) from a watermark burned into the webcam frame itself.
+// Both Tukino cameras' watermark reports the same shared field sensor, so
+// this polls once and is used for both cards.
+function TukinoTemp() {
+  const [tempC, setTempC] = useState(null)
 
   useEffect(() => {
-    const video = videoRef.current
-    if (!video) return
-
-    if (HLS.isSupported()) {
-      const hls = new HLS({
-        debug: false
-      })
-      hls.loadSource(url)
-      hls.attachMedia(video)
-      return () => {
-        hls.destroy()
+    let cancelled = false
+    const fetchTemp = async () => {
+      try {
+        const response = await fetch('/tukino-temp')
+        const data = await response.json()
+        if (!cancelled && typeof data.tempC === 'number') setTempC(data.tempC)
+      } catch (error) {
+        console.error('Tukino temp fetch error:', error)
       }
-    } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
-      video.src = url
     }
-  }, [url])
+    fetchTemp()
+    // The source frame only refreshes every several minutes and the OCR
+    // result is cached server-side, so there's no benefit polling as often
+    // as the 5s image refresh.
+    const interval = setInterval(fetchTemp, 120000)
+    return () => { cancelled = true; clearInterval(interval) }
+  }, [])
+
+  if (tempC == null) return null
 
   return (
-    <video
-      ref={videoRef}
-      controls
-      autoPlay
-      muted
-      // Without this, iOS Safari yanks an autoplaying <video> straight into
-      // its native fullscreen player as soon as playback starts — no tap
-      // involved. playsInline (plus the legacy webkit- attribute for older
-      // iOS) keeps it inline so fullscreen only happens via our own modal.
-      playsInline
-      webkit-playsinline="true"
-      style={{
-        width: '100%',
-        height: '100%',
-        display: 'block'
-      }}
-    />
+    <div className="weather-display">
+      <span className="weather-temp">{tempC.toFixed(1)}°</span>
+    </div>
+  )
+}
+
+// ipcamlive's own embeddable player (same iframe pureturoa.nz itself uses).
+// Its player.php resolves the live host/stream-id/auth-token dynamically per
+// alias and reconnects on its own — far more robust than pointing hls.js at a
+// scraped stream URL by hand (see the Turoa camera list comment for why that
+// approach failed).
+function IpcamliveEmbed({ alias, interactive = false }) {
+  const src = `https://g3.ipcamlive.com/player/player.php?alias=${alias}&autoplay=1`
+  if (interactive) {
+    return (
+      <iframe
+        src={src}
+        allow="autoplay; encrypted-media"
+        allowFullScreen
+        style={{ width: '100%', height: '100%', border: 'none', display: 'block' }}
+      />
+    )
+  }
+  return (
+    <div style={{ position: 'relative', width: '100%', height: '100%' }}>
+      <iframe
+        src={src}
+        allow="autoplay; encrypted-media"
+        allowFullScreen
+        style={{ width: '100%', height: '100%', border: 'none', display: 'block', pointerEvents: 'none' }}
+      />
+      <div style={{ position: 'absolute', inset: 0 }} />
+    </div>
   )
 }
 
@@ -818,7 +856,7 @@ function CameraCard({ camera, allCameras = [] }) {
   const isMultiCamera = activeCameras.length > 1
   const safeIndex = Math.min(cameraIndex, Math.max(activeCameras.length - 1, 0))
   const isYouTube = activeCam.isYouTube || false
-  const isVideo = activeCam.isVideo || (isMultiCamera ? activeCameras[safeIndex]?.isVideo : false)
+  const ipcamliveAlias = activeCam.ipcamliveAlias || (isMultiCamera ? activeCameras[safeIndex]?.ipcamliveAlias : undefined)
   const nzCam = nzSkiConfig(activeCam)
   const displayUrl = isMultiCamera ? activeCameras[safeIndex]?.url : activeCam.url
   const displayName = isMultiCamera ? `${activeCam.name} - ${activeCameras[safeIndex]?.name}` : activeCam.name
@@ -874,7 +912,9 @@ function CameraCard({ camera, allCameras = [] }) {
       >
         <div className="card-header">
           <h3>{camera.name}</h3>
-          <WeatherDisplay location={camera.location} elevation={camera.elevation} />
+          {camera.location === 'Tukino'
+            ? <TukinoTemp />
+            : <WeatherDisplay location={camera.location} elevation={camera.elevation} />}
         </div>
         <div className="image-container" style={{ position: 'relative' }}>
           {isYouTube ? (
@@ -887,8 +927,8 @@ function CameraCard({ camera, allCameras = [] }) {
               />
               <div style={{ position: 'absolute', inset: 0 }} />
             </div>
-          ) : isVideo ? (
-            <VideoPlayer url={displayUrl} />
+          ) : ipcamliveAlias ? (
+            <IpcamliveEmbed alias={ipcamliveAlias} />
           ) : nzCam ? (
             <NzSkiCamera
               {...nzCam}
@@ -1004,8 +1044,8 @@ function CameraCard({ camera, allCameras = [] }) {
                   allowFullScreen
                   style={{ width: '100%', height: '100%', border: 'none', display: 'block' }}
                 />
-              ) : isVideo ? (
-                <VideoPlayer url={displayUrl} />
+              ) : ipcamliveAlias ? (
+                <IpcamliveEmbed alias={ipcamliveAlias} interactive />
               ) : activeCam.archiveBase && !isMultiCamera ? (
                 <CameraHistory archiveBase={activeCam.archiveBase} refreshKey={refreshKey} />
               ) : nzCam ? (
