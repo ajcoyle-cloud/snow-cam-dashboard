@@ -3636,7 +3636,13 @@ function ResortComparisonRow({ resortName, entry, globalMaxSnow, summitElev, bas
                 )
               })}
               {points.length > 1 && (
-                <polyline points={linePoints} fill="none" stroke="#1e4fb8" strokeWidth={2.25} strokeLinejoin="round" strokeLinecap="round" />
+                // vectorEffect="non-scaling-stroke": this <svg> stretches non-
+                // uniformly (viewBox is a fixed 1000x200, preserveAspectRatio
+                // "none" fills whatever width the row actually renders at on
+                // screen) — without it, the stroke's on-screen width varies
+                // with the line's local slope (thick on steep rises/falls,
+                // thin on flat stretches) instead of staying constant.
+                <polyline points={linePoints} fill="none" stroke="#1e4fb8" strokeWidth={2.25} strokeLinejoin="round" strokeLinecap="round" vectorEffect="non-scaling-stroke" />
               )}
               {hoverPoint && (
                 <>
