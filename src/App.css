@@ -553,29 +553,33 @@
 .snow-reports-page {
   background: #111;
   padding: 20px;
-  max-width: 720px;
-  margin: 0 auto;
 }
 
-/* Reuses .elevation-toggle's pill-group chrome (same as the Forecast page's
+/* Unlike .snow-reports-body below, deliberately NOT capped to a narrow
+   column — with as many location pills as there are resorts, it needs
+   whatever width the page actually has to keep them on one row (wrapping
+   only if even the full page width runs out, e.g. on mobile). Reuses
+   .elevation-toggle's pill-group chrome (same as the Forecast page's
    Hourly/Fit and Summit/Base switches, and every other pill toggle in the
-   app), but with as many location pills as there are resorts. Stays one row
-   (nowrap) regardless of resort count — scrolls horizontally rather than
-   wrapping to a second row, so it reads as a single control pinned to the
-   top of the page. Border-radius is left at the same 24px/20px every other
-   pill toggle uses (not overridden here) so it reads as the same control,
-   just wider. */
+   app); border-radius is left at the same 24px/20px every other pill
+   toggle uses (not overridden here) so it reads as the same control, just
+   wider. */
 .elevation-toggle.snow-reports-location-row {
   display: flex;
-  flex-wrap: nowrap;
+  flex-wrap: wrap;
   justify-content: flex-start;
   gap: 4px;
   margin: 0 0 20px;
+  width: fit-content;
   max-width: 100%;
-  overflow-x: auto;
 }
-.snow-reports-location-row .toggle-btn {
-  flex-shrink: 0;
+
+/* The report content itself stays a narrow, readable column — only the
+   location switcher above it (.snow-reports-location-row) spans the page's
+   full width. */
+.snow-reports-body {
+  max-width: 720px;
+  margin: 0 auto;
 }
 
 .snow-reports-empty {

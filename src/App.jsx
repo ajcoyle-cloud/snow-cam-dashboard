@@ -647,6 +647,10 @@ function SnowReportsPage({ resort, setResort }) {
         ))}
       </div>
 
+      {/* Report content stays a narrow, readable column even though the
+          location switcher above it now spans the page's full width (see
+          .snow-reports-body). */}
+      <div className="snow-reports-body">
       {loading && (
         <div className="forecast-loading"><div className="spinner" /></div>
       )}
@@ -713,6 +717,7 @@ function SnowReportsPage({ resort, setResort }) {
           )}
         </div>
       )}
+      </div>
     </section>
   )
 }
