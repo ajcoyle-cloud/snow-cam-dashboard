@@ -3945,18 +3945,51 @@ const NAV_ITEMS = [
   { id: 'snow-test', label: 'Snow Test', Icon: Snowflake, path: '/snow-test', hidden: true },
 ]
 const VISIBLE_NAV_ITEMS = NAV_ITEMS.filter(n => !n.hidden)
-const tabForPath = (pathname) => VISIBLE_NAV_ITEMS.find(n => n.path === pathname)?.id
+const TAB_PATH_BY_ID = Object.fromEntries(NAV_ITEMS.map(n => [n.id, n.path]))
+// slug -> tabId for every *visible* tab's path, e.g. 'forecast' -> 'forecast'
+// (root '/' has no slug, it's the bare-path case handled separately below).
+// Built from VISIBLE_NAV_ITEMS only, same as the old tabForPath, so a direct
+// link to the hidden Snow Test route still falls back to Webcams rather than
+// resurrecting it (see its NAV_ITEMS comment).
+const TAB_SLUG_TO_ID = Object.fromEntries(
+  VISIBLE_NAV_ITEMS.filter(n => n.path !== '/').map(n => [n.path.slice(1), n.id])
+)
+const DEFAULT_RESORT = 'ruapehu'
+
+// URL shape is "/<tab>/<resort>" with both segments optional and the resort
+// only ever appended when it isn't the app's default — so every link that
+// predates this (bare "/", "/forecast", …) keeps resolving exactly as
+// before. Examples: "/" -> Webcams+default, "/tukino" -> Webcams+Tukino,
+// "/forecast/cardrona" -> Forecast+Cardrona.
+function parsePath(pathname) {
+  const [seg0, seg1] = pathname.split('/').filter(Boolean)
+  let tabId = 'webcams'
+  let resortSlug = seg0
+  if (seg0 && TAB_SLUG_TO_ID[seg0]) {
+    tabId = TAB_SLUG_TO_ID[seg0]
+    resortSlug = seg1
+  }
+  const resortKey = (resortSlug && RESORTS[resortSlug]) ? resortSlug : null
+  return { tabId, resortKey }
+}
+
+function buildPath(tabId, resortKey) {
+  const base = TAB_PATH_BY_ID[tabId] || '/'
+  if (!resortKey || resortKey === DEFAULT_RESORT) return base
+  return base === '/' ? `/${resortKey}` : `${base}/${resortKey}`
+}
 
 export default function App() {
-  // Each tab gets a real URL (/, /forecast, /map) via pushState — no full
-  // reload, but it's a genuine path change, so Vercel Analytics (which
-  // watches the History API) logs each tab as its own page view, and
-  // back/forward and direct/shared links to a tab work. The URL takes
-  // priority on load; otherwise fall back to the last-viewed tab in
-  // localStorage, then default to Webcams.
+  // Both the tab and the resort are reflected into the URL ("/forecast",
+  // "/forecast/tukino", …) via pushState/replaceState — no full reload, but
+  // a genuine path change, so Vercel Analytics (which watches the History
+  // API) logs each as its own page view, back/forward works, and a
+  // bookmarked/shared link restores the exact same view. The URL takes
+  // priority on load; otherwise fall back to the last-viewed tab/resort in
+  // localStorage, then the app defaults (Webcams + ruapehu/Whakapapa).
+  const initialFromUrl = parsePath(window.location.pathname)
   const [activeTab, setActiveTab] = useState(() => {
-    const fromUrl = tabForPath(window.location.pathname)
-    if (fromUrl) return fromUrl
+    if (window.location.pathname !== '/') return initialFromUrl.tabId
     try {
       const t = localStorage.getItem('sc-active-tab')
       if (t && VISIBLE_NAV_ITEMS.some(n => n.id === t)) return t
@@ -3972,8 +4005,8 @@ export default function App() {
   const goToTab = (id) => {
     setActiveTab(id)
     if (id !== 'forecast') setForecastCompareOpen(false)
-    const path = NAV_ITEMS.find(n => n.id === id)?.path
-    if (path && path !== window.location.pathname) window.history.pushState({}, '', path)
+    const path = buildPath(id, resort)
+    if (path !== window.location.pathname) window.history.pushState({}, '', path)
   }
   // Storm-arrival banner click: jump to the Map tab's Radar view. The
   // localStorage write covers the map iframe's own first-load path
@@ -3988,18 +4021,22 @@ export default function App() {
   }
   useEffect(() => {
     const onPopState = () => {
-      const id = tabForPath(window.location.pathname)
-      if (id) setActiveTab(id)
+      const { tabId, resortKey } = parsePath(window.location.pathname)
+      setActiveTab(tabId)
+      setResort(resortKey || DEFAULT_RESORT)
     }
     window.addEventListener('popstate', onPopState)
     return () => window.removeEventListener('popstate', onPopState)
   }, [])
   const [resort, setResort] = useState(() => {
+    // Explicit resort in the URL wins; otherwise (bare "/", "/forecast", or
+    // any path with no resort segment) fall back to the last-viewed one.
+    if (initialFromUrl.resortKey) return initialFromUrl.resortKey
     try {
       const r = localStorage.getItem('sc-resort')
       if (r && RESORTS[r]) return r
     } catch (e) {}
-    return 'ruapehu'
+    return DEFAULT_RESORT
   })
   const [gridCols, setGridCols] = useState(() => {
     try {
@@ -4011,13 +4048,14 @@ export default function App() {
 
   useEffect(() => {
     try { localStorage.setItem('sc-active-tab', activeTab) } catch (e) {}
-    // Keep the address bar in sync even when activeTab changed some other way
-    // (e.g. restored from localStorage on a bare "/" load) — replaceState so
-    // it doesn't add a spurious back-button entry or double-fire pushState.
-    const path = NAV_ITEMS.find(n => n.id === activeTab)?.path
-    if (path && path !== window.location.pathname) window.history.replaceState({}, '', path)
-  }, [activeTab])
-  useEffect(() => { try { localStorage.setItem('sc-resort', resort) } catch (e) {} }, [resort])
+    try { localStorage.setItem('sc-resort', resort) } catch (e) {}
+    // Keep the address bar in sync even when activeTab/resort changed some
+    // other way (e.g. restored from localStorage on a bare "/" load, or the
+    // resort switcher itself, which doesn't call goToTab) — replaceState so
+    // it doesn't add a spurious back-button entry per resort click.
+    const path = buildPath(activeTab, resort)
+    if (path !== window.location.pathname) window.history.replaceState({}, '', path)
+  }, [activeTab, resort])
   useEffect(() => { try { localStorage.setItem('sc-grid-cols', String(gridCols)) } catch (e) {} }, [gridCols])
 
   return (
