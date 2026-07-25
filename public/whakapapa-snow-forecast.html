@@ -274,12 +274,24 @@
   .pill-btn {
     display: flex; align-items: center; justify-content: center;
     background: transparent; color: rgba(255,255,255,0.65); border: none;
-    padding: 0 16px; border-radius: 999px; font-size: 0.78rem; font-weight: 700;
+    padding: 0 12px; border-radius: 999px; font-size: 0.78rem; font-weight: 700;
     cursor: pointer; transition: all 0.15s; font-family: inherit; white-space: nowrap;
   }
   .pill-btn:hover { color: #fff; }
   .pill-btn.active { background: rgba(92,92,106,0.95); color: #fff; }
   #period-switch { display: none; }
+  /* #top-controls' flex-wrap only helps when there are two separate items
+     (mode-switch, period-switch) to wrap between — on a narrow-enough
+     desktop width mode-switch's own 5 buttons can exceed the JS-computed
+     maxWidth (syncTopControlsLayout) all by themselves, and a single flex
+     item has nothing to wrap onto a second line, so it was overflowing
+     straight through and overlapping #model-switch to its right. Let it
+     scroll internally instead as the last-resort fallback — same idea as
+     #top-controls' own now-superseded overflow-x approach (see that
+     comment), just one level down, only kicking in once even mode-switch
+     alone doesn't fit. */
+  #mode-switch { min-width: 0; max-width: 100%; overflow-x: auto; }
+  #mode-switch::-webkit-scrollbar { display: none; }
 
   /* ── Model switcher (top-right) — single-select, same visual language as
      the Models dropdown on the forecast table/graph page. ─────────────── */
@@ -1666,7 +1678,7 @@ function syncTopControlsLayout() {
   if (!topControls || !modelSwitch) return;
   if (window.innerWidth <= 700) { topControls.style.maxWidth = ''; return; }
   if (getComputedStyle(modelSwitch).display === 'none') { topControls.style.maxWidth = ''; return; }
-  const gap = 20;
+  const gap = 10;
   const modelLeft = modelSwitch.getBoundingClientRect().left;
   const topControlsLeft = topControls.getBoundingClientRect().left;
   topControls.style.maxWidth = Math.max(120, modelLeft - topControlsLeft - gap) + 'px';
