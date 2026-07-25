@@ -3412,13 +3412,16 @@ function SnowfallForecast({ resort, setResort, onOpenCompare }) {
 // with a freezing-level line + blue snowfall bars for the next 7 days, and
 // the 3-day/7-day accumulated snow totals as small text under the name.
 //
-// Deliberately a single lean GFS-only fetch per resort (not the full
-// multi-model machinery SnowfallForecast uses) — this page's whole point is
-// a fast side-by-side scan across every resort at once, not forecast-model
-// nuance. All resorts share one snowfall scale and one freezing-level scale
-// (computed after every fetch resolves) so bar heights and line heights are
-// directly comparable across rows — an independent per-row scale would make
-// every resort's bars look equally "full" and defeat the comparison.
+// GFS + ECMWF only (not the full 4-model machinery SnowfallForecast uses,
+// which also pulls AIFS/UKMO) — averaged per hour so a single model's own
+// quiet forecast doesn't make a resort look snow-free here while the main
+// Forecast tab's default (4-model median) shows real snow for the same day.
+// Still lighter than the full page's 8-request-per-resort fetch, matching
+// this page's own "fast side-by-side scan across every resort" purpose. All
+// resorts share one snowfall scale and one freezing-level scale (computed
+// after every fetch resolves) so bar heights and line heights are directly
+// comparable across rows — an independent per-row scale would make every
+// resort's bars look equally "full" and defeat the comparison.
 const COMPARE_FORECAST_DAYS = 7
 
 function useResortComparisonData() {
@@ -3429,19 +3432,36 @@ function useResortComparisonData() {
     Object.entries(RESORTS).forEach(async ([key, r]) => {
       setByResort((prev) => (prev[key] ? prev : { ...prev, [key]: { status: 'loading' } }))
       try {
-        const summitUrl = `https://api.open-meteo.com/v1/forecast?latitude=${r.lat}&longitude=${r.lon}&elevation=${r.summitElev}&hourly=temperature_2m,precipitation,snowfall&models=gfs_global&temperature_unit=celsius&timezone=${r.timezone}&forecast_days=${COMPARE_FORECAST_DAYS}`
-        const baseUrl = `https://api.open-meteo.com/v1/forecast?latitude=${r.lat}&longitude=${r.lon}&elevation=${r.baseElev}&hourly=temperature_2m,precipitation,snowfall&models=gfs_global&temperature_unit=celsius&timezone=${r.timezone}&forecast_days=${COMPARE_FORECAST_DAYS}`
-        const [summitRes, baseRes] = await Promise.all([fetchWithRetry(summitUrl), fetchWithRetry(baseUrl)])
-        if (!summitRes?.ok || !baseRes?.ok) throw new Error('fetch failed')
-        const [summit, base] = await Promise.all([summitRes.json(), baseRes.json()])
+        const modelUrl = (model, elev) =>
+          `https://api.open-meteo.com/v1/forecast?latitude=${r.lat}&longitude=${r.lon}&elevation=${elev}&hourly=temperature_2m,precipitation,snowfall&models=${model}&temperature_unit=celsius&timezone=${r.timezone}&forecast_days=${COMPARE_FORECAST_DAYS}`
+        const [gfsSummitRes, gfsBaseRes, ecmwfSummitRes, ecmwfBaseRes] = await Promise.all([
+          fetchWithRetry(modelUrl('gfs_global', r.summitElev)),
+          fetchWithRetry(modelUrl('gfs_global', r.baseElev)),
+          fetchWithRetry(modelUrl('ecmwf_ifs025', r.summitElev)),
+          fetchWithRetry(modelUrl('ecmwf_ifs025', r.baseElev)),
+        ])
+        if (!gfsSummitRes?.ok || !gfsBaseRes?.ok) throw new Error('fetch failed')
+        const [gfsSummit, gfsBase] = await Promise.all([gfsSummitRes.json(), gfsBaseRes.json()])
         if (cancelled) return
-        if (!summit?.hourly?.time || !base?.hourly?.time) throw new Error('missing hourly data')
+        if (!gfsSummit?.hourly?.time || !gfsBase?.hourly?.time) throw new Error('missing hourly data')
+
+        // ECMWF is best-effort — a resort still gets a usable (GFS-only) row
+        // if it fails or comes back malformed, rather than the whole row
+        // erroring out over one of the two models.
+        let ecmwfSummit = null, ecmwfBase = null
+        if (ecmwfSummitRes?.ok && ecmwfBaseRes?.ok) {
+          try {
+            const [es, eb] = await Promise.all([ecmwfSummitRes.json(), ecmwfBaseRes.json()])
+            if (es?.hourly?.time && eb?.hourly?.time) { ecmwfSummit = es; ecmwfBase = eb }
+          } catch (e) { /* stays null, falls back to GFS-only below */ }
+        }
+        if (cancelled) return
 
         // Hourly resolution kept all the way to the chart (not bucketed into
         // daily bars) — the point of this page is to actually see the shape
         // of each storm and each freezing-level swing, not a flattened daily
         // average.
-        const points = summit.hourly.time.map((time, i) => {
+        const pointsFor = (summit, base) => summit.hourly.time.map((time, i) => {
           const summitTemp = summit.hourly.temperature_2m[i]
           const baseTemp = base.hourly.temperature_2m[i]
           let freezingLevel = r.baseElev
@@ -3455,6 +3475,23 @@ function useResortComparisonData() {
           if (summitTemp < 0 && summitPrecip > 0 && summitSnowfall === 0) summitSnowfall = summitPrecip * 7
           return { datetime: new Date(time), freezingLevel, snowCm: summitSnowfall / 10 }
         })
+
+        const gfsPoints = pointsFor(gfsSummit, gfsBase)
+        // Index-based zip (not timestamp-matched) — same convention the rest
+        // of this file's GFS/ECMWF pairing already uses; both requests share
+        // the same lat/lon/timezone/forecast_days, so their hourly grids
+        // line up in practice.
+        const points = (ecmwfSummit && ecmwfBase)
+          ? (() => {
+              const ecmwfPoints = pointsFor(ecmwfSummit, ecmwfBase)
+              const n = Math.min(gfsPoints.length, ecmwfPoints.length)
+              return gfsPoints.slice(0, n).map((g, i) => ({
+                datetime: g.datetime,
+                freezingLevel: (g.freezingLevel + ecmwfPoints[i].freezingLevel) / 2,
+                snowCm: (g.snowCm + ecmwfPoints[i].snowCm) / 2,
+              }))
+            })()
+          : gfsPoints
 
         // Distinct calendar days (resort's own timezone, matching the hourly
         // timestamps Open-Meteo already localized) — just for the shared
