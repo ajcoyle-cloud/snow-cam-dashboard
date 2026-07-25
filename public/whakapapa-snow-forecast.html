@@ -1995,6 +1995,9 @@ function initMap() {
         id: 'resort-lifts-line',
         type: 'line',
         source: 'resort-lifts',
+        // Round rather than the default flat/square butt cap at each lift's
+        // two endpoints.
+        layout: { 'line-cap': 'round' },
         paint: {
           // Pure white lifts on the orographic High-Res map only (they read
           // clearly against the bold rainbow drape); the usual red everywhere
