@@ -151,6 +151,17 @@ const SOUTH_ISLAND = [
   { name: 'Treble Cone - Base Building', url: 'https://webcams.cardrona.com/new-webcam-page/image/?view=7', location: 'Treble Cone' },
   { name: 'The Remarkables - Mountain View', url: 'https://www.queenstown.com/cams/aspen.jpg', location: 'The Remarkables' },
   { name: 'The Remarkables - Sugar Bowl from Base', url: 'https://www.queenstown.com/cams/remarkables2.jpg', location: 'The Remarkables' },
+  // The Remarkables (NZSki) publishes live frames on the same Azure CDN/
+  // manifest scheme as Mt Hutt/Coronet Peak — TheRemarkables.json (note the
+  // "The" prefix the manifest filename uses, unlike the RESORTS key/display
+  // name convention elsewhere) holds two cameras with three angles each
+  // (ShadowCamera is also listed but has never had a frame — left out).
+  { name: 'The Remarkables - Base (View 1)', nzSkiCam: { resort: 'TheRemarkables', cameraKey: 'BaseCamera', angle: 'Angle1' }, location: 'The Remarkables' },
+  { name: 'The Remarkables - Base (View 2)', nzSkiCam: { resort: 'TheRemarkables', cameraKey: 'BaseCamera', angle: 'Angle2' }, location: 'The Remarkables' },
+  { name: 'The Remarkables - Base (View 3)', nzSkiCam: { resort: 'TheRemarkables', cameraKey: 'BaseCamera', angle: 'Angle3' }, location: 'The Remarkables' },
+  { name: 'The Remarkables - Curvey Top (View 1)', nzSkiCam: { resort: 'TheRemarkables', cameraKey: 'CurveyTopCamera', angle: 'Angle1' }, location: 'The Remarkables' },
+  { name: 'The Remarkables - Curvey Top (View 2)', nzSkiCam: { resort: 'TheRemarkables', cameraKey: 'CurveyTopCamera', angle: 'Angle2' }, location: 'The Remarkables' },
+  { name: 'The Remarkables - Curvey Top (View 3)', nzSkiCam: { resort: 'TheRemarkables', cameraKey: 'CurveyTopCamera', angle: 'Angle3' }, location: 'The Remarkables' },
   // The old queenstown.com/cams/coronetpeak*.jpg stills stopped updating. Coronet
   // Peak (NZSki) publishes live frames on the same Azure CDN/manifest scheme as
   // Mt Hutt. CoronetPeak.json holds a single ExpressCamera with three angles
@@ -3569,7 +3580,7 @@ function ResortComparisonRow({ resortName, entry, globalMaxSnow, summitElev, bas
                 // screen) — without it, the stroke's on-screen width varies
                 // with the line's local slope (thick on steep rises/falls,
                 // thin on flat stretches) instead of staying constant.
-                <polyline points={linePoints} fill="none" stroke="#1e4fb8" strokeWidth={2.25} strokeLinejoin="round" strokeLinecap="round" vectorEffect="non-scaling-stroke" />
+                <polyline points={linePoints} fill="none" stroke="#1e4fb8" strokeWidth={0.9} strokeLinejoin="round" strokeLinecap="round" vectorEffect="non-scaling-stroke" />
               )}
               {hoverPoint && (
                 <>
