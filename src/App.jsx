@@ -279,6 +279,29 @@ function usePwProfile() {
 function WeatherDisplay({ location, elevation }) {
   const [weather, setWeather] = useState(null)
   const pwProfile = usePwProfile()
+  const [reportTemp, setReportTemp] = useState(null)
+
+  // Fallback live-temp source for every resort that has neither a real
+  // weather-station API (only Whakapapa does, see the lapse-rate liveTemp
+  // below) nor an obvious one: whatever current temperature reading its own
+  // scraped snow report happens to publish (see api/*-report.js — a handful
+  // include one, e.g. Tukino's XML feed's <weather><temperature>). Most
+  // resorts' reports don't have one, in which case liveTemp stays null and
+  // this card just shows the meteoblue icon as before.
+  useEffect(() => {
+    const source = SNOW_REPORT_SOURCES[location]
+    if (!source) { setReportTemp(null); return }
+    let cancelled = false
+    const fetchReportTemp = () => fetch(source.endpoint)
+      .then((r) => (r.ok ? r.json() : Promise.reject()))
+      .then((data) => { if (!cancelled) setReportTemp(typeof data.liveTemp === 'number' ? data.liveTemp : null) })
+      .catch(() => { if (!cancelled) setReportTemp(null) })
+    fetchReportTemp()
+    // Reports refresh at most a couple of times a day (see each scraper's
+    // own Cache-Control) — no benefit polling as often as the 5s image tick.
+    const interval = setInterval(fetchReportTemp, 120000)
+    return () => { cancelled = true; clearInterval(interval) }
+  }, [location])
 
   useEffect(() => {
     const fetchWeather = async () => {
@@ -324,13 +347,17 @@ function WeatherDisplay({ location, elevation }) {
   // pwProfile can be whichever resort's map tab was last open. Uses this
   // camera's real elevation, not the meteoblue model temp above (which is a
   // forecast value, not a genuine station reading).
-  const liveTemp = (
+  const lapseRateTemp = (
     location === 'Whakapapa' &&
     elevation != null &&
     pwProfile?.resort === 'ruapehu' &&
     typeof pwProfile.a === 'number' &&
     typeof pwProfile.b === 'number'
   ) ? pwProfile.a + pwProfile.b * elevation : null
+  // Precise per-elevation lapse-rate figure wins when available (Whakapapa
+  // only); otherwise fall back to whatever single reading the resort's own
+  // report published, if any.
+  const liveTemp = lapseRateTemp ?? reportTemp
 
   if (!weather && liveTemp == null) return null
 
@@ -341,43 +368,6 @@ function WeatherDisplay({ location, elevation }) {
     <div className="weather-display">
       {weather && <span className="weather-icon">{weather.icon}</span>}
       {liveTemp != null && <span className="weather-temp">{liveTemp.toFixed(1)}°</span>}
-    </div>
-  )
-}
-
-// Tukino has no weather-station API coverage (see RESORTS.tukino), so unlike
-// every other resort's badge above, there's no live reading to fetch — the
-// only current temperature that exists for it is OCR'd server-side (see
-// api/tukino-temp.js) from a watermark burned into the webcam frame itself.
-// Both Tukino cameras' watermark reports the same shared field sensor, so
-// this polls once and is used for both cards.
-function TukinoTemp() {
-  const [tempC, setTempC] = useState(null)
-
-  useEffect(() => {
-    let cancelled = false
-    const fetchTemp = async () => {
-      try {
-        const response = await fetch('/tukino-temp')
-        const data = await response.json()
-        if (!cancelled && typeof data.tempC === 'number') setTempC(data.tempC)
-      } catch (error) {
-        console.error('Tukino temp fetch error:', error)
-      }
-    }
-    fetchTemp()
-    // The source frame only refreshes every several minutes and the OCR
-    // result is cached server-side, so there's no benefit polling as often
-    // as the 5s image refresh.
-    const interval = setInterval(fetchTemp, 120000)
-    return () => { cancelled = true; clearInterval(interval) }
-  }, [])
-
-  if (tempC == null) return null
-
-  return (
-    <div className="weather-display">
-      <span className="weather-temp">{tempC.toFixed(1)}°</span>
     </div>
   )
 }
@@ -582,6 +572,7 @@ const SNOW_REPORT_SOURCES = {
   // here — so the frontend doesn't hammer their WAF on every page load.
   'Mt Hutt': { endpoint: '/mthutt-report', title: 'Mt Hutt Snow Report' },
   Turoa: { endpoint: '/turoa-report', title: 'Tūroa Snow Report' },
+  Tukino: { endpoint: '/tukino-report', title: 'Tukino Snow Report' },
 }
 
 // Dedicated "Snow Reports" tab — a row of location pills (same .toggle-btn
@@ -788,9 +779,7 @@ function CameraCard({ camera, allCameras = [] }) {
       >
         <div className="card-header">
           <h3>{camera.name}</h3>
-          {camera.location === 'Tukino'
-            ? <TukinoTemp />
-            : <WeatherDisplay location={camera.location} elevation={camera.elevation} />}
+          <WeatherDisplay location={camera.location} elevation={camera.elevation} />
         </div>
         <div className="image-container" style={{ position: 'relative' }}>
           {isYouTube ? (

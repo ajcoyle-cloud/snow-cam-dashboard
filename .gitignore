@@ -4,4 +4,3 @@ dist
 .DS_Store
 .claude
 scripts/.browser-check-last.png
-*.traineddata
