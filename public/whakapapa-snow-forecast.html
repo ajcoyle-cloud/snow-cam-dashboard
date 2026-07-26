@@ -1436,6 +1436,9 @@ function finishResortSwitch(key, newLoc) {
   }
   updatePwConfigFor(key);
   pwRefresh();
+  // Same deal as the PW pills just above: the report pill sits at the OLD
+  // resort's coordinate too, and only Roundhill/Tukino have one at all.
+  initReportPill(key);
 
   if (map.getLayer('country-outline-layer')) {
     map.setFilter('country-outline-layer', ['==', ['get', 'ADM0_A3'], RESORT_COUNTRY_ISO3[key] || 'NZL']);
@@ -2165,6 +2168,10 @@ function initMap() {
     applyLiftDataForResort(resortKey);
     // Live PredictWind observation pills + temperature profile (both resorts).
     initStationPill();
+    // Report-sourced live temp pill (Roundhill/Tukino only — see its own
+    // comment above initReportPill's definition); a no-op for every other
+    // resort since REPORT_TEMP_ENDPOINTS has no entry for them.
+    initReportPill(resortKey);
     // Other-resort navigation pills — present in every view mode (live,
     // hourly, accumulated), gated only by zoom level.
     initResortPills();
@@ -5863,6 +5870,12 @@ function pwUpdatePillVisibility() {
   for (const el of document.querySelectorAll('.pseudo-pill')) {
     el.style.display = pwPseudoPillsShouldShow() ? '' : 'none';
   }
+  // Report pill (Roundhill/Tukino) follows the same real-pill visibility
+  // rule as PW station pills — it isn't in pwState so the loop above misses it.
+  if (reportPillMarker) {
+    const el = reportPillMarker.getElement();
+    if (el) el.style.display = pwRealPillsShouldShow() ? '' : 'none';
+  }
 }
 // per-track runtime state: trackId -> { meta, series, updated, marker }
 const pwState = {};
@@ -6229,6 +6242,11 @@ function toggleObsLayer() {
   for (const el of document.querySelectorAll('.pseudo-pill')) {
     el.style.display = pwPseudoPillsShouldShow() ? '' : 'none';
   }
+  // ...and the report pill (Roundhill/Tukino) — same real-pill rule, not in pwState.
+  if (reportPillMarker) {
+    const el = reportPillMarker.getElement();
+    if (el) el.style.display = pwRealPillsShouldShow() ? '' : 'none';
+  }
 }
 
 let pwLastError = '';     // last fetch failure, surfaced in the live panel
@@ -6282,6 +6300,103 @@ async function pwRefresh(attempt = 0) {
 function initStationPill() {
   pwRefresh();
   if (!pwRefreshTimer) pwRefreshTimer = setInterval(() => pwRefresh(), 5 * 60 * 1000);
+}
+
+// ── Report-sourced live temp pill (Roundhill/Tukino) ────────────────────────
+// Tukino has no PredictWind coverage at all (see RESORT_CONFIG's comment on
+// it) and Roundhill's only PW stations are tens of km off-mountain proxies
+// (Tekapo Balmoral/Clayton/Burkes Pass — see PW_CONFIG.roundhill). Both
+// resorts' own official snow-report scrapers already extract a genuine
+// on-site liveTemp reading (lib/reports/roundhill-report.js's "Temp: -X Deg"
+// widget field, lib/reports/tukino-report.js's XML <weather><temperature>)
+// that until now only showed up on the dashboard's camera-card weather
+// pill (src/App.jsx's WeatherDisplay) — never on this map. Give it its own
+// pill at the resort's own coordinate, visually identical to a real station
+// pill (same .station-pill class/colour scale) since it's just as real a
+// reading — arguably more real than Roundhill's distant proxy stations.
+//
+// Unlike PW_STATIONS this isn't a time series (the report refreshes at most
+// a couple of times a day — see api/report.js's 15-min edge cache and each
+// scraper's own comments), so there's no 24h range/graph modal like
+// pwOpenModal's; tapping it opens a much simpler readout instead.
+const REPORT_TEMP_ENDPOINTS = { roundhill: '/roundhill-report', tukino: '/tukino-report' };
+let reportPillMarker = null;
+let reportPillTimer = null;
+let reportPillData = null; // { tempC, updatedText } for whichever resort is currently showing one
+
+function clearReportPill() {
+  if (reportPillTimer) { clearInterval(reportPillTimer); reportPillTimer = null; }
+  if (reportPillMarker) { reportPillMarker.remove(); reportPillMarker = null; }
+  reportPillData = null;
+}
+
+function openReportPillModal(key) {
+  if (!reportPillData) return;
+  const loc = RESORT_CONFIG[key];
+  const back = document.createElement('div');
+  back.className = 'obs-modal-backdrop';
+  back.innerHTML = `
+    <div class="obs-modal" style="position:relative">
+      <button class="obs-close" title="Close">✕</button>
+      <div class="obs-eyebrow"><span class="live-dot"></span>Official Snow Report</div>
+      <h2>${loc.name}</h2>
+      <div class="sub">${reportPillData.updatedText ? 'Report updated ' + reportPillData.updatedText : 'Update time not published'}</div>
+      <div class="obs-now">
+        <div class="big" style="color:${pwTempColor(reportPillData.tempC)}">${reportPillData.tempC.toFixed(1)}°C</div>
+      </div>
+      <div class="sub" style="margin-top:10px">
+        Published on the resort's own snow report, not a live weather-station feed — it only changes
+        when the resort updates their report, typically a couple of times a day.
+      </div>
+    </div>`;
+  const close = () => back.remove();
+  back.addEventListener('click', (e) => { if (e.target === back) close(); });
+  back.querySelector('.obs-close').addEventListener('click', close);
+  document.addEventListener('keydown', function esc(e) {
+    if (e.key === 'Escape') { close(); document.removeEventListener('keydown', esc); }
+  });
+  document.getElementById('map-screen').appendChild(back);
+}
+
+function renderReportPill(key) {
+  if (isHighResMode || !reportPillData) return; // no temp pills on the forecast-only High-Res page — matches pwRenderPill
+  const loc = RESORT_CONFIG[key];
+  let el = reportPillMarker && reportPillMarker.getElement();
+  if (!el) {
+    el = document.createElement('div');
+    el.className = 'station-pill';
+    el.addEventListener('click', (e) => { e.stopPropagation(); openReportPillModal(key); });
+    reportPillMarker = new maplibregl.Marker({ element: el, anchor: 'center', subpixelPositioning: true })
+      .setLngLat([loc.lon, loc.lat]).addTo(map);
+  }
+  el.title = `${loc.name} official snow report${reportPillData.updatedText ? ' · updated ' + reportPillData.updatedText : ''}`;
+  el.style.background = pwTempColor(reportPillData.tempC);
+  el.style.display = pwRealPillsShouldShow() ? '' : 'none';
+  el.innerHTML = `<span class="dot"></span>${reportPillData.tempC.toFixed(1)}°C`;
+}
+
+function fetchReportTemp(key) {
+  const endpoint = REPORT_TEMP_ENDPOINTS[key];
+  if (!endpoint) return;
+  fetch(endpoint)
+    .then((r) => (r.ok ? r.json() : Promise.reject()))
+    .then((data) => {
+      if (resortKey !== key) return; // resort switched again before this resolved
+      if (typeof data.liveTemp !== 'number') return; // keep showing the last-known reading rather than yanking it
+      reportPillData = { tempC: data.liveTemp, updatedText: data.reportUpdated || null };
+      renderReportPill(key);
+    })
+    .catch(() => {}); // transient fetch failure — leave whatever's already showing alone
+}
+
+function initReportPill(key) {
+  clearReportPill();
+  if (!REPORT_TEMP_ENDPOINTS[key]) return;
+  fetchReportTemp(key);
+  // Reports refresh a couple of times a day at most (same cadence as
+  // src/App.jsx's own polling) — matches the endpoint's own 15-min edge
+  // cache rather than polling any faster.
+  reportPillTimer = setInterval(() => fetchReportTemp(key), 15 * 60 * 1000);
 }
 
 // ── Live temperature profile + whole-mountain colour overlay ───────────────
