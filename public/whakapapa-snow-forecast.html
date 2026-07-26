@@ -5084,10 +5084,20 @@ function buildTempFillGeoJSON(grid, lats, lons, level) {
 // like an actual rain/snow area than one hard edge would. Combined with the
 // cold-air fill already on the map, wherever the two overlap is roughly
 // where the precip is falling as snow rather than rain.
+// Thresholds are deliberately low — this is a 24x24 point-sample grid across
+// a box spanning ~57° of latitude (roughly 300km between sample points), so
+// a narrow frontal rain band can sit entirely between two sample points and
+// never register at all even when it's genuinely raining nearby. At this
+// resolution any nonzero hourly total a sample point DOES report is already
+// a fairly coarse/diluted signal, not noise — the original 0.2/2/8mm
+// thresholds (reasonable for a fine-grained radar-style read) were high
+// enough to filter out exactly the light-to-moderate frontal rain (often
+// 0.1-1mm/h) this overlay exists to show, leaving it looking empty even
+// along an obvious front.
 const ISOBAR_PRECIP_BANDS = [
-  { level: 0.2, opacity: 0.14 }, // any measurable precip
-  { level: 2, opacity: 0.28 },   // moderate
-  { level: 8, opacity: 0.46 },   // heavy
+  { level: 0.1, opacity: 0.16 }, // any measurable precip
+  { level: 1, opacity: 0.3 },    // moderate
+  { level: 5, opacity: 0.48 },   // heavy
 ];
 const ISOBAR_PRECIP_UPSAMPLE_FACTOR = 5; // same rationale as ISOBAR_TEMP_UPSAMPLE_FACTOR
 const ISOBAR_PRECIP_ANIM_UPSAMPLE_FACTOR = 3; // same rationale as ISOBAR_TEMP_ANIM_UPSAMPLE_FACTOR
