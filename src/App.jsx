@@ -2364,6 +2364,11 @@ function SnowfallForecast({ resort, setResort, onOpenCompare }) {
   }
   // The whole label cell (not just the arrow glyph) is the tap target — small
   // arrow-only buttons are too fiddly to hit, especially on touch.
+  // The flex layout lives on an inner div, not the <td> itself — a <td> with
+  // display:flex stops behaving like a table-cell in Chrome/Safari and no
+  // longer stretches to the row's full height, so its (sticky, opaque)
+  // background fell short on taller two-line rows and let the row above
+  // show through underneath it.
   const labelCell = (groupKey, rows, idx, base, unit = '', avgLabel = 'Average') => (
     <td
       onClick={idx === 0 ? () => setExpandedRows((s) => ({ ...s, [groupKey]: !s[groupKey] })) : undefined}
@@ -2373,17 +2378,16 @@ function SnowfallForecast({ resort, setResort, onOpenCompare }) {
         color: rows.length > 1 && idx === 0 ? '#fff' : undefined,
         cursor: idx === 0 ? 'pointer' : 'default',
         userSelect: 'none',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'space-between',
       }}
     >
-      <span>{groupRowLabel(rows, idx, base, unit, avgLabel)}</span>
-      {idx === 0 && (
-        <span aria-hidden="true" style={{ display: 'inline-block', color: '#888', marginLeft: 5, fontSize: '10px' }}>
-          {expandedRows[groupKey] ? '▾' : '▸'}
-        </span>
-      )}
+      <div style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <span>{groupRowLabel(rows, idx, base, unit, avgLabel)}</span>
+        {idx === 0 && (
+          <span aria-hidden="true" style={{ display: 'inline-block', color: '#888', marginLeft: 5, fontSize: '10px' }}>
+            {expandedRows[groupKey] ? '▾' : '▸'}
+          </span>
+        )}
+      </div>
     </td>
   )
 
