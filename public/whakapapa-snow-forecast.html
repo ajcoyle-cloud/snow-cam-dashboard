@@ -1327,6 +1327,20 @@ async function fetchJsonCached(url, fetchOpts) {
 // parallel — this is a nice-to-have background task, not worth competing for
 // bandwidth with anything the user is actually looking at). Skips any URL
 // that's already cached and fresh, so this is cheap to call repeatedly.
+//
+// PACED, not fired back-to-back: on a cold session this is up to 11 other
+// resorts x 13 URLs each (forecastUrlsFor's 8 + elevationBandUrlsFor's 5) —
+// up to ~143 real network requests. Fired with no gap between them (as this
+// used to), that alone was enough to exhaust Open-Meteo's rate limit for
+// the WHOLE page — confirmed in production via a network tab showing dozens
+// of 429s, including totally unrelated requests (another resort's own
+// wind/temperature fetch, the Isobars view's pressure/temperature/
+// precipitation fetches) that had nothing to do with this prefetch, just
+// unlucky enough to run while it had already burned through the shared
+// budget. This is explicitly background/nice-to-have work — nothing here is
+// on-screen yet — so trading a slower cache-warm for leaving that budget
+// available to whatever the user is ACTUALLY looking at is a clear win.
+const PREFETCH_OTHER_RESORTS_GAP_MS = 400;
 let otherResortsPrefetched = false;
 async function prefetchOtherResorts() {
   if (otherResortsPrefetched) return;
@@ -1340,6 +1354,7 @@ async function prefetchOtherResorts() {
     for (const url of urls) {
       if (forecastCacheGet(url)) continue;
       await fetchJsonCached(url);
+      await sleep(PREFETCH_OTHER_RESORTS_GAP_MS);
     }
   }
 }
