@@ -4498,17 +4498,18 @@ function normalizeLon(lon) {
 }
 
 // Fetches one horizontal band of the grid (a subset of rows, every
-// column) — see fetchPressureTimeSeries below for why the full grid is
-// split into several of these run in parallel rather than one request.
-// Returns { rows, times } or null if this band's request failed.
-async function fetchPressureChunk(latsChunk, lons) {
+// column) for ONE hourly variable — see fetchPressureTimeSeries below for
+// why pressure and temperature are two entirely separate sets of chunk
+// requests rather than one variable riding along with the other. Returns
+// { rows, times } or null if this band's request failed.
+async function fetchWeatherChunk(latsChunk, lons, hourlyVar) {
   const flatLat = [], flatLon = [];
   for (const lat of latsChunk) for (const lon of lons) { flatLat.push(lat.toFixed(4)); flatLon.push(normalizeLon(lon).toFixed(4)); }
   // The bbox spans several countries/timezones — 'auto' resolves each
   // location's own local timezone. Doesn't affect what we read back
-  // (pressure_msl values, unaffected by how their timestamps are
-  // formatted) but keeps the request honest regardless.
-  const url = `https://api.open-meteo.com/v1/forecast?latitude=${flatLat.join(',')}&longitude=${flatLon.join(',')}&hourly=pressure_msl&forecast_days=7&timezone=auto`;
+  // (a plain number, unaffected by how its timestamp is formatted) but
+  // keeps the request honest regardless.
+  const url = `https://api.open-meteo.com/v1/forecast?latitude=${flatLat.join(',')}&longitude=${flatLon.join(',')}&hourly=${hourlyVar}&forecast_days=7&timezone=auto`;
   const json = await fetchJsonCached(url, { timeoutMs: 20000, retries: 1 });
   if (!json) return null;
   const entries = Array.isArray(json) ? json : [json];
@@ -4523,26 +4524,29 @@ async function fetchPressureChunk(latsChunk, lons) {
     const row = [];
     for (let c = 0; c < lons.length; c++) {
       const h = entries[i++]?.hourly;
-      row.push(h?.pressure_msl ?? null);
+      row.push(h?.[hourlyVar] ?? null);
     }
     rows.push(row);
   }
   return { rows, times };
 }
 
-// Fetches the full 7-day hourly pressure_msl series for every grid point,
+// Fetches one variable's full 7-day hourly series for every grid point,
 // split into ISOBAR_FETCH_CHUNKS row-bands fetched in PARALLEL rather than
 // one request for the whole grid — a single 576-point (24x24) request
 // broke in production, almost certainly some Open-Meteo limit on batch
 // size/response payload. Each chunk is sized to exactly match
-// 12x12=144 points, the shape already proven to work as a single request.
+// 12x12=144 points of ONE variable, the shape already proven to work as a
+// single request — bundling a second variable into the same chunk requests
+// roughly doubled that payload and broke again, so each variable gets its
+// own fully independent set of chunked requests instead.
 // If one chunk's request fails, it gets one retry attempt on its own
 // before giving up (see below); if that also fails, its rows come back
 // null rather than the whole fetch failing — the contouring code already
 // treats null grid cells as "no data here", so the result is a gap in
 // that one band, not the entire view going blank.
 // Returns { seriesGrid, lats, lons, times } | null.
-async function fetchPressureTimeSeries(bbox) {
+async function fetchGriddedSeries(bbox, hourlyVar) {
   const lats = [], lons = [];
   for (let r = 0; r < ISOBAR_GRID_SIZE; r++) {
     lats.push(bbox.latMax - (r / (ISOBAR_GRID_SIZE - 1)) * (bbox.latMax - bbox.latMin));
@@ -4555,7 +4559,7 @@ async function fetchPressureTimeSeries(bbox) {
   const chunkStarts = [];
   for (let start = 0; start < ISOBAR_GRID_SIZE; start += rowsPerChunk) chunkStarts.push(start);
   const chunks = await Promise.all(
-    chunkStarts.map((start) => fetchPressureChunk(lats.slice(start, start + rowsPerChunk), lons))
+    chunkStarts.map((start) => fetchWeatherChunk(lats.slice(start, start + rowsPerChunk), lons, hourlyVar))
   );
 
   // A chunk coming back null here isn't necessarily a persistent problem —
@@ -4569,7 +4573,7 @@ async function fetchPressureTimeSeries(bbox) {
   const failedIdx = chunkStarts.map((_, i) => i).filter((i) => !chunks[i]);
   if (failedIdx.length > 0) {
     const retried = await Promise.all(
-      failedIdx.map((i) => fetchPressureChunk(lats.slice(chunkStarts[i], chunkStarts[i] + rowsPerChunk), lons))
+      failedIdx.map((i) => fetchWeatherChunk(lats.slice(chunkStarts[i], chunkStarts[i] + rowsPerChunk), lons, hourlyVar))
     );
     failedIdx.forEach((i, j) => { chunks[i] = retried[j]; });
   }
@@ -4589,6 +4593,39 @@ async function fetchPressureTimeSeries(bbox) {
   });
 
   return { seriesGrid, lats, lons, times };
+}
+
+// Open-Meteo pressure-level variable used as a stand-in for "temperature at
+// 1000m" — Open-Meteo doesn't expose a fixed-ALTITUDE free-air temperature,
+// only fixed PRESSURE levels. 900hPa sits at ~988m under the ICAO standard
+// atmosphere, the closest standard level to 1000m (1000hPa is only ~110m —
+// too close to the surface to show cold air aloft; 850hPa is ~1500m, too
+// high). An approximation, not an exact 1000m reading.
+const ISOBAR_TEMP_HOURLY_VAR = 'temperature_900hPa';
+
+// Fetches pressure and temperature as two fully independent gridded
+// fetches — see fetchGriddedSeries for why each is its own set of chunked
+// requests rather than one combined fetch. SEQUENCED, not run together via
+// Promise.all: firing all the chunk requests for both variables at once
+// previously reintroduced an "Unavailable" failure in production —
+// temperature came back entirely empty every time while pressure (an
+// identical request shape) kept succeeding, which points at a
+// concurrent-request limit rather than a per-request size one. Doing
+// temperature only after pressure has already finished keeps the same
+// number of requests in flight at once as pressure alone — the level
+// already proven to work — at the cost of the whole fetch taking roughly
+// twice as long. Also skips the temperature fetch entirely if pressure
+// itself already failed, since there's nothing to show either way.
+// Returns { seriesGrid, tempSeriesGrid, lats, lons, times } | null.
+async function fetchPressureTimeSeries(bbox) {
+  const pressure = await fetchGriddedSeries(bbox, 'pressure_msl');
+  if (!pressure) return null;
+  const temp = await fetchGriddedSeries(bbox, ISOBAR_TEMP_HOURLY_VAR);
+  // A grid of nulls (same shape) if temperature failed entirely — the
+  // cold-air overlay naturally produces no polygons/segments over an
+  // all-null grid, so it just doesn't appear rather than crashing.
+  const tempSeriesGrid = temp ? temp.seriesGrid : pressure.seriesGrid.map((row) => row.map(() => null));
+  return { seriesGrid: pressure.seriesGrid, tempSeriesGrid, lats: pressure.lats, lons: pressure.lons, times: pressure.times };
 }
 
 // Slices one hour's worth of values out of fetchPressureTimeSeries's
@@ -4614,6 +4651,47 @@ function interpolateGrid(gridA, gridB, t) {
     if (v == null || b == null) return null;
     return v + (b - v) * t;
   }));
+}
+
+// Bilinear-upsamples a grid to a finer resolution before contouring — with
+// only ISOBAR_GRID_SIZE=24 source points across a box this wide (~57°
+// latitude), the marching-squares boundary follows edges roughly 2-5°
+// long, which reads as an obviously faceted/blocky polygon rather than a
+// smooth coastline-like curve. Running the exact same contourer over a
+// finer, smoothly-interpolated grid instead produces many more, much
+// smaller facets whose piecewise-linear boundary already looks smooth at
+// this map's zoom levels — cheaper and simpler than post-processing the
+// traced polygon, and it's what the cold-air fill/line overlay both
+// contour, so they stay pixel-consistent with each other. A null source
+// corner poisons its interpolated neighbourhood to null too, same "no data
+// here" convention the contourer itself already uses.
+function upsampleGrid(grid, lats, lons, factor) {
+  const rows = grid.length, cols = grid[0].length;
+  const newLats = [];
+  for (let r = 0; r <= (rows - 1) * factor; r++) {
+    const t = r / factor, r0 = Math.floor(t), r1 = Math.min(r0 + 1, rows - 1), f = t - r0;
+    newLats.push(lats[r0] + (lats[r1] - lats[r0]) * f);
+  }
+  const newLons = [];
+  for (let c = 0; c <= (cols - 1) * factor; c++) {
+    const t = c / factor, c0 = Math.floor(t), c1 = Math.min(c0 + 1, cols - 1), f = t - c0;
+    newLons.push(lons[c0] + (lons[c1] - lons[c0]) * f);
+  }
+  const newGrid = [];
+  for (let r = 0; r < newLats.length; r++) {
+    const tr = r / factor, r0 = Math.floor(tr), r1 = Math.min(r0 + 1, rows - 1), fr = tr - r0;
+    const row = [];
+    for (let c = 0; c < newLons.length; c++) {
+      const tc = c / factor, c0 = Math.floor(tc), c1 = Math.min(c0 + 1, cols - 1), fc = tc - c0;
+      const v00 = grid[r0][c0], v01 = grid[r0][c1], v10 = grid[r1][c0], v11 = grid[r1][c1];
+      if (v00 == null || v01 == null || v10 == null || v11 == null) { row.push(null); continue; }
+      const top = v00 + (v01 - v00) * fc;
+      const bot = v10 + (v11 - v10) * fc;
+      row.push(top + (bot - top) * fr);
+    }
+    newGrid.push(row);
+  }
+  return { grid: newGrid, lats: newLats, lons: newLons };
 }
 
 // Standard marching-squares contourer — see scripts/isobar_poc.mjs for the
@@ -4864,6 +4942,107 @@ function isobarExtremaToGeoJSON(extrema) {
   };
 }
 
+// ── Cold-air overlay ─────────────────────────────────────────────────────
+// A single flat-colour fill marking where ISOBAR_TEMP_HOURLY_VAR drops to
+// or below ISOBAR_TEMP_THRESHOLD_C, plus a smoothed line tracing its exact
+// edge — "cold air coming up to NZ" as one clean region, not a graduated
+// temperature wash. Same fixed-threshold idea as a cold-front line on a
+// real synoptic chart: you're either on the cold side of it or you aren't.
+const ISOBAR_TEMP_THRESHOLD_C = 0;
+// How much finer than the raw ISOBAR_GRID_SIZE grid to contour at — see
+// upsampleGrid's own comment for why. 5x turns 24x24 into 116x116
+// (~13.5k cells), still cheap since this only reruns once per real hour
+// landed on (isobarDrawFrame / isobarPlayTick), never per animation tick.
+const ISOBAR_TEMP_UPSAMPLE_FACTOR = 5;
+
+function buildTempBoundaryGeoJSON(tempGrid, lats, lons) {
+  const segments = isobarContourLevel(tempGrid, lats, lons, ISOBAR_TEMP_THRESHOLD_C);
+  // A couple extra Chaikin passes versus the pressure isobars (2) — this is
+  // the one line users are meant to read as a smooth boundary rather than a
+  // technical contour, and it's cheap to smooth further: only ever one
+  // level, not a whole ladder of them.
+  const lines = stitchSegmentsToLines(segments).map((l) => ({ ...l, coords: chaikinSmooth(l.coords, 3) }));
+  return {
+    type: 'FeatureCollection',
+    features: lines.filter((l) => l.coords.length >= 2).map((l) => ({
+      type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: l.coords },
+    })),
+  };
+}
+
+// Per-cell marching-squares ISOBAND (filled region below a single
+// threshold) rather than just a boundary line — same case analysis as
+// isobarContourLevel (including its avg-of-corners saddle tie-break, reused
+// verbatim so the fill and the line agree at every saddle cell), but each
+// case returns the polygon(s) covering the cell's below-threshold area
+// instead of just the crossing edge. Cells are rendered as independent
+// GeoJSON polygons, all painted with the same single fill colour/opacity —
+// adjacent/overlapping cells blend into one seamless region visually, with
+// no polygon-union/hole-stitching needed.
+function isobarColdFillPolysForCell(TL, TR, BR, BL, coords, level) {
+  const { latTop, latBot, lonL, lonR } = coords;
+  const corners = { TL, TR, BR, BL };
+  const TLp = [lonL, latTop], TRp = [lonR, latTop], BRp = [lonR, latBot], BLp = [lonL, latBot];
+  const pt = (edge) => isobarEdgePoint(edge, corners, coords, level);
+
+  const caseIdx = (TL >= level ? 8 : 0) | (TR >= level ? 4 : 0) | (BR >= level ? 2 : 0) | (BL >= level ? 1 : 0);
+  if (caseIdx === 0) return [[TLp, TRp, BRp, BLp]]; // whole cell below threshold
+  if (caseIdx === 15) return []; // whole cell above threshold — nothing cold here
+
+  if (caseIdx === 5 || caseIdx === 10) {
+    // Saddle: the two cold corners sit on opposite diagonals — same avg
+    // tie-break isobarContourLevel uses, so the fill and the line it sits
+    // under/on top of never disagree about which pairing is "the" boundary.
+    const avg = (TL + TR + BR + BL) / 4;
+    const coldConnectedThroughCenter = avg < level;
+    if (caseIdx === 5) { // TL, BR cold; TR, BL warm
+      return coldConnectedThroughCenter
+        ? [[TLp, pt('N'), pt('E'), BRp, pt('S'), pt('W')]] // hexagon: TR/BL corners chamfered off
+        : [[pt('N'), TLp, pt('W')], [pt('E'), BRp, pt('S')]]; // two isolated corner triangles
+    }
+    // caseIdx === 10: TR, BL cold; TL, BR warm
+    return coldConnectedThroughCenter
+      ? [[pt('N'), TRp, pt('E'), pt('S'), BLp, pt('W')]] // hexagon: TL/BR corners chamfered off
+      : [[pt('N'), TRp, pt('E')], [pt('W'), BLp, pt('S')]]; // two isolated corner triangles
+  }
+
+  // Every other case has exactly one contiguous cold region — walk the cell
+  // perimeter (corners + the two crossing edge points ISOBAR_EDGE_PAIRS
+  // already identifies for the line) in order, keeping only the cold side.
+  const edges = ISOBAR_EDGE_PAIRS[caseIdx];
+  const octagon = [
+    { pt: TLp, cold: TL < level }, { edge: 'N' },
+    { pt: TRp, cold: TR < level }, { edge: 'E' },
+    { pt: BRp, cold: BR < level }, { edge: 'S' },
+    { pt: BLp, cold: BL < level }, { edge: 'W' },
+  ];
+  const poly = [];
+  for (const node of octagon) {
+    if (node.pt) { if (node.cold) poly.push(node.pt); }
+    else if (edges.includes(node.edge)) poly.push(pt(node.edge));
+  }
+  return poly.length >= 3 ? [poly] : [];
+}
+
+function buildTempFillGeoJSON(grid, lats, lons, level) {
+  const features = [];
+  for (let r = 0; r < grid.length - 1; r++) {
+    for (let c = 0; c < grid[r].length - 1; c++) {
+      const TL = grid[r][c], TR = grid[r][c + 1];
+      const BL = grid[r + 1][c], BR = grid[r + 1][c + 1];
+      if ([TL, TR, BL, BR].some((v) => v == null)) continue;
+      const coords = { latTop: lats[r], latBot: lats[r + 1], lonL: lons[c], lonR: lons[c + 1] };
+      for (const ring of isobarColdFillPolysForCell(TL, TR, BR, BL, coords, level)) {
+        features.push({
+          type: 'Feature', properties: {},
+          geometry: { type: 'Polygon', coordinates: [[...ring, ring[0]]] },
+        });
+      }
+    }
+  }
+  return { type: 'FeatureCollection', features };
+}
+
 // Lazily adds the isobar source/layers on first use — mirrors how
 // radar-layer gets added on demand in radarDrawFrame(), including the same
 // "'satellite' layer existing" check for "the style has actually attached"
@@ -4871,6 +5050,21 @@ function isobarExtremaToGeoJSON(extrema) {
 function ensureIsobarLayer() {
   if (!map || map.getSource('isobar-src')) return true;
   if (!map.getLayer('satellite')) return false;
+  // Cold-air fill + boundary line added FIRST so both paint underneath the
+  // pressure isobars/labels/H-L markers. Fill before line so the line's
+  // stroke isn't hidden under the fill's own edge.
+  map.addSource('isobar-temp-fill-src', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+  map.addLayer({
+    id: 'isobar-temp-fill', type: 'fill', source: 'isobar-temp-fill-src',
+    paint: { 'fill-color': '#4db8ff', 'fill-opacity': 0.22 },
+    layout: { visibility: 'none' },
+  });
+  map.addSource('isobar-temp-src', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+  map.addLayer({
+    id: 'isobar-temp-line', type: 'line', source: 'isobar-temp-src',
+    paint: { 'line-color': '#4db8ff', 'line-width': 3 },
+    layout: { visibility: 'none', 'line-cap': 'round', 'line-join': 'round' },
+  });
   map.addSource('isobar-src', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
   map.addLayer({
     id: 'isobar-lines', type: 'line', source: 'isobar-src',
@@ -4922,6 +5116,8 @@ function ensureIsobarLayer() {
 function setIsobarLayerVisible(visible) {
   if (!map) return;
   const v = visible ? 'visible' : 'none';
+  if (map.getLayer('isobar-temp-fill')) map.setLayoutProperty('isobar-temp-fill', 'visibility', v);
+  if (map.getLayer('isobar-temp-line')) map.setLayoutProperty('isobar-temp-line', 'visibility', v);
   if (map.getLayer('isobar-lines')) map.setLayoutProperty('isobar-lines', 'visibility', v);
   if (map.getLayer('isobar-labels')) map.setLayoutProperty('isobar-labels', 'visibility', v);
   if (map.getLayer('isobar-extrema-labels')) map.setLayoutProperty('isobar-extrema-labels', 'visibility', v);
@@ -4932,13 +5128,30 @@ function setIsobarLayerVisible(visible) {
 // radarStepFrame/radarTogglePlay etc.) — one fetch loads the whole 7-day
 // series, then each frame just slices+recontours locally (cheap: 144
 // points, ~10 levels), no per-frame network calls.
-let isobarSeries = null; // { seriesGrid, lats, lons, times } | null
+let isobarSeries = null; // { seriesGrid, tempSeriesGrid, lats, lons, times } | null
 let isobarFrameIndex = -1;
 let isobarPlayTimer = null;
 
 function isobarFormatTs(iso) {
   const d = new Date(iso);
   return d.toLocaleDateString('en-NZ', { weekday: 'short' }) + ' ' + fmtClock(d);
+}
+
+// Cold-air overlay updates once per REAL hour landed on (called from
+// isobarDrawFrame and, once per hour crossed, isobarPlayTick) — not every
+// interpolated sub-step during autoplay. It's background context, not
+// something that needs to track the pressure blend's every 60ms tick, and
+// re-contouring the upsampled grid on every substep would be needless work.
+function isobarUpdateTempOverlay(hourIdx) {
+  if (!map || !isobarSeries) return;
+  const fillSrc = map.getSource('isobar-temp-fill-src');
+  const lineSrc = map.getSource('isobar-temp-src');
+  if (!fillSrc || !lineSrc) return;
+  const { tempSeriesGrid, lats, lons } = isobarSeries;
+  const tempGrid = isobarGridAtHour(tempSeriesGrid, hourIdx);
+  const fine = upsampleGrid(tempGrid, lats, lons, ISOBAR_TEMP_UPSAMPLE_FACTOR);
+  fillSrc.setData(buildTempFillGeoJSON(fine.grid, fine.lats, fine.lons, ISOBAR_TEMP_THRESHOLD_C));
+  lineSrc.setData(buildTempBoundaryGeoJSON(fine.grid, fine.lats, fine.lons));
 }
 
 // Renders one already-resolved grid (a real hour's data, or an
@@ -4967,6 +5180,7 @@ function isobarDrawFrame(i) {
   const { seriesGrid, lats, lons, times } = isobarSeries;
   const grid = isobarGridAtHour(seriesGrid, i);
   isobarRenderGrid(grid, lats, lons, isobarFormatTs(times[i]), i);
+  isobarUpdateTempOverlay(i);
 
   const slider = document.getElementById('isbtl-slider');
   slider.max = times.length - 1;
@@ -5014,6 +5228,7 @@ function isobarPlayTick() {
     // own resets fighting this loop's own frame/substep bookkeeping.
     isobarFrameIndex++;
     isobarPlaySubStep = 0;
+    isobarUpdateTempOverlay(isobarFrameIndex);
     document.getElementById('isbtl-prev').disabled = isobarFrameIndex <= 0;
     document.getElementById('isbtl-next').disabled = isobarFrameIndex >= times.length - 1;
   }
