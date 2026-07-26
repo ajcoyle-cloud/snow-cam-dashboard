@@ -5497,18 +5497,36 @@ async function renderIsobarsView() {
   });
   isobarDrawFrame(startIdx); // pressure isobars visible now; cold-air/precip overlays draw as empty until their own grid arrives below
 
+  // Small pacing gap before each of the next two variables — pressure alone
+  // (4 chunk requests) is the proven-reliable shape; stacking temperature's
+  // 4 and precipitation's 4 right behind it with no breathing room risks
+  // tripping whatever burst/short-window rate limit previously caused
+  // temperature to "quietly go empty" in production (see ISOBAR_TEMP_MODEL's
+  // own comment) — now with a third variable added, that risk is higher
+  // still. This delay is on the BACKGROUND overlay fetches only; the
+  // pressure isobars above have already rendered by this point.
+  const ISOBAR_OVERLAY_FETCH_GAP_MS = 1000;
+
+  await sleep(ISOBAR_OVERLAY_FETCH_GAP_MS);
+  if (token !== isobarRenderToken || viewMode !== 'isobars' || !isobarSeries) return;
   const temp = await fetchGriddedSeries(ISOBAR_BBOX, ISOBAR_TEMP_HOURLY_VAR, ISOBAR_TEMP_MODEL);
   if (token !== isobarRenderToken || viewMode !== 'isobars' || !isobarSeries) return;
   if (temp) {
     isobarSeries.tempSeriesGrid = temp.seriesGrid;
     isobarUpdateTempOverlay(isobarFrameIndex); // whichever frame is current NOW, not necessarily startIdx
+  } else {
+    console.warn('Isobars: temperature fetch failed entirely — cold-air overlay unavailable this render.');
   }
 
+  await sleep(ISOBAR_OVERLAY_FETCH_GAP_MS);
+  if (token !== isobarRenderToken || viewMode !== 'isobars' || !isobarSeries) return;
   const precip = await fetchGriddedSeries(ISOBAR_BBOX, ISOBAR_PRECIP_HOURLY_VAR, ISOBAR_PRECIP_MODEL);
   if (token !== isobarRenderToken || viewMode !== 'isobars' || !isobarSeries) return;
   if (precip) {
     isobarSeries.precipSeriesGrid = precip.seriesGrid;
     isobarUpdatePrecipOverlay(isobarFrameIndex);
+  } else {
+    console.warn('Isobars: precipitation fetch failed entirely — precipitation overlay unavailable this render.');
   }
 }
 
