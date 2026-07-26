@@ -4502,14 +4502,15 @@ function normalizeLon(lon) {
 // why pressure and temperature are two entirely separate sets of chunk
 // requests rather than one variable riding along with the other. Returns
 // { rows, times } or null if this band's request failed.
-async function fetchWeatherChunk(latsChunk, lons, hourlyVar) {
+async function fetchWeatherChunk(latsChunk, lons, hourlyVar, models) {
   const flatLat = [], flatLon = [];
   for (const lat of latsChunk) for (const lon of lons) { flatLat.push(lat.toFixed(4)); flatLon.push(normalizeLon(lon).toFixed(4)); }
   // The bbox spans several countries/timezones — 'auto' resolves each
   // location's own local timezone. Doesn't affect what we read back
   // (a plain number, unaffected by how its timestamp is formatted) but
   // keeps the request honest regardless.
-  const url = `https://api.open-meteo.com/v1/forecast?latitude=${flatLat.join(',')}&longitude=${flatLon.join(',')}&hourly=${hourlyVar}&forecast_days=7&timezone=auto`;
+  const modelsParam = models ? `&models=${models}` : '';
+  const url = `https://api.open-meteo.com/v1/forecast?latitude=${flatLat.join(',')}&longitude=${flatLon.join(',')}&hourly=${hourlyVar}&forecast_days=7&timezone=auto${modelsParam}`;
   const json = await fetchJsonCached(url, { timeoutMs: 20000, retries: 1 });
   if (!json) return null;
   const entries = Array.isArray(json) ? json : [json];
@@ -4546,7 +4547,7 @@ async function fetchWeatherChunk(latsChunk, lons, hourlyVar) {
 // treats null grid cells as "no data here", so the result is a gap in
 // that one band, not the entire view going blank.
 // Returns { seriesGrid, lats, lons, times } | null.
-async function fetchGriddedSeries(bbox, hourlyVar) {
+async function fetchGriddedSeries(bbox, hourlyVar, models) {
   const lats = [], lons = [];
   for (let r = 0; r < ISOBAR_GRID_SIZE; r++) {
     lats.push(bbox.latMax - (r / (ISOBAR_GRID_SIZE - 1)) * (bbox.latMax - bbox.latMin));
@@ -4559,7 +4560,7 @@ async function fetchGriddedSeries(bbox, hourlyVar) {
   const chunkStarts = [];
   for (let start = 0; start < ISOBAR_GRID_SIZE; start += rowsPerChunk) chunkStarts.push(start);
   const chunks = await Promise.all(
-    chunkStarts.map((start) => fetchWeatherChunk(lats.slice(start, start + rowsPerChunk), lons, hourlyVar))
+    chunkStarts.map((start) => fetchWeatherChunk(lats.slice(start, start + rowsPerChunk), lons, hourlyVar, models))
   );
 
   // A chunk coming back null here isn't necessarily a persistent problem —
@@ -4573,7 +4574,7 @@ async function fetchGriddedSeries(bbox, hourlyVar) {
   const failedIdx = chunkStarts.map((_, i) => i).filter((i) => !chunks[i]);
   if (failedIdx.length > 0) {
     const retried = await Promise.all(
-      failedIdx.map((i) => fetchWeatherChunk(lats.slice(chunkStarts[i], chunkStarts[i] + rowsPerChunk), lons, hourlyVar))
+      failedIdx.map((i) => fetchWeatherChunk(lats.slice(chunkStarts[i], chunkStarts[i] + rowsPerChunk), lons, hourlyVar, models))
     );
     failedIdx.forEach((i, j) => { chunks[i] = retried[j]; });
   }
@@ -4602,6 +4603,19 @@ async function fetchGriddedSeries(bbox, hourlyVar) {
 // too close to the surface to show cold air aloft; 850hPa is ~1500m, too
 // high). An approximation, not an exact 1000m reading.
 const ISOBAR_TEMP_HOURLY_VAR = 'temperature_900hPa';
+// Open-Meteo's default 'auto' model choice can pick, per point, whichever
+// source model has the best native resolution there — and not every model
+// in that pool carries pressure-level fields, only surface ones. In
+// production this showed up as pressure_msl staying complete right down to
+// the Antarctic coast while temperature_900hPa quietly went empty over the
+// remote southern half of ISOBAR_BBOX specifically — the signature of
+// 'auto' landing on a surface-only model down there rather than an actual
+// fetch failure (pressure_msl's own identical-shaped requests all
+// succeeded). Pinning GFS explicitly sidesteps that: it's a single global
+// model with full pole-to-pole pressure-level coverage, so every point in
+// the box resolves the same way. Left off pressure_msl, which already works
+// reliably as-is — no reason to risk changing behaviour that isn't broken.
+const ISOBAR_TEMP_MODEL = 'gfs_seamless';
 
 // Fetches pressure and temperature as two fully independent gridded
 // fetches — see fetchGriddedSeries for why each is its own set of chunked
@@ -4620,7 +4634,7 @@ const ISOBAR_TEMP_HOURLY_VAR = 'temperature_900hPa';
 async function fetchPressureTimeSeries(bbox) {
   const pressure = await fetchGriddedSeries(bbox, 'pressure_msl');
   if (!pressure) return null;
-  const temp = await fetchGriddedSeries(bbox, ISOBAR_TEMP_HOURLY_VAR);
+  const temp = await fetchGriddedSeries(bbox, ISOBAR_TEMP_HOURLY_VAR, ISOBAR_TEMP_MODEL);
   // A grid of nulls (same shape) if temperature failed entirely — the
   // cold-air overlay naturally produces no polygons/segments over an
   // all-null grid, so it just doesn't appear rather than crashing.
@@ -4957,11 +4971,17 @@ const ISOBAR_TEMP_UPSAMPLE_FACTOR = 5;
 
 function buildTempBoundaryGeoJSON(tempGrid, lats, lons) {
   const segments = isobarContourLevel(tempGrid, lats, lons, ISOBAR_TEMP_THRESHOLD_C);
-  // A couple extra Chaikin passes versus the pressure isobars (2) — this is
-  // the one line users are meant to read as a smooth boundary rather than a
-  // technical contour, and it's cheap to smooth further: only ever one
-  // level, not a whole ladder of them.
-  const lines = stitchSegmentsToLines(segments).map((l) => ({ ...l, coords: chaikinSmooth(l.coords, 3) }));
+  // Only ONE light Chaikin pass here, deliberately less than the pressure
+  // isobars' 2 — this line is drawn over the cold-air FILL (buildTempFillGeoJSON),
+  // built from the exact same upsampled grid but never smoothed itself (its
+  // per-cell polygons are already close to their true edge and don't need
+  // to be — see its own comment). Heavier smoothing pulls the line away from
+  // that true edge enough to visibly disagree with where the fill actually
+  // starts/stops; since the grid feeding both is already upsampled 5x
+  // (ISOBAR_TEMP_UPSAMPLE_FACTOR) before either gets contoured, the raw
+  // boundary is fine enough that it barely needs smoothing to read as
+  // smooth, so 1 pass is enough polish without the two visibly parting ways.
+  const lines = stitchSegmentsToLines(segments).map((l) => ({ ...l, coords: chaikinSmooth(l.coords, 1) }));
   return {
     type: 'FeatureCollection',
     features: lines.filter((l) => l.coords.length >= 2).map((l) => ({
@@ -5062,7 +5082,7 @@ function ensureIsobarLayer() {
   map.addSource('isobar-temp-src', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
   map.addLayer({
     id: 'isobar-temp-line', type: 'line', source: 'isobar-temp-src',
-    paint: { 'line-color': '#4db8ff', 'line-width': 3 },
+    paint: { 'line-color': '#4db8ff', 'line-width': 1.75 },
     layout: { visibility: 'none', 'line-cap': 'round', 'line-join': 'round' },
   });
   map.addSource('isobar-src', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
