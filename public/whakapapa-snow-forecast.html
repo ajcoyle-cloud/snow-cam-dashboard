@@ -4617,29 +4617,39 @@ const ISOBAR_TEMP_HOURLY_VAR = 'temperature_900hPa';
 // reliably as-is — no reason to risk changing behaviour that isn't broken.
 const ISOBAR_TEMP_MODEL = 'gfs_seamless';
 
-// Fetches pressure and temperature as two fully independent gridded
-// fetches — see fetchGriddedSeries for why each is its own set of chunked
-// requests rather than one combined fetch. SEQUENCED, not run together via
-// Promise.all: firing all the chunk requests for both variables at once
-// previously reintroduced an "Unavailable" failure in production —
-// temperature came back entirely empty every time while pressure (an
-// identical request shape) kept succeeding, which points at a
-// concurrent-request limit rather than a per-request size one. Doing
-// temperature only after pressure has already finished keeps the same
-// number of requests in flight at once as pressure alone — the level
-// already proven to work — at the cost of the whole fetch taking roughly
-// twice as long. Also skips the temperature fetch entirely if pressure
-// itself already failed, since there's nothing to show either way.
-// Returns { seriesGrid, tempSeriesGrid, lats, lons, times } | null.
+// Open-Meteo's hourly liquid-equivalent precipitation total (mm), pinned to
+// the same GFS model as temperature above for the same reason — 'auto' risks
+// silently swapping in a surface-only model over part of the box and leaving
+// a patchy read, and GFS already carries this field everywhere pressure_msl
+// does.
+const ISOBAR_PRECIP_HOURLY_VAR = 'precipitation';
+const ISOBAR_PRECIP_MODEL = 'gfs_seamless';
+
+// Fetches pressure, temperature and precipitation as three fully independent
+// gridded fetches — see fetchGriddedSeries for why each is its own set of
+// chunked requests rather than one combined fetch. SEQUENCED, not run
+// together via Promise.all: firing all the chunk requests for both pressure
+// and temperature at once previously reintroduced an "Unavailable" failure
+// in production — temperature came back entirely empty every time while
+// pressure (an identical request shape) kept succeeding, which points at a
+// concurrent-request limit rather than a per-request size one. Fetching one
+// variable at a time keeps the same number of requests in flight as a single
+// variable alone — the level already proven to work — at the cost of the
+// whole fetch taking roughly three times as long as pressure alone. Each
+// later variable is skipped entirely once pressure itself has already
+// failed, since there's nothing to show either way.
+// Returns { seriesGrid, tempSeriesGrid, precipSeriesGrid, lats, lons, times } | null.
 async function fetchPressureTimeSeries(bbox) {
   const pressure = await fetchGriddedSeries(bbox, 'pressure_msl');
   if (!pressure) return null;
   const temp = await fetchGriddedSeries(bbox, ISOBAR_TEMP_HOURLY_VAR, ISOBAR_TEMP_MODEL);
-  // A grid of nulls (same shape) if temperature failed entirely — the
-  // cold-air overlay naturally produces no polygons/segments over an
-  // all-null grid, so it just doesn't appear rather than crashing.
+  const precip = await fetchGriddedSeries(bbox, ISOBAR_PRECIP_HOURLY_VAR, ISOBAR_PRECIP_MODEL);
+  // A grid of nulls (same shape) if a variable failed entirely — both
+  // overlays naturally produce no polygons/segments over an all-null grid,
+  // so they just don't appear rather than crashing.
   const tempSeriesGrid = temp ? temp.seriesGrid : pressure.seriesGrid.map((row) => row.map(() => null));
-  return { seriesGrid: pressure.seriesGrid, tempSeriesGrid, lats: pressure.lats, lons: pressure.lons, times: pressure.times };
+  const precipSeriesGrid = precip ? precip.seriesGrid : pressure.seriesGrid.map((row) => row.map(() => null));
+  return { seriesGrid: pressure.seriesGrid, tempSeriesGrid, precipSeriesGrid, lats: pressure.lats, lons: pressure.lons, times: pressure.times };
 }
 
 // Slices one hour's worth of values out of fetchPressureTimeSeries's
@@ -5077,6 +5087,61 @@ function buildTempFillGeoJSON(grid, lats, lons, level) {
   return { type: 'FeatureCollection', features };
 }
 
+// ── Precipitation overlay ────────────────────────────────────────────────
+// Graduated-intensity fill (not a single on/off threshold like the cold-air
+// overlay above) — precipitation rate is a continuum, not a "front" boundary
+// you're cleanly on one side of, so a handful of nested bands reads more
+// like an actual rain/snow area than one hard edge would. Combined with the
+// cold-air fill already on the map, wherever the two overlap is roughly
+// where the precip is falling as snow rather than rain.
+const ISOBAR_PRECIP_BANDS = [
+  { level: 0.2, opacity: 0.14 }, // any measurable precip
+  { level: 2, opacity: 0.28 },   // moderate
+  { level: 8, opacity: 0.46 },   // heavy
+];
+const ISOBAR_PRECIP_UPSAMPLE_FACTOR = 5; // same rationale as ISOBAR_TEMP_UPSAMPLE_FACTOR
+const ISOBAR_PRECIP_ANIM_UPSAMPLE_FACTOR = 3; // same rationale as ISOBAR_TEMP_ANIM_UPSAMPLE_FACTOR
+
+// isobarColdFillPolysForCell fills the region where a value is BELOW a
+// level; precipitation bands need the opposite side (AT OR ABOVE a
+// threshold). Negating both the four corner values and the level flips
+// which side of the boundary counts as "in" (v >= level  <=>  -v < -level)
+// while leaving every edge-crossing point it computes identical — the
+// interpolation fraction in isobarLerp is unchanged by negating both its
+// value inputs and its level — so this reuses that function's case table
+// and saddle tie-break exactly rather than re-deriving the geometry.
+function isobarAboveFillPolysForCell(TL, TR, BR, BL, coords, level) {
+  return isobarColdFillPolysForCell(-TL, -TR, -BR, -BL, coords, -level);
+}
+
+// Builds one fill polygon set per band in ISOBAR_PRECIP_BANDS, tagged with
+// that band's own threshold as its 'level' property. Each band's qualifying
+// area is necessarily a subset of every lower band's (a cell at or above 8
+// is also at or above 2 and 0.2), so pushing bands in ascending order here
+// means higher/more-intense polygons are always later in the feature list —
+// and therefore painted on top — than the broader, lighter band beneath
+// them, without any manual z-ordering.
+function buildPrecipFillGeoJSON(grid, lats, lons, bands) {
+  const features = [];
+  for (const band of bands) {
+    for (let r = 0; r < grid.length - 1; r++) {
+      for (let c = 0; c < grid[r].length - 1; c++) {
+        const TL = grid[r][c], TR = grid[r][c + 1];
+        const BL = grid[r + 1][c], BR = grid[r + 1][c + 1];
+        if ([TL, TR, BL, BR].some((v) => v == null)) continue;
+        const coords = { latTop: lats[r], latBot: lats[r + 1], lonL: lons[c], lonR: lons[c + 1] };
+        for (const ring of isobarAboveFillPolysForCell(TL, TR, BR, BL, coords, band.level)) {
+          features.push({
+            type: 'Feature', properties: { level: band.level },
+            geometry: { type: 'Polygon', coordinates: [[...ring, ring[0]]] },
+          });
+        }
+      }
+    }
+  }
+  return { type: 'FeatureCollection', features };
+}
+
 // Lazily adds the isobar source/layers on first use — mirrors how
 // radar-layer gets added on demand in radarDrawFrame(), including the same
 // "'satellite' layer existing" check for "the style has actually attached"
@@ -5084,9 +5149,22 @@ function buildTempFillGeoJSON(grid, lats, lons, level) {
 function ensureIsobarLayer() {
   if (!map || map.getSource('isobar-src')) return true;
   if (!map.getLayer('satellite')) return false;
-  // Cold-air fill + boundary line added FIRST so both paint underneath the
-  // pressure isobars/labels/H-L markers. Fill before line so the line's
-  // stroke isn't hidden under the fill's own edge.
+  // Precipitation bands go in FIRST/bottom-most — the cold-air fill and
+  // pressure isobars/labels above it are the "where is it" read, this is
+  // the "how much" wash underneath both.
+  map.addSource('isobar-precip-fill-src', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+  map.addLayer({
+    id: 'isobar-precip-fill', type: 'fill', source: 'isobar-precip-fill-src',
+    paint: {
+      'fill-color': '#22c55e',
+      'fill-opacity': ['match', ['get', 'level'], ...ISOBAR_PRECIP_BANDS.flatMap((b) => [b.level, b.opacity]), 0],
+    },
+    layout: { visibility: 'none' },
+  });
+  // Cold-air fill + boundary line added next so both paint underneath the
+  // pressure isobars/labels/H-L markers (but above precipitation, whose
+  // opacity is tuned assuming the cold-air blue may render on top of it).
+  // Fill before line so the line's stroke isn't hidden under the fill's own edge.
   map.addSource('isobar-temp-fill-src', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
   map.addLayer({
     id: 'isobar-temp-fill', type: 'fill', source: 'isobar-temp-fill-src',
@@ -5158,6 +5236,7 @@ function ensureIsobarLayer() {
 function setIsobarLayerVisible(visible) {
   if (!map) return;
   const v = visible ? 'visible' : 'none';
+  if (map.getLayer('isobar-precip-fill')) map.setLayoutProperty('isobar-precip-fill', 'visibility', v);
   if (map.getLayer('isobar-temp-fill')) map.setLayoutProperty('isobar-temp-fill', 'visibility', v);
   if (map.getLayer('isobar-temp-line')) map.setLayoutProperty('isobar-temp-line', 'visibility', v);
   if (map.getLayer('isobar-lines')) map.setLayoutProperty('isobar-lines', 'visibility', v);
@@ -5170,7 +5249,7 @@ function setIsobarLayerVisible(visible) {
 // radarStepFrame/radarTogglePlay etc.) — one fetch loads the whole 7-day
 // series, then each frame just slices+recontours locally (cheap: 144
 // points, ~10 levels), no per-frame network calls.
-let isobarSeries = null; // { seriesGrid, tempSeriesGrid, lats, lons, times } | null
+let isobarSeries = null; // { seriesGrid, tempSeriesGrid, precipSeriesGrid, lats, lons, times } | null
 let isobarFrameIndex = -1;
 let isobarPlayTimer = null;
 
@@ -5203,6 +5282,22 @@ function isobarUpdateTempOverlay(hourIdx) {
   if (!isobarSeries) return;
   const { tempSeriesGrid, lats, lons } = isobarSeries;
   isobarRenderTempOverlay(isobarGridAtHour(tempSeriesGrid, hourIdx), lats, lons, ISOBAR_TEMP_UPSAMPLE_FACTOR);
+}
+
+// Same shape as isobarRenderTempOverlay/isobarUpdateTempOverlay above, one
+// fill source instead of fill+line since precipitation bands have no single
+// boundary to trace.
+function isobarRenderPrecipOverlay(grid, lats, lons, factor) {
+  if (!map) return;
+  const fillSrc = map.getSource('isobar-precip-fill-src');
+  if (!fillSrc) return;
+  const fine = upsampleGrid(grid, lats, lons, factor);
+  fillSrc.setData(buildPrecipFillGeoJSON(fine.grid, fine.lats, fine.lons, ISOBAR_PRECIP_BANDS));
+}
+function isobarUpdatePrecipOverlay(hourIdx) {
+  if (!isobarSeries) return;
+  const { precipSeriesGrid, lats, lons } = isobarSeries;
+  isobarRenderPrecipOverlay(isobarGridAtHour(precipSeriesGrid, hourIdx), lats, lons, ISOBAR_PRECIP_UPSAMPLE_FACTOR);
 }
 
 // Renders one already-resolved grid (a real hour's data, or an
@@ -5247,6 +5342,7 @@ function isobarDrawFrame(i) {
   const grid = isobarGridAtHour(seriesGrid, i);
   isobarRenderGrid(grid, lats, lons, isobarFormatTs(times[i]), i);
   isobarUpdateTempOverlay(i);
+  isobarUpdatePrecipOverlay(i);
 
   const slider = document.getElementById('isbtl-slider');
   slider.max = times.length - 1;
@@ -5274,7 +5370,7 @@ let isobarPlaySubStep = 0;
 
 function isobarPlayTick() {
   if (!isobarSeries) return;
-  const { seriesGrid, tempSeriesGrid, lats, lons, times } = isobarSeries;
+  const { seriesGrid, tempSeriesGrid, precipSeriesGrid, lats, lons, times } = isobarSeries;
   if (isobarFrameIndex >= times.length - 1) { isobarStopPlay(); return; }
 
   isobarPlaySubStep++;
@@ -5296,6 +5392,13 @@ function isobarPlayTick() {
   const tempGridB = isobarGridAtHour(tempSeriesGrid, isobarFrameIndex + 1);
   const tempGrid = frac >= 1 ? tempGridB : interpolateGrid(tempGridA, tempGridB, frac);
   isobarRenderTempOverlay(tempGrid, lats, lons, frac >= 1 ? ISOBAR_TEMP_UPSAMPLE_FACTOR : ISOBAR_TEMP_ANIM_UPSAMPLE_FACTOR);
+
+  // Precipitation bands blend the same way, same reasoning as the cold-air
+  // overlay just above.
+  const precipGridA = isobarGridAtHour(precipSeriesGrid, isobarFrameIndex);
+  const precipGridB = isobarGridAtHour(precipSeriesGrid, isobarFrameIndex + 1);
+  const precipGrid = frac >= 1 ? precipGridB : interpolateGrid(precipGridA, precipGridB, frac);
+  isobarRenderPrecipOverlay(precipGrid, lats, lons, frac >= 1 ? ISOBAR_PRECIP_UPSAMPLE_FACTOR : ISOBAR_PRECIP_ANIM_UPSAMPLE_FACTOR);
 
   if (frac >= 1) {
     // Landed exactly on the next real hour — advance and let the next tick
@@ -5350,8 +5453,8 @@ async function renderIsobarsView() {
   // nothing" report. ensureIsobarLayer() reflects that readiness via
   // 'satellite' existing (see its own comment). This used to retry by
   // re-running renderIsobarsView() from the top on a timer, which re-issued
-  // the ENTIRE pressure+temperature gridded fetch (8 network requests) again
-  // every 80ms for as long as the style stayed unready — on a slow
+  // the ENTIRE pressure+temperature+precipitation gridded fetch (12 network
+  // requests) again every 80ms for as long as the style stayed unready — on a slow
   // connection that queued up many overlapping multi-second fetches,
   // frequently tripping Open-Meteo's rate limit and leaving the view stuck
   // with nothing ever drawn until something else (e.g. a resort switch)
