@@ -1008,8 +1008,15 @@ const RESORT_CONFIG = {
 
 const VALID_RESORT_KEYS = new Set(Object.keys(RESORT_CONFIG));
 const requestedResort = new URLSearchParams(window.location.search).get('resort');
-const resortKey = VALID_RESORT_KEYS.has(requestedResort) ? requestedResort : 'ruapehu';
-const LOC = RESORT_CONFIG[resortKey];
+// Both mutable (not const): switchResort() below reassigns these live, mid-
+// session, instead of the old behaviour of reloading this whole page with a
+// different ?resort= value. Every function that reads resortKey/LOC only
+// does so at call time (never captured once in a closure at definition
+// time), so a reassignment here is picked up everywhere automatically —
+// except for a handful of one-shot init-time side effects, which
+// switchResort's finishResortSwitch() explicitly re-runs after reassigning.
+let resortKey = VALID_RESORT_KEYS.has(requestedResort) ? requestedResort : 'ruapehu';
+let LOC = RESORT_CONFIG[resortKey];
 
 // Snow-particle/slope-overlay/dark-terrain trial toggles are Snow Test tab
 // only (?snow=1, see SnowTestPage in App.jsx) — hidden here so they don't
@@ -1159,7 +1166,7 @@ const REMARKABLES_LIFTS = {"type":"FeatureCollection","features":[{"type":"Featu
 // OpenStreetMap aerialway data — drawn only for the rainbow resort.
 const RAINBOW_LIFTS = {"type":"FeatureCollection","features":[{"type":"Feature","geometry":{"type":"LineString","coordinates":[[172.8617192,-41.8751101],[172.8611413,-41.8733627]]},"properties":{"aerialway":"platter","name":"Intermediate Platter","ref":"B"}},{"type":"Feature","geometry":{"type":"LineString","coordinates":[[172.8606886,-41.8750861],[172.8587248,-41.8672405]]},"properties":{"aerialway":"t-bar","name":"T-Bar","ref":"A"}},{"type":"Feature","geometry":{"type":"LineString","coordinates":[[172.8607642,-41.8753927],[172.860099,-41.875888]]},"properties":{"aerialway":"rope_tow","name":"Learners"}},{"type":"Feature","geometry":{"type":"LineString","coordinates":[[172.8554132,-41.8713404],[172.8543188,-41.871636]]},"properties":{"aerialway":"rope_tow","name":"D - West Bowl Access Tow"}},{"type":"Feature","geometry":{"type":"LineString","coordinates":[[172.8588169,-41.8703516],[172.8579962,-41.8689175]]},"properties":{"aerialway":"rope_tow","name":"E"}}]};
 const MTHUTT_LIFTS ={"type":"FeatureCollection","features":[{"type":"Feature","geometry":{"type":"LineString","coordinates":[[171.5394971,-43.4948342],[171.5393494,-43.4946439],[171.5393015,-43.4945773],[171.5389854,-43.4941379],[171.5385077,-43.4934666],[171.5379537,-43.492684],[171.53792,-43.4926357],[171.5370519,-43.4914293],[171.5368856,-43.4911923],[171.5365549,-43.4907344],[171.5362987,-43.4903725],[171.5356871,-43.4895173],[171.5348638,-43.4883641],[171.5343164,-43.4876],[171.5337699,-43.4868372],[171.5333637,-43.4862707],[171.5331671,-43.4860007],[171.5324916,-43.4850514],[171.5323371,-43.4848318],[171.5323128,-43.484791],[171.5322839,-43.4847472],[171.5321455,-43.4845617]]},"properties":{"aerialway":"chair_lift","aerialway:bubble":"no","aerialway:heating":"no","aerialway:occupancy":"6","name":"Summit Six Chair","oneway":"no"}},{"type":"Feature","geometry":{"type":"LineString","coordinates":[[171.5387458,-43.4947771],[171.5370823,-43.4949567]]},"properties":{"aerialway":"magic_carpet","name":"Magic Carpet"}},{"type":"Feature","geometry":{"type":"LineString","coordinates":[[171.5369939,-43.4992739],[171.5368617,-43.4989018],[171.5367107,-43.4983405],[171.5365725,-43.4978904],[171.5363174,-43.4970495],[171.5362371,-43.4967943],[171.5359708,-43.4959199],[171.5359646,-43.4958995],[171.5359153,-43.4957176],[171.5359015,-43.4956733],[171.5358775,-43.4956048],[171.5356573,-43.4948525],[171.5356515,-43.4948337],[171.5355555,-43.4945373],[171.5352458,-43.4935066],[171.5350076,-43.4927297],[171.5348857,-43.492318],[171.5346861,-43.4916587],[171.534355,-43.4905631],[171.5341643,-43.4899163],[171.5338679,-43.4889506],[171.5338303,-43.4888241],[171.5337985,-43.4887203]]},"properties":{"aerialway":"chair_lift","aerialway:occupancy":"3","name":"Towers Triple Chair"}},{"type":"Feature","geometry":{"type":"LineString","coordinates":[[171.5401309,-43.4951497],[171.5400033,-43.4949055],[171.5399855,-43.4948712],[171.5398149,-43.4945447],[171.5395626,-43.4940823],[171.5389883,-43.4930297],[171.5385483,-43.4922233],[171.5381263,-43.4914497],[171.5376112,-43.4905055],[171.537478,-43.4902614],[171.5373478,-43.49001]]},"properties":{"aerialway":"chair_lift","aerialway:bubble":"no","aerialway:capacity":"3000","aerialway:duration":"2","aerialway:heating":"no","aerialway:occupancy":"8","name":"Norwest Express","oneway":"yes"}},{"type":"Feature","geometry":{"type":"LineString","coordinates":[[171.5364813,-43.495414],[171.5370208,-43.4951519]]},"properties":{"aerialway":"magic_carpet","aerialway:duration":"2","name":"Sunkid Carpet"}}]};
-const TOP_ELEV = LOC.topElev;
+let TOP_ELEV = LOC.topElev;
 const SNOW_OFFSET = 300; // snow falls to 300m below the freezing level
 
 document.title = `${LOC.name} — Snowfall Elevation Forecast`;
@@ -1327,19 +1334,163 @@ async function prefetchOtherResorts() {
   }
 }
 
-// Switches the active resort: persists the choice so the main React app's
-// location switcher picks it up too, then either tells the parent (if this
-// page is embedded in the app's map tab, which just re-keys its iframe to the
-// new resort) or, if opened standalone, navigates this tab itself.
-function navigateToResort(key) {
-  try { localStorage.setItem('sc-resort', key); } catch (e) {}
-  if (window.parent !== window) {
-    window.parent.postMessage({ type: 'resort-select', resort: key }, '*');
-  } else {
-    const url = new URL(window.location.href);
-    url.searchParams.set('resort', key);
-    window.location.href = url.toString();
+// ── Resort switching (seamless, no reload) ──────────────────────────────────
+// Flies this SAME map instance from the current resort to a different one and
+// swaps every resort-scoped data source once the camera lands, instead of the
+// old behaviour of reloading this whole page with a new ?resort= value. This
+// works because nothing in the terrain/tile layer is actually resort-bounded
+// at the platform level: the DEM is one shared global source (see initMap's
+// `terrain` source), and every custom raster protocol (snowslope,
+// orographicsnow, etc.) and forecastUrlsFor/elevationBandUrlsFor already read
+// LOC/resortKey live at call time rather than capturing them once — so
+// reassigning those two module-level `let`s mid-session is enough for the
+// tile/data layer to "just work" for whichever resort is now active. What
+// doesn't automatically follow: markers, a handful of one-shot
+// map.on('load') side effects (lift lines), and a few frozen snapshots
+// (TOP_ELEV, RADAR_AVAILABLE, PW_TILES/PW_STATIONS) — finishResortSwitch
+// below re-applies each of those explicitly once the flight lands.
+let resortSwitchPending = null; // resort key a flyTo is currently travelling toward
+let queuedResortSwitch = null;  // a switch requested before the map/style existed yet
+
+function liftDataFor(key) {
+  return key === 'ruapehu' ? WHAKAPAPA_LIFTS
+    : key === 'cardrona' ? CARDRONA_LIFTS
+    : key === 'loveland' ? LOVELAND_LIFTS
+    : key === 'mtlyford' ? MTLYFORD_LIFTS
+    : key === 'roundhill' ? ROUNDHILL_LIFTS
+    : key === 'treblecone' ? TREBLE_CONE_LIFTS
+    : key === 'mthutt' ? MTHUTT_LIFTS
+    : key === 'remarkables' ? REMARKABLES_LIFTS
+    : key === 'rainbow' ? RAINBOW_LIFTS
+    : key === 'turoa' ? TUROA_LIFTS
+    : key === 'tukino' ? TUKINO_LIFTS
+    : null;
+}
+
+// Adds the lift-line source/layer the first time a resort with lift data is
+// shown, or just re-points its data at a different resort's lifts (or empties
+// it, for a resort with none) on every switch after that. A plain
+// source.setData() is enough here (unlike the tile-protocol overlays' remove
+// +re-add refresh pattern) since this is real GeoJSON, not a per-tile cache.
+const EMPTY_FEATURE_COLLECTION = { type: 'FeatureCollection', features: [] };
+function applyLiftDataForResort(key) {
+  if (!map) return;
+  const liftData = liftDataFor(key);
+  currentLiftData = liftData;
+  if (map.getSource('resort-lifts')) {
+    map.getSource('resort-lifts').setData(liftData || EMPTY_FEATURE_COLLECTION);
+    if (map.getLayer('resort-lifts-line')) {
+      map.setLayoutProperty('resort-lifts-line', 'visibility', liftData ? 'visible' : 'none');
+    }
+  } else if (liftData) {
+    map.addSource('resort-lifts', { type: 'geojson', data: liftData, generateId: true });
+    map.addLayer({
+      id: 'resort-lifts-line',
+      type: 'line',
+      source: 'resort-lifts',
+      layout: { 'line-cap': 'round' },
+      paint: {
+        'line-color': isHighResMode ? '#ffffff' : '#e60000',
+        'line-width': 2.8,
+        'line-opacity': isHighResMode ? 1 : 0.9
+      }
+    });
   }
+}
+
+function updatePwConfigFor(key) {
+  const cfg = PW_CONFIG[key] || { tiles: [], stations: [] };
+  PW_TILES = cfg.tiles;
+  PW_STATIONS = cfg.stations;
+}
+
+function updateRadarAvailability(key) {
+  RADAR_AVAILABLE = RESORT_COUNTRY_ISO3[key] === 'NZL';
+  const btn = document.querySelector('#mode-switch [data-mode="radar"]');
+  if (btn) btn.style.display = RADAR_AVAILABLE ? '' : 'none';
+  if (!RADAR_AVAILABLE && viewMode === 'radar') setViewMode('hourly');
+}
+
+// Everything that must be re-applied once the camera actually lands on the
+// new resort — deliberately left on the OLD resort's values during the
+// flight itself (see switchResort) so nothing mid-flight ever reads a
+// half-switched state.
+function finishResortSwitch(key, newLoc) {
+  resortKey = key;
+  LOC = newLoc;
+  TOP_ELEV = LOC.topElev;
+  document.title = `${LOC.name} — Snowfall Elevation Forecast`;
+  const titleEl = document.getElementById('map-title');
+  if (titleEl) titleEl.textContent = LOC.shortName || LOC.name;
+
+  applyLiftDataForResort(key);
+  updateRadarAvailability(key);
+
+  // Live station pills sit at the OLD resort's actual lat/lon — leaving them
+  // in place would show a different mountain's temperature pins floating
+  // over this one. Clear them all; pwRefresh (below) rebuilds fresh markers
+  // for the new resort's own stations.
+  for (const id in pwState) {
+    if (pwState[id].marker) pwState[id].marker.remove();
+    delete pwState[id];
+  }
+  updatePwConfigFor(key);
+  pwRefresh();
+
+  if (map.getLayer('country-outline-layer')) {
+    map.setFilter('country-outline-layer', ['==', ['get', 'ADM0_A3'], RESORT_COUNTRY_ISO3[key] || 'NZL']);
+  }
+  // Winter-snow trial overlay is a static slope/elevation drape, not tied to
+  // the hourly timeline — re-derive its region-based min elevation and
+  // regenerate its tiles for the new resort if it's currently switched on.
+  if (snowOverlayActive) applyWinterSnow(true);
+
+  // Rebuilds modelHours/forecastHours/elevationBandHours for the new resort
+  // (LOC above is already reassigned, and every fetch/URL builder this reads
+  // closes over LOC live) and re-renders the current view mode via its own
+  // openFromQueryParams -> openMapView/restoreViewMode cascade — the exact
+  // same cascade a fresh page load used to rely on.
+  loadForecast();
+}
+
+// Flies the persistent map to a different resort and swaps its data once the
+// camera arrives. `notifyParent` is false when this switch was itself
+// triggered BY the parent app (its own location switcher) — in that case the
+// parent already knows, and re-notifying it would just bounce the message
+// straight back and forth.
+function switchResort(key, notifyParent = true) {
+  const newLoc = RESORT_CONFIG[key];
+  if (!newLoc) return;
+  if (!map || !mapStyleReady) { queuedResortSwitch = key; return; }
+  if (key === resortKey) {
+    // Already here (or a duplicate message) — just re-home the camera on
+    // this resort's own default view, same as the self-pill click below.
+    map.flyTo({ center: newLoc.center, zoom: newLoc.zoom, pitch: newLoc.pitch, bearing: newLoc.bearing, duration: 2000, essential: true });
+    map.once('moveend', () => { if (typeof window.__startAutoRotateRampIn === 'function') window.__startAutoRotateRampIn(); });
+    return;
+  }
+  try { localStorage.setItem('sc-resort', key); } catch (e) {}
+  if (notifyParent && window.parent !== window) {
+    window.parent.postMessage({ type: 'resort-select', resort: key }, '*');
+  }
+  // Isobars' flat country-scale framing has nothing to do with any one
+  // resort's oblique view — swap the underlying data without moving the
+  // camera (or touching auto-rotate) at all, rather than flying through/out
+  // of that view for no visual reason. Leaving isobars later already flies
+  // to the (by-then correct) resort view via flyToResortView().
+  if (viewMode === 'isobars') {
+    finishResortSwitch(key, newLoc);
+    return;
+  }
+  if (typeof window.__stopAutoRotate === 'function') window.__stopAutoRotate();
+  resortSwitchPending = key;
+  map.flyTo({ center: newLoc.center, zoom: newLoc.zoom, pitch: newLoc.pitch, bearing: newLoc.bearing, duration: 2500, essential: true });
+  map.once('moveend', () => {
+    if (resortSwitchPending !== key) return; // superseded by a later switch mid-flight
+    resortSwitchPending = null;
+    finishResortSwitch(key, newLoc);
+    if (typeof window.__startAutoRotateRampIn === 'function') window.__startAutoRotateRampIn();
+  });
 }
 
 // Pills are only shown once zoomed out past RESORT_PILL_MAX_ZOOM — except in
@@ -1379,16 +1530,11 @@ function initResortPills() {
         });
         return;
       }
-      // Switching to a DIFFERENT resort. Deliberately do NOT fly THIS (old)
-      // map to the new coordinates: it would land there without the
-      // destination's terrain loaded, so its camera sits too high/pulled-back,
-      // and it could never match the freshly-loaded new resort (a separate
-      // iframe instance) — that mismatch was the whole "fly-in doesn't match
-      // the loaded view" bug. Navigate straight away and let the NEW map
-      // perform the fly-in from its own settled, terrain-correct state (see
-      // maybeSignalMapReady), so the fly-in always ends exactly on the loaded
-      // default view.
-      navigateToResort(key);
+      // Switching to a DIFFERENT resort — fly this same map instance there
+      // and swap its data on arrival (see switchResort above). The terrain
+      // is one shared global DEM (not resort-bounded), so tiles for the
+      // destination load in along the way same as any ordinary pan/zoom.
+      switchResort(key);
     });
     // anchor 'bottom' puts the dot (not the pill) exactly on the resort's
     // coordinate — the pill floats above it, clear of the terrain.
@@ -1985,43 +2131,11 @@ function initMap() {
     // construction, above.
     map.setSky(SKY_DAY);
 
-    const liftData = resortKey === 'ruapehu' ? WHAKAPAPA_LIFTS
-      : resortKey === 'cardrona' ? CARDRONA_LIFTS
-      : resortKey === 'loveland' ? LOVELAND_LIFTS
-      : resortKey === 'mtlyford' ? MTLYFORD_LIFTS
-      : resortKey === 'roundhill' ? ROUNDHILL_LIFTS
-      : resortKey === 'treblecone' ? TREBLE_CONE_LIFTS
-      : resortKey === 'mthutt' ? MTHUTT_LIFTS
-      : resortKey === 'remarkables' ? REMARKABLES_LIFTS
-      : resortKey === 'rainbow' ? RAINBOW_LIFTS
-      : resortKey === 'turoa' ? TUROA_LIFTS
-      : resortKey === 'tukino' ? TUKINO_LIFTS
-      : null;
-    if (liftData) {
-      currentLiftData = liftData;
-      // generateId assigns each feature a stable id = its index in
-      // liftData.features, so a tap can look the untouched original
-      // geometry back up (see liftFeatureAt) instead of trusting whatever
-      // queryRenderedFeatures returns, which is tile-clipped.
-      map.addSource('resort-lifts', { type: 'geojson', data: liftData, generateId: true });
-      map.addLayer({
-        id: 'resort-lifts-line',
-        type: 'line',
-        source: 'resort-lifts',
-        // Round rather than the default flat/square butt cap at each lift's
-        // two endpoints.
-        layout: { 'line-cap': 'round' },
-        paint: {
-          // Pure white lifts on the orographic High-Res map only (they read
-          // clearly against the bold rainbow drape); the usual red everywhere
-          // else. Full opacity on High-Res so white stays truly white rather
-          // than picking up a tint from the colours underneath.
-          'line-color': isHighResMode ? '#ffffff' : '#e60000',
-          'line-width': 2.8,
-          'line-opacity': isHighResMode ? 1 : 0.9
-        }
-      });
-    }
+    // generateId (inside applyLiftDataForResort) assigns each feature a
+    // stable id = its index in liftData.features, so a tap can look the
+    // untouched original geometry back up (see liftFeatureAt) instead of
+    // trusting whatever queryRenderedFeatures returns, which is tile-clipped.
+    applyLiftDataForResort(resortKey);
     // Live PredictWind observation pills + temperature profile (both resorts).
     initStationPill();
     // Other-resort navigation pills — present in every view mode (live,
@@ -2031,6 +2145,13 @@ function initMap() {
     // everyday resort/map views leave it off (see toggleSnowParticles).
     if (new URLSearchParams(window.location.search).get('snow') === '1') toggleSnowParticles();
     mapStyleReady = true;
+    // A switch requested (e.g. by the parent app's location switcher) before
+    // the map/style was ready to fly anywhere yet — run it now.
+    if (queuedResortSwitch) {
+      const k = queuedResortSwitch;
+      queuedResortSwitch = null;
+      switchResort(k, false);
+    }
     // 'load' only means the style/sources attached, not that terrain/
     // satellite tiles have actually finished loading and rendering —
     // revealing this frame right here left it visibly still settling
@@ -2271,6 +2392,11 @@ function initMap() {
   // Called once the camera lands on the default view (fly-in complete) to ramp
   // the decorative rotation in from a standstill.
   window.__startAutoRotateRampIn = () => startAutoRotate(true);
+  // Exposed so a programmatic resort-switch flyTo (switchResort — not a real
+  // user gesture, so armInteractionStop's own mousedown/touchstart/wheel
+  // listeners never fire for it) can still pause rotation before flying,
+  // the same way a real click/drag already does.
+  window.__stopAutoRotate = stopAutoRotate;
 }
 
 // ── Trial: real 3D snow particles ────────────────────────────────────────
@@ -5091,13 +5217,11 @@ const RADAR_CALIBRATION = {
 };
 // National composite covers all of NZ uniformly — the only resorts with no
 // radar at all now are the two actually outside NZ (loveland/mtvernon).
-const RADAR_AVAILABLE = RESORT_COUNTRY_ISO3[resortKey] === 'NZL';
-// Hide the Radar pill entirely for resorts with no coverage, rather than
-// showing a tab that can never load anything.
-if (!RADAR_AVAILABLE) {
-  const btn = document.querySelector('#mode-switch [data-mode="radar"]');
-  if (btn) btn.style.display = 'none';
-}
+// Hides the Radar pill entirely for resorts with no coverage, rather than
+// showing a tab that can never load anything — see updateRadarAvailability
+// above (also re-run on every resort switch).
+let RADAR_AVAILABLE = false;
+updateRadarAvailability(resortKey);
 
 // Measured cadence of the national feed — see src/radarFeed.js / the
 // radar-map.html writeup for how this was probed.
@@ -5677,8 +5801,8 @@ const PW_CONFIG = {
 // mthutt, no live obs wired up yet) gets an empty station list rather than
 // silently falling back to another resort's — that would show real-looking
 // temperature pins observing the wrong mountain.
-const PW_TILES = (PW_CONFIG[resortKey] || { tiles: [], stations: [] }).tiles;
-const PW_STATIONS = (PW_CONFIG[resortKey] || { tiles: [], stations: [] }).stations;
+let PW_TILES = (PW_CONFIG[resortKey] || { tiles: [], stations: [] }).tiles;
+let PW_STATIONS = (PW_CONFIG[resortKey] || { tiles: [], stations: [] }).stations;
 const KT_TO_KMH = 1.852;
 let pwRefreshTimer = null;
 let pwVisible = true; // observation pills shown by default
@@ -6915,6 +7039,13 @@ document.getElementById('ltl-slider').addEventListener('input', (e) => {
 // and localStorage's sp-view-mode) only fires once, on initial load.
 window.addEventListener('message', (event) => {
   if (event.data?.type === 'set-view-mode' && event.data?.mode) setViewMode(event.data.mode);
+  // The parent app's own location switcher (ResortSelector) changed resort —
+  // fly this persistent map there instead of the parent remounting a fresh
+  // iframe (see switchResort's doc comment above). notifyParent=false: the
+  // parent already knows, it just told us.
+  else if (event.data?.type === 'switch-resort' && event.data?.resort && VALID_RESORT_KEYS.has(event.data.resort)) {
+    switchResort(event.data.resort, false);
+  }
 });
 </script>
 </body>

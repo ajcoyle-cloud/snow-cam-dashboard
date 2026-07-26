@@ -3831,26 +3831,22 @@ function MapSettingsMenu({ topIframeRef }) {
 }
 
 function ForecastMap3D({ resort, setResort }) {
-  const locations = {
-    ruapehu: { name: 'Whakapapa' },
-    cardrona: { name: 'Cardrona' },
-    roundhill: { name: 'Roundhill' },
-    loveland: { name: 'Loveland' },
-    mtvernon: { name: 'Mt Vernon' },
-    treblecone: { name: 'Treble Cone' },
-  }
-  const srcFor = (r) => `/whakapapa-snow-forecast.html?resort=${r}&v=${IFRAME_CACHE_BUST}`
-
-  // Switching resorts used to remount the iframe (key={src}) outright, which
-  // flashed the old map disappearing before the new one had anything to
-  // show. Instead, keep every in-flight frame stacked (old ones underneath,
-  // newest on top) — the old one stays fully visible and interactive the
-  // whole time, and the new one fades in on top only once it reports
-  // 'map-ready', which crossfades the two instead of cutting between them.
-  // If the new one is ever slow, the user just keeps looking at the old
-  // (still-correct) map instead of a blank one.
-  const [frames, setFrames] = useState(() => [{ id: resort, src: srcFor(resort), ready: true }])
-  const topIframeRef = useRef(null)
+  // A single, permanent iframe/map instance — switching resorts used to
+  // remount the iframe (a fresh WebGL context per resort, crossfaded in over
+  // the old one), which meant the camera could never fly continuously from
+  // one resort to the next; each switch was a hard cut between two separate
+  // map instances. The iframe itself (whakapapa-snow-forecast.html) now
+  // supports staying mounted across resorts and flying its own camera there
+  // on request (see its switchResort()) — so this component only ever sets
+  // `src` once, at mount, and every later resort change is just a
+  // 'switch-resort' postMessage to the iframe that's already showing.
+  const initialResortRef = useRef(resort)
+  const iframeRef = useRef(null)
+  // The resort value the iframe is currently showing/flying toward — kept in
+  // sync from both directions (this component telling the iframe, or the
+  // iframe's own resort pill telling this component) so a change originating
+  // on one side never bounces an echo back to the other.
+  const syncedResortRef = useRef(resort)
 
   // Lightweight global bridge (matches the iframe's own window.__startAutoRotateRampIn
   // pattern) so things outside this component tree — e.g. the storm-arrival banner —
@@ -3858,7 +3854,7 @@ function ForecastMap3D({ resort, setResort }) {
   // in props/context. Only meaningful once a map iframe actually exists.
   useEffect(() => {
     window.__mapSetViewMode = (mode) => {
-      topIframeRef.current?.contentWindow?.postMessage({ type: 'set-view-mode', mode }, '*')
+      iframeRef.current?.contentWindow?.postMessage({ type: 'set-view-mode', mode }, '*')
     }
     return () => { delete window.__mapSetViewMode }
   }, [])
@@ -3866,76 +3862,40 @@ function ForecastMap3D({ resort, setResort }) {
   useEffect(() => {
     const handleMessage = (event) => {
       if (event.data?.type === 'resort-select' && event.data?.resort && RESORTS[event.data.resort]) {
+        // The iframe already flew itself there (a resort pill click) — mark
+        // it synced before setResort below triggers the other effect, so
+        // that effect sees "already synced" and skips re-messaging the
+        // iframe about a switch it just performed on its own.
+        syncedResortRef.current = event.data.resort
         setResort(event.data.resort)
-      } else if (event.data?.type === 'map-ready') {
-        setFrames((prev) => {
-          const lastIdx = prev.length - 1
-          if (lastIdx < 0 || prev[lastIdx].ready) return prev
-          return prev.map((f, i) => (i === lastIdx ? { ...f, ready: true } : f))
-        })
       }
     }
     window.addEventListener('message', handleMessage)
     return () => window.removeEventListener('message', handleMessage)
   }, [setResort])
 
-  // A resort switch (from the location switcher above, not just a map pill)
-  // pushes a new frame on top rather than replacing the old one outright.
+  // The location switcher above (or anything else sharing `resort` state)
+  // changed resort — tell the persistent iframe to fly itself there.
   useEffect(() => {
-    setFrames((prev) => (prev[prev.length - 1]?.id === resort ? prev : [...prev, { id: resort, src: srcFor(resort), ready: false }]))
+    if (syncedResortRef.current === resort) return
+    syncedResortRef.current = resort
+    iframeRef.current?.contentWindow?.postMessage({ type: 'switch-resort', resort }, '*')
   }, [resort])
-
-  // Once the newest frame is ready, drop every older one shortly after (long
-  // enough for its fade-in to finish) — they're fully hidden underneath by
-  // then regardless, this just frees up the now-pointless iframes/WebGL
-  // contexts.
-  useEffect(() => {
-    const newest = frames[frames.length - 1]
-    if (frames.length <= 1 || !newest?.ready) return
-    const t = setTimeout(() => setFrames((prev) => (prev.length > 1 ? [prev[prev.length - 1]] : prev)), 500)
-    return () => clearTimeout(t)
-  }, [frames])
-
-  // Fallback: force the newest frame "ready" (revealing it, even if
-  // half-loaded) if it never signals readiness itself, so a broken resort
-  // doesn't leave the old map stacked underneath forever.
-  useEffect(() => {
-    const newest = frames[frames.length - 1]
-    if (frames.length <= 1 || newest?.ready) return
-    const t = setTimeout(() => {
-      setFrames((prev) => prev.map((f, i) => (i === prev.length - 1 ? { ...f, ready: true } : f)))
-    }, 8000)
-    return () => clearTimeout(t)
-  }, [frames])
 
   return (
     <div className="map-3d-wrap" style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
       <div className="map-resort-switch" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 0' }}>
         <ResortSelector resort={resort} setResort={setResort} />
-        <MapSettingsMenu topIframeRef={topIframeRef} />
+        <MapSettingsMenu topIframeRef={iframeRef} />
       </div>
       <div style={{ position: 'relative', width: '100%', flex: 1, minHeight: 0 }}>
-        {frames.map((f, i) => {
-          const isNewest = i === frames.length - 1
-          const visible = !isNewest || f.ready
-          return (
-            <iframe
-              key={f.id}
-              ref={isNewest ? topIframeRef : undefined}
-              className="map-3d-frame"
-              src={f.src}
-              style={{
-                position: 'absolute', inset: 0, width: '100%', height: '100%',
-                border: 'none', borderRadius: 0, display: 'block',
-                zIndex: i,
-                opacity: visible ? 1 : 0,
-                pointerEvents: isNewest && !f.ready ? 'none' : 'auto',
-                transition: 'opacity 0.4s ease',
-              }}
-              allowFullScreen
-            />
-          )
-        })}
+        <iframe
+          ref={iframeRef}
+          className="map-3d-frame"
+          src={`/whakapapa-snow-forecast.html?resort=${initialResortRef.current}&v=${IFRAME_CACHE_BUST}`}
+          style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', border: 'none', borderRadius: 0, display: 'block' }}
+          allowFullScreen
+        />
       </div>
     </div>
   )
