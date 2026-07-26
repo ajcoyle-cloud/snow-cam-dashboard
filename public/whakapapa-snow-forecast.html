@@ -5108,8 +5108,16 @@ function ensureIsobarLayer() {
     // Chaikin produces would still read as faceted up close, not smooth.
     layout: { visibility: 'none', 'line-cap': 'round', 'line-join': 'round' },
   });
+  // Labels read from their OWN source, separate from isobar-src above, so
+  // they can be refreshed on a slower cadence than the line geometry (see
+  // isobarRenderGrid's updateLabels param) — stitchSegmentsToLines'
+  // chaining of marching-squares segments is sensitive to tiny value
+  // changes between adjacent interpolated frames, so recomputing the
+  // label set on every 60ms autoplay tick made the hPa numbers hop between
+  // positions/lines constantly instead of reading as a smooth animation.
+  map.addSource('isobar-label-src', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
   map.addLayer({
-    id: 'isobar-labels', type: 'symbol', source: 'isobar-src',
+    id: 'isobar-labels', type: 'symbol', source: 'isobar-label-src',
     layout: {
       visibility: 'none',
       // 'line' repeats the label every symbol-spacing px along the WHOLE
@@ -5203,11 +5211,26 @@ function isobarUpdateTempOverlay(hourIdx) {
 // manual step/drag) and isobarPlayTick (interpolated sub-steps, used by
 // autoplay) so both paths paint identically — only what grid/label/slider
 // position they pass in differs.
-function isobarRenderGrid(grid, lats, lons, labelText, sliderValue) {
+//
+// updateLabels gates the hPa text labels (isobar-label-src) and the H/L
+// extrema markers (isobar-extrema-src) separately from the line geometry
+// (isobar-src, always updated). Marching squares recomputes contour
+// topology from scratch every call — on a genuine real-hour grid that's
+// stable, but on the in-between blends autoplay renders every 60ms, tiny
+// interpolated value changes can flip which cells a level crosses and how
+// segments chain into lines, so the label set jumped to a new position (or
+// a different line entirely) up to 6 times per hour-transition. Callers
+// pass false for those in-between ticks so labels only refresh on the
+// real-hour frames either side, while the lines/cold-air overlay keep
+// updating every tick for a smooth slide.
+function isobarRenderGrid(grid, lats, lons, labelText, sliderValue, updateLabels = true) {
   const { segments } = buildIsobarSegments(grid, lats, lons, ISOBAR_STEP_HPA);
   const lines = buildSmoothedIsobarLines(segments);
   map.getSource('isobar-src').setData(isobarLinesToGeoJSON(lines));
-  map.getSource('isobar-extrema-src').setData(isobarExtremaToGeoJSON(findPressureExtrema(grid, lats, lons)));
+  if (updateLabels) {
+    map.getSource('isobar-label-src').setData(isobarLinesToGeoJSON(lines));
+    map.getSource('isobar-extrema-src').setData(isobarExtremaToGeoJSON(findPressureExtrema(grid, lats, lons)));
+  }
 
   document.getElementById('isbtl-slider').value = sliderValue;
   document.getElementById('isbtl-label').textContent = labelText;
@@ -5263,7 +5286,7 @@ function isobarPlayTick() {
   const tA = new Date(times[isobarFrameIndex]).getTime();
   const tB = new Date(times[isobarFrameIndex + 1]).getTime();
   const label = isobarFormatTs(new Date(tA + (tB - tA) * frac).toISOString());
-  isobarRenderGrid(grid, lats, lons, label, isobarFrameIndex + frac);
+  isobarRenderGrid(grid, lats, lons, label, isobarFrameIndex + frac, frac >= 1);
 
   // Cold-air overlay blends right along with the pressure isobars now,
   // same interpolateGrid technique just applied to tempSeriesGrid — see
@@ -5320,7 +5343,24 @@ async function renderIsobarsView() {
   // not on every later async arrival).
   if (token !== isobarRenderToken || viewMode !== 'isobars') return;
 
-  if (!ensureIsobarLayer()) { setTimeout(() => { if (token === isobarRenderToken && viewMode === 'isobars') renderIsobarsView(); }, 80); return; }
+  // The base style (in particular its 'terrain' raster-dem TileJSON fetch)
+  // can still be attaching when a user taps Isobars right after the map
+  // first mounts — especially on a slow mobile connection, where this is
+  // the single biggest source of the "tapping Isobars sometimes just does
+  // nothing" report. ensureIsobarLayer() reflects that readiness via
+  // 'satellite' existing (see its own comment). This used to retry by
+  // re-running renderIsobarsView() from the top on a timer, which re-issued
+  // the ENTIRE pressure+temperature gridded fetch (8 network requests) again
+  // every 80ms for as long as the style stayed unready — on a slow
+  // connection that queued up many overlapping multi-second fetches,
+  // frequently tripping Open-Meteo's rate limit and leaving the view stuck
+  // with nothing ever drawn until something else (e.g. a resort switch)
+  // reset the JS state. Poll ONLY for the layer to attach here instead,
+  // reusing the already-fetched result — no re-fetching involved.
+  while (!ensureIsobarLayer()) {
+    await new Promise((resolve) => setTimeout(resolve, 80));
+    if (token !== isobarRenderToken || viewMode !== 'isobars') return;
+  }
 
   if (!result) {
     setIsobarLayerVisible(false);
