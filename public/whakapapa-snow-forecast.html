@@ -4964,10 +4964,24 @@ function isobarExtremaToGeoJSON(extrema) {
 // real synoptic chart: you're either on the cold side of it or you aren't.
 const ISOBAR_TEMP_THRESHOLD_C = 0;
 // How much finer than the raw ISOBAR_GRID_SIZE grid to contour at — see
-// upsampleGrid's own comment for why. 5x turns 24x24 into 116x116
-// (~13.5k cells), still cheap since this only reruns once per real hour
-// landed on (isobarDrawFrame / isobarPlayTick), never per animation tick.
+// upsampleGrid's own comment for why. Used whenever there's no per-tick
+// budget pressure: landing on a real hour (isobarDrawFrame, manual step/
+// drag) or the isobarPlayTick sub-step that lands exactly on the next real
+// hour. 5x turns 24x24 into 116x116 (~13.5k cells).
 const ISOBAR_TEMP_UPSAMPLE_FACTOR = 5;
+// Coarser factor used for the interpolated sub-steps IN BETWEEN real hours
+// during autoplay (isobarPlaySubStep 1..ISOBAR_PLAY_SUBSTEPS-1) — the cold
+// air overlay now blends every ISOBAR_PLAY_TICK_MS right along with the
+// pressure isobars (see isobarPlayTick) rather than jump-cutting once an
+// hour, but re-contouring+re-filling at the full 5x resolution on every one
+// of those ticks measured at 15-20ms of pure JS just for the fill/line
+// build (before MapLibre's own setData cost on top, for a several-thousand-
+// feature source) — enough to start eating into the 60ms tick budget on
+// real hardware and turn "smoother" into "stuttery". 3x is ~3x cheaper
+// (~2-6ms) and still reads as smooth at this map's zoom for the brief
+// in-between frames; every landed-on real hour still snaps to the full 5x
+// crispness via ISOBAR_TEMP_UPSAMPLE_FACTOR above.
+const ISOBAR_TEMP_ANIM_UPSAMPLE_FACTOR = 3;
 
 function buildTempBoundaryGeoJSON(tempGrid, lats, lons) {
   const segments = isobarContourLevel(tempGrid, lats, lons, ISOBAR_TEMP_THRESHOLD_C);
@@ -5157,21 +5171,30 @@ function isobarFormatTs(iso) {
   return d.toLocaleDateString('en-NZ', { weekday: 'short' }) + ' ' + fmtClock(d);
 }
 
-// Cold-air overlay updates once per REAL hour landed on (called from
-// isobarDrawFrame and, once per hour crossed, isobarPlayTick) — not every
-// interpolated sub-step during autoplay. It's background context, not
-// something that needs to track the pressure blend's every 60ms tick, and
-// re-contouring the upsampled grid on every substep would be needless work.
-function isobarUpdateTempOverlay(hourIdx) {
-  if (!map || !isobarSeries) return;
+// Renders one already-resolved temp grid (a real hour's data, or an
+// interpolated in-between blend — caller's job to build it, same split as
+// isobarRenderGrid/isobarDrawFrame/isobarPlayTick for pressure) onto the
+// fill+line sources. `factor` is the caller's choice of upsampleGrid
+// fineness — see the two constants below for why a landed-hour frame and an
+// autoplay sub-step tick deliberately use different ones.
+function isobarRenderTempOverlay(grid, lats, lons, factor) {
+  if (!map) return;
   const fillSrc = map.getSource('isobar-temp-fill-src');
   const lineSrc = map.getSource('isobar-temp-src');
   if (!fillSrc || !lineSrc) return;
-  const { tempSeriesGrid, lats, lons } = isobarSeries;
-  const tempGrid = isobarGridAtHour(tempSeriesGrid, hourIdx);
-  const fine = upsampleGrid(tempGrid, lats, lons, ISOBAR_TEMP_UPSAMPLE_FACTOR);
+  const fine = upsampleGrid(grid, lats, lons, factor);
   fillSrc.setData(buildTempFillGeoJSON(fine.grid, fine.lats, fine.lons, ISOBAR_TEMP_THRESHOLD_C));
   lineSrc.setData(buildTempBoundaryGeoJSON(fine.grid, fine.lats, fine.lons));
+}
+
+// Manual navigation / landed-on-a-real-hour case: full ISOBAR_TEMP_UPSAMPLE_
+// FACTOR resolution — there's no per-tick budget pressure here, it only
+// happens once per hour transition (or on a drag/step), not
+// ISOBAR_PLAY_SUBSTEPS times within one.
+function isobarUpdateTempOverlay(hourIdx) {
+  if (!isobarSeries) return;
+  const { tempSeriesGrid, lats, lons } = isobarSeries;
+  isobarRenderTempOverlay(isobarGridAtHour(tempSeriesGrid, hourIdx), lats, lons, ISOBAR_TEMP_UPSAMPLE_FACTOR);
 }
 
 // Renders one already-resolved grid (a real hour's data, or an
@@ -5228,7 +5251,7 @@ let isobarPlaySubStep = 0;
 
 function isobarPlayTick() {
   if (!isobarSeries) return;
-  const { seriesGrid, lats, lons, times } = isobarSeries;
+  const { seriesGrid, tempSeriesGrid, lats, lons, times } = isobarSeries;
   if (isobarFrameIndex >= times.length - 1) { isobarStopPlay(); return; }
 
   isobarPlaySubStep++;
@@ -5242,13 +5265,21 @@ function isobarPlayTick() {
   const label = isobarFormatTs(new Date(tA + (tB - tA) * frac).toISOString());
   isobarRenderGrid(grid, lats, lons, label, isobarFrameIndex + frac);
 
+  // Cold-air overlay blends right along with the pressure isobars now,
+  // same interpolateGrid technique just applied to tempSeriesGrid — see
+  // ISOBAR_TEMP_ANIM_UPSAMPLE_FACTOR's own comment for why this runs at a
+  // coarser resolution than a landed-hour frame.
+  const tempGridA = isobarGridAtHour(tempSeriesGrid, isobarFrameIndex);
+  const tempGridB = isobarGridAtHour(tempSeriesGrid, isobarFrameIndex + 1);
+  const tempGrid = frac >= 1 ? tempGridB : interpolateGrid(tempGridA, tempGridB, frac);
+  isobarRenderTempOverlay(tempGrid, lats, lons, frac >= 1 ? ISOBAR_TEMP_UPSAMPLE_FACTOR : ISOBAR_TEMP_ANIM_UPSAMPLE_FACTOR);
+
   if (frac >= 1) {
     // Landed exactly on the next real hour — advance and let the next tick
     // start a fresh 0..1 blend from there, rather than isobarDrawFrame's
     // own resets fighting this loop's own frame/substep bookkeeping.
     isobarFrameIndex++;
     isobarPlaySubStep = 0;
-    isobarUpdateTempOverlay(isobarFrameIndex);
     document.getElementById('isbtl-prev').disabled = isobarFrameIndex <= 0;
     document.getElementById('isbtl-next').disabled = isobarFrameIndex >= times.length - 1;
   }
