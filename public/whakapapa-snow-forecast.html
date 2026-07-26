@@ -1484,12 +1484,32 @@ function switchResort(key, notifyParent = true) {
   }
   if (typeof window.__stopAutoRotate === 'function') window.__stopAutoRotate();
   resortSwitchPending = key;
-  map.flyTo({ center: newLoc.center, zoom: newLoc.zoom, pitch: newLoc.pitch, bearing: newLoc.bearing, duration: 2500, essential: true });
+  // Land a touch pulled-back from the exact default zoom rather than dead on
+  // it — same reason maybeSignalMapReady() does this for the very first page
+  // load: the destination's DEM tiles are still loading in during the flight,
+  // and the terrain elevation MapLibre samples under the camera's centre to
+  // position its altitude keeps creeping toward its final value for a beat
+  // even after the flight itself has stopped moving (see
+  // waitForTerrainStable's own comment) — landing dead-on the final pose
+  // means that late correction reads as a visible little "bump" (camera
+  // sinking/rising) on an otherwise-still frame right as the resort switch
+  // finishes. Waiting for it to settle HERE, then covering the rest of the
+  // way with one more short flyTo, keeps that correction hidden inside
+  // continued camera motion instead of happening on a frozen shot.
+  const settleZoom = Math.max(newLoc.zoom - 1.2, 8.5);
+  map.flyTo({ center: newLoc.center, zoom: settleZoom, pitch: newLoc.pitch, bearing: newLoc.bearing, duration: 2500, essential: true });
   map.once('moveend', () => {
     if (resortSwitchPending !== key) return; // superseded by a later switch mid-flight
-    resortSwitchPending = null;
-    finishResortSwitch(key, newLoc);
-    if (typeof window.__startAutoRotateRampIn === 'function') window.__startAutoRotateRampIn();
+    waitForTerrainStable(() => {
+      if (resortSwitchPending !== key) return; // superseded while settling
+      map.flyTo({ center: newLoc.center, zoom: newLoc.zoom, pitch: newLoc.pitch, bearing: newLoc.bearing, duration: 700, essential: true });
+      map.once('moveend', () => {
+        if (resortSwitchPending !== key) return;
+        resortSwitchPending = null;
+        finishResortSwitch(key, newLoc);
+        if (typeof window.__startAutoRotateRampIn === 'function') window.__startAutoRotateRampIn();
+      });
+    }, null, 0, 0, newLoc);
   });
 }
 
@@ -1913,19 +1933,26 @@ let mapStyleReady = false;
 // go STABLE (unchanged within ~1m across several consecutive polls), which
 // means the sampling has actually settled and the camera won't shift after
 // we reveal.
-function waitForTerrainStable(cb, prev, stableCount, attempt) {
+// `loc` defaults to the module-level LOC (the only caller this was written
+// for — the initial page load's establishing shot, always checking THIS
+// page's own resort) — switchResort's cross-resort landing passes the
+// destination resort's config explicitly instead, since LOC itself isn't
+// reassigned to the new resort until finishResortSwitch runs, after this
+// has already confirmed the new center's terrain has settled.
+function waitForTerrainStable(cb, prev, stableCount, attempt, loc) {
+  loc = loc || LOC;
   prev = (prev === undefined) ? null : prev;
   stableCount = stableCount || 0;
   attempt = attempt || 0;
   let elev = null;
-  try { elev = map.queryTerrainElevation(LOC.center, { exaggerated: false }); } catch (e) {}
-  const plausible = elev != null && elev > LOC.baseElev * 0.5;
+  try { elev = map.queryTerrainElevation(loc.center, { exaggerated: false }); } catch (e) {}
+  const plausible = elev != null && elev > loc.baseElev * 0.5;
   const steady = plausible && prev != null && Math.abs(elev - prev) < 1;
   const nextStable = steady ? stableCount + 1 : 0;
   // Require ~3 consecutive steady reads (≈240ms of no movement), capped so a
   // permanently-jittery reading can't hang the reveal forever.
   if ((nextStable >= 3) || attempt >= 30) { cb(); return; }
-  setTimeout(() => waitForTerrainStable(cb, elev, nextStable, attempt + 1), 80);
+  setTimeout(() => waitForTerrainStable(cb, elev, nextStable, attempt + 1, loc), 80);
 }
 
 function maybeSignalMapReady() {
