@@ -4636,6 +4636,21 @@ const ISOBAR_TEMP_MODEL = 'gfs_seamless';
 const ISOBAR_PRECIP_HOURLY_VAR = 'precipitation';
 const ISOBAR_PRECIP_MODEL = 'gfs_seamless';
 
+// Precipitation gets its OWN, much smaller bbox — NZ, the Tasman Sea lows
+// typically track through/approach from, and a margin east of NZ — rather
+// than reusing the full ISOBAR_BBOX pressure/temperature share. Fetched at
+// the SAME ISOBAR_GRID_SIZE/ISOBAR_FETCH_CHUNKS budget (no extra requests,
+// no extra rate-limit risk), a box this much smaller packs those same 24x24
+// sample points roughly 2x closer together (~275-300km apart over the full
+// continent-scale box down to ~145-150km here) — the fix for narrow frontal
+// rain bands falling entirely between samples and never registering at
+// all. The tradeoff: precipitation only ever renders within this tighter
+// window, unlike the pressure isobars/cold-air overlay which still cover
+// the full wide view. Bounds deliberately generous westward (lonMin 145)
+// since the deep lows this overlay most needs to catch tend to sit well out
+// in the Tasman, not right on top of NZ.
+const ISOBAR_PRECIP_BBOX = { latMin: -58, latMax: -28, lonMin: 145, lonMax: 185 };
+
 // Pressure, temperature and precipitation are fetched as three fully
 // independent gridded fetches, orchestrated directly in renderIsobarsView
 // rather than bundled behind one function — see that function for why
@@ -5296,8 +5311,8 @@ function isobarRenderPrecipOverlay(grid, lats, lons, factor) {
 }
 function isobarUpdatePrecipOverlay(hourIdx) {
   if (!isobarSeries) return;
-  const { precipSeriesGrid, lats, lons } = isobarSeries;
-  isobarRenderPrecipOverlay(isobarGridAtHour(precipSeriesGrid, hourIdx), lats, lons, ISOBAR_PRECIP_UPSAMPLE_FACTOR);
+  const { precipSeriesGrid, precipLats, precipLons } = isobarSeries;
+  isobarRenderPrecipOverlay(isobarGridAtHour(precipSeriesGrid, hourIdx), precipLats, precipLons, ISOBAR_PRECIP_UPSAMPLE_FACTOR);
 }
 
 // Renders one already-resolved grid (a real hour's data, or an
@@ -5370,7 +5385,7 @@ let isobarPlaySubStep = 0;
 
 function isobarPlayTick() {
   if (!isobarSeries) return;
-  const { seriesGrid, tempSeriesGrid, precipSeriesGrid, lats, lons, times } = isobarSeries;
+  const { seriesGrid, tempSeriesGrid, precipSeriesGrid, precipLats, precipLons, lats, lons, times } = isobarSeries;
   if (isobarFrameIndex >= times.length - 1) { isobarStopPlay(); return; }
 
   isobarPlaySubStep++;
@@ -5398,7 +5413,7 @@ function isobarPlayTick() {
   const precipGridA = isobarGridAtHour(precipSeriesGrid, isobarFrameIndex);
   const precipGridB = isobarGridAtHour(precipSeriesGrid, isobarFrameIndex + 1);
   const precipGrid = frac >= 1 ? precipGridB : interpolateGrid(precipGridA, precipGridB, frac);
-  isobarRenderPrecipOverlay(precipGrid, lats, lons, frac >= 1 ? ISOBAR_PRECIP_UPSAMPLE_FACTOR : ISOBAR_PRECIP_ANIM_UPSAMPLE_FACTOR);
+  isobarRenderPrecipOverlay(precipGrid, precipLats, precipLons, frac >= 1 ? ISOBAR_PRECIP_UPSAMPLE_FACTOR : ISOBAR_PRECIP_ANIM_UPSAMPLE_FACTOR);
 
   if (frac >= 1) {
     // Landed exactly on the next real hour — advance and let the next tick
@@ -5486,12 +5501,18 @@ async function renderIsobarsView() {
 
   // Cold-air/precipitation grids start out all-null (both overlays already
   // render as empty over an all-null grid, same as a failed fetch) and get
-  // swapped in below the moment their own fetch resolves.
+  // swapped in below the moment their own fetch resolves. precipLats/
+  // precipLons start out as placeholders matching the (all-null, so
+  // dimensionally-inconsequential) nullGrid's shape — precipitation fetches
+  // over its own smaller ISOBAR_PRECIP_BBOX (see that constant's comment),
+  // not the wide pressure/temperature one, so it needs its own lat/lon axes
+  // once real data replaces this placeholder.
   const nullGrid = pressure.seriesGrid.map((row) => row.map(() => null));
   isobarSeries = {
     seriesGrid: pressure.seriesGrid,
     tempSeriesGrid: nullGrid,
     precipSeriesGrid: nullGrid,
+    precipLats: pressure.lats, precipLons: pressure.lons,
     lats: pressure.lats, lons: pressure.lons, times: pressure.times,
   };
   setIsobarLayerVisible(true);
@@ -5530,10 +5551,12 @@ async function renderIsobarsView() {
 
   await sleep(ISOBAR_OVERLAY_FETCH_GAP_MS);
   if (token !== isobarRenderToken || viewMode !== 'isobars' || !isobarSeries) return;
-  const precip = await fetchGriddedSeries(ISOBAR_BBOX, ISOBAR_PRECIP_HOURLY_VAR, ISOBAR_PRECIP_MODEL);
+  const precip = await fetchGriddedSeries(ISOBAR_PRECIP_BBOX, ISOBAR_PRECIP_HOURLY_VAR, ISOBAR_PRECIP_MODEL);
   if (token !== isobarRenderToken || viewMode !== 'isobars' || !isobarSeries) return;
   if (precip) {
     isobarSeries.precipSeriesGrid = precip.seriesGrid;
+    isobarSeries.precipLats = precip.lats;
+    isobarSeries.precipLons = precip.lons;
     isobarUpdatePrecipOverlay(isobarFrameIndex);
   } else {
     console.warn('Isobars: precipitation fetch failed entirely — precipitation overlay unavailable this render.');
