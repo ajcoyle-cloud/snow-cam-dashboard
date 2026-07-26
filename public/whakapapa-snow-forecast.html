@@ -4482,7 +4482,8 @@ function updateAccumMinSummary() {
 // crossing correctly as long as coordinates stay continuous, whereas
 // wrapping it here would make the box's east edge jump back to land next to
 // its west edge on screen. Only the actual Open-Meteo request (a real
-// geographic API that rejects lon > 180) normalises, in fetchPressureTimeSeries.
+// geographic API that rejects lon > 180) normalises — see normalizeLon,
+// used from fetchWeatherChunk below.
 //
 // latMax pushed from -28 to -10: north edge now clears Cape York (-10.7),
 // the tip of the Australian mainland — lonMin/lonMax unchanged (same width,
@@ -4492,7 +4493,7 @@ const ISOBAR_BBOX = { latMin: -67, latMax: -10, lonMin: 91, lonMax: 223 };
 // Unavailable") — too large a batch against some Open-Meteo limit (URL
 // length, location-count cap, or timeout; no way to tell which without
 // live access). Back to 24, but now fetched as ISOBAR_FETCH_CHUNKS
-// smaller parallel requests instead of one — see fetchPressureTimeSeries.
+// smaller parallel requests instead of one — see fetchGriddedSeries.
 const ISOBAR_GRID_SIZE = 24;
 // 24 rows / 4 = 6 rows x 24 cols = 144 points per request — deliberately
 // sized to match 12x12=144, the exact request size already proven to work
@@ -4508,10 +4509,10 @@ function normalizeLon(lon) {
 }
 
 // Fetches one horizontal band of the grid (a subset of rows, every
-// column) for ONE hourly variable — see fetchPressureTimeSeries below for
-// why pressure and temperature are two entirely separate sets of chunk
-// requests rather than one variable riding along with the other. Returns
-// { rows, times } or null if this band's request failed.
+// column) for ONE hourly variable — see renderIsobarsView below for why
+// pressure, temperature and precipitation are three entirely separate sets
+// of chunk requests rather than one variable riding along with another.
+// Returns { rows, times } or null if this band's request failed.
 async function fetchWeatherChunk(latsChunk, lons, hourlyVar, models) {
   const flatLat = [], flatLon = [];
   for (const lat of latsChunk) for (const lon of lons) { flatLat.push(lat.toFixed(4)); flatLon.push(normalizeLon(lon).toFixed(4)); }
@@ -4635,35 +4636,14 @@ const ISOBAR_TEMP_MODEL = 'gfs_seamless';
 const ISOBAR_PRECIP_HOURLY_VAR = 'precipitation';
 const ISOBAR_PRECIP_MODEL = 'gfs_seamless';
 
-// Fetches pressure, temperature and precipitation as three fully independent
-// gridded fetches — see fetchGriddedSeries for why each is its own set of
-// chunked requests rather than one combined fetch. SEQUENCED, not run
-// together via Promise.all: firing all the chunk requests for both pressure
-// and temperature at once previously reintroduced an "Unavailable" failure
-// in production — temperature came back entirely empty every time while
-// pressure (an identical request shape) kept succeeding, which points at a
-// concurrent-request limit rather than a per-request size one. Fetching one
-// variable at a time keeps the same number of requests in flight as a single
-// variable alone — the level already proven to work — at the cost of the
-// whole fetch taking roughly three times as long as pressure alone. Each
-// later variable is skipped entirely once pressure itself has already
-// failed, since there's nothing to show either way.
-// Returns { seriesGrid, tempSeriesGrid, precipSeriesGrid, lats, lons, times } | null.
-async function fetchPressureTimeSeries(bbox) {
-  const pressure = await fetchGriddedSeries(bbox, 'pressure_msl');
-  if (!pressure) return null;
-  const temp = await fetchGriddedSeries(bbox, ISOBAR_TEMP_HOURLY_VAR, ISOBAR_TEMP_MODEL);
-  const precip = await fetchGriddedSeries(bbox, ISOBAR_PRECIP_HOURLY_VAR, ISOBAR_PRECIP_MODEL);
-  // A grid of nulls (same shape) if a variable failed entirely — both
-  // overlays naturally produce no polygons/segments over an all-null grid,
-  // so they just don't appear rather than crashing.
-  const tempSeriesGrid = temp ? temp.seriesGrid : pressure.seriesGrid.map((row) => row.map(() => null));
-  const precipSeriesGrid = precip ? precip.seriesGrid : pressure.seriesGrid.map((row) => row.map(() => null));
-  return { seriesGrid: pressure.seriesGrid, tempSeriesGrid, precipSeriesGrid, lats: pressure.lats, lons: pressure.lons, times: pressure.times };
-}
+// Pressure, temperature and precipitation are fetched as three fully
+// independent gridded fetches, orchestrated directly in renderIsobarsView
+// rather than bundled behind one function — see that function for why
+// they're SEQUENCED (not run together via Promise.all) and why rendering no
+// longer waits for all three before showing anything.
 
-// Slices one hour's worth of values out of fetchPressureTimeSeries's
-// per-point arrays into a plain grid — the same { grid, lats, lons } shape
+// Slices one hour's worth of values out of fetchGriddedSeries's per-point
+// arrays into a plain grid — the same { grid, lats, lons } shape
 // buildIsobarSegments/findPressureExtrema already expect, so a single
 // frame's rendering is identical to how the old current=-only snapshot
 // worked, just called once per animation frame instead of once total.
@@ -4929,7 +4909,7 @@ function refineExtremumPosition(grid, lats, lons, r, c) {
   dRow = Math.max(-0.5, Math.min(0.5, dRow));
 
   const lonStep = c < lons.length - 1 ? lons[c + 1] - lons[c] : lons[c] - lons[c - 1];
-  // lats runs north->south (descending, see fetchPressureTimeSeries), so
+  // lats runs north->south (descending, see fetchGriddedSeries), so
   // moving toward r+1 (south) means SUBTRACTING from lat.
   const latStep = r < lats.length - 1 ? lats[r] - lats[r + 1] : lats[r - 1] - lats[r];
   return { lon: lons[c] + dCol * lonStep, lat: lats[r] - dRow * latStep };
@@ -5442,18 +5422,31 @@ document.getElementById('isbtl-slider').addEventListener('input', (e) => {
 });
 
 let isobarRenderToken = 0;
+// Pressure is fetched and drawn FIRST, alone — temperature and precipitation
+// are then fetched sequentially in the background (still one at a time, to
+// avoid the concurrent-request limit noted by fetchWeatherChunk/
+// fetchGriddedSeries above) and each overlay is folded in and redrawn the
+// moment its own fetch resolves. Previously all three were awaited together
+// before ANYTHING appeared, so the primary pressure-isobar read sat blank
+// for as long as the slowest of the three requests took — including on a
+// fast connection, since they're deliberately sequenced rather than
+// parallel. The map's own base layer (satellite/terrain) was never gated by
+// this fetch chain and already renders immediately; only the isobar-specific
+// overlays were waiting on data that hadn't rendered yet.
 async function renderIsobarsView() {
   initMap();
 
   const token = ++isobarRenderToken;
   isobarStopPlay();
-  const result = await fetchPressureTimeSeries(ISOBAR_BBOX);
+
+  const pressure = await fetchGriddedSeries(ISOBAR_BBOX, 'pressure_msl');
   // Bail if either a newer render superseded this one, OR the user has
   // since switched to a different mode entirely — without the latter check,
   // a slow fetch landing after the user tapped e.g. Live back on would flip
   // the isobar layer visible again right under a mode that's supposed to
   // have cleared it (setViewMode only hides it once, when the switch happens,
-  // not on every later async arrival).
+  // not on every later async arrival). Every await below repeats this same
+  // check for the same reason.
   if (token !== isobarRenderToken || viewMode !== 'isobars') return;
 
   // The base style (in particular its 'terrain' raster-dem TileJSON fetch)
@@ -5463,25 +5456,34 @@ async function renderIsobarsView() {
   // nothing" report. ensureIsobarLayer() reflects that readiness via
   // 'satellite' existing (see its own comment). This used to retry by
   // re-running renderIsobarsView() from the top on a timer, which re-issued
-  // the ENTIRE pressure+temperature+precipitation gridded fetch (12 network
-  // requests) again every 80ms for as long as the style stayed unready — on a slow
-  // connection that queued up many overlapping multi-second fetches,
-  // frequently tripping Open-Meteo's rate limit and leaving the view stuck
-  // with nothing ever drawn until something else (e.g. a resort switch)
-  // reset the JS state. Poll ONLY for the layer to attach here instead,
-  // reusing the already-fetched result — no re-fetching involved.
+  // the entire gridded fetch again every 80ms for as long as the style
+  // stayed unready — on a slow connection that queued up many overlapping
+  // multi-second fetches, frequently tripping Open-Meteo's rate limit and
+  // leaving the view stuck with nothing ever drawn until something else
+  // (e.g. a resort switch) reset the JS state. Poll ONLY for the layer to
+  // attach here instead, reusing the already-fetched result — no
+  // re-fetching involved.
   while (!ensureIsobarLayer()) {
     await new Promise((resolve) => setTimeout(resolve, 80));
     if (token !== isobarRenderToken || viewMode !== 'isobars') return;
   }
 
-  if (!result) {
+  if (!pressure) {
     setIsobarLayerVisible(false);
     isobarSeries = null;
     return;
   }
 
-  isobarSeries = result;
+  // Cold-air/precipitation grids start out all-null (both overlays already
+  // render as empty over an all-null grid, same as a failed fetch) and get
+  // swapped in below the moment their own fetch resolves.
+  const nullGrid = pressure.seriesGrid.map((row) => row.map(() => null));
+  isobarSeries = {
+    seriesGrid: pressure.seriesGrid,
+    tempSeriesGrid: nullGrid,
+    precipSeriesGrid: nullGrid,
+    lats: pressure.lats, lons: pressure.lons, times: pressure.times,
+  };
   setIsobarLayerVisible(true);
 
   // Start on whichever hour is closest to right now — forecast_days=7 runs
@@ -5489,11 +5491,25 @@ async function renderIsobarsView() {
   // meant to show "from now, forward" rather than starting hours in the past.
   const nowMs = Date.now();
   let startIdx = 0, bestDiff = Infinity;
-  result.times.forEach((t, i) => {
+  pressure.times.forEach((t, i) => {
     const diff = Math.abs(new Date(t).getTime() - nowMs);
     if (diff < bestDiff) { bestDiff = diff; startIdx = i; }
   });
-  isobarDrawFrame(startIdx);
+  isobarDrawFrame(startIdx); // pressure isobars visible now; cold-air/precip overlays draw as empty until their own grid arrives below
+
+  const temp = await fetchGriddedSeries(ISOBAR_BBOX, ISOBAR_TEMP_HOURLY_VAR, ISOBAR_TEMP_MODEL);
+  if (token !== isobarRenderToken || viewMode !== 'isobars' || !isobarSeries) return;
+  if (temp) {
+    isobarSeries.tempSeriesGrid = temp.seriesGrid;
+    isobarUpdateTempOverlay(isobarFrameIndex); // whichever frame is current NOW, not necessarily startIdx
+  }
+
+  const precip = await fetchGriddedSeries(ISOBAR_BBOX, ISOBAR_PRECIP_HOURLY_VAR, ISOBAR_PRECIP_MODEL);
+  if (token !== isobarRenderToken || viewMode !== 'isobars' || !isobarSeries) return;
+  if (precip) {
+    isobarSeries.precipSeriesGrid = precip.seriesGrid;
+    isobarUpdatePrecipOverlay(isobarFrameIndex);
+  }
 }
 
 let viewMode = 'hourly'; // 'hourly' | 'accumulated'
