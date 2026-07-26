@@ -1030,7 +1030,7 @@
   padding: 4px 2px;
   text-align: center;
   font-weight: 500;
-  border: 1px solid #222;
+  border: none;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1045,7 +1045,7 @@
   padding: 2px 2px;
   text-align: center;
   color: #888;
-  border: 1px solid #222;
+  border: none;
   overflow: hidden;
   text-overflow: ellipsis;
   font-size: 0.86em;
