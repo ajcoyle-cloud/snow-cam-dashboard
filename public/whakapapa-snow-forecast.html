@@ -875,6 +875,16 @@
 </div>
 
 <script>
+// Pause icon for every timeline's play/pause button (#tl-play, #ltl-play,
+// #rtl-play, #isbtl-play) — the Unicode ⏸ glyph it replaces renders as a
+// full-colour emoji on some platforms/fonts while the ▶ play glyph next to
+// it stays plain monochrome text, so toggling between the two visibly
+// changed style mid-button. A real (Lucide-style) SVG pause icon, painted
+// with currentColor like the button's own text, always matches the ▶ glyph's
+// weight and colour. Swapped in via innerHTML only when pausing; resuming
+// still just sets textContent = '▶', same as before.
+const PAUSE_ICON_SVG = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="4" width="4" height="16" rx="1"/><rect x="14" y="4" width="4" height="16" rx="1"/></svg>';
+
 // Keep --app-vh (used by #map-screen's height, see the CSS comment above it)
 // synced to the real rendered root-element height via ResizeObserver, rather
 // than trusting position:fixed/100vh to track the iframe's own viewport —
@@ -5415,7 +5425,7 @@ function isobarStartPlay() {
   if (!isobarSeries || isobarSeries.times.length < 2) return;
   if (isobarFrameIndex >= isobarSeries.times.length - 1) isobarDrawFrame(0);
   isobarPlaySubStep = 0;
-  document.getElementById('isbtl-play').textContent = '⏸';
+  document.getElementById('isbtl-play').innerHTML = PAUSE_ICON_SVG;
   isobarPlayTimer = setInterval(() => {
     if (isobarFrameIndex >= isobarSeries.times.length - 1) { isobarStopPlay(); return; }
     isobarPlayTick();
@@ -5860,7 +5870,7 @@ const RADAR_PLAY_FRAME_MS = 1000;
 function radarStartPlay() {
   if (radarFrames.length < 2) return;
   if (radarCurrentIndex >= radarFrames.length - 1) radarDrawFrame(0);
-  document.getElementById('rtl-play').textContent = '⏸';
+  document.getElementById('rtl-play').innerHTML = PAUSE_ICON_SVG;
   radarPlayTimer = setInterval(() => {
     if (radarCurrentIndex >= radarFrames.length - 1) { radarStopPlay(); return; }
     radarDrawFrame(radarCurrentIndex + 1);
@@ -5987,7 +5997,7 @@ function togglePlay() {
 function startPlay() {
   if (currentIndex < 0) return;
   if (currentIndex >= forecastHours.length - 1) openMapView(0); // restart from the beginning
-  document.getElementById('tl-play').textContent = '⏸';
+  document.getElementById('tl-play').innerHTML = PAUSE_ICON_SVG;
   if (playTimer) cancelAnimationFrame(playTimer);
 
   const tickMs = BASE_INTERVAL_MS / playSpeed;
@@ -7123,7 +7133,7 @@ function pwStepLive(delta) { pwStopLivePlay(); pwApplyLiveAt(pwLiveIdx + delta);
 function pwTogglePlay() {
   if (pwLivePlayTimer) { pwStopLivePlay(); return; }
   if (!pwLiveGrid.length) return;
-  document.getElementById('ltl-play').textContent = '⏸';
+  document.getElementById('ltl-play').innerHTML = PAUSE_ICON_SVG;
   // Play the whole 6h window in a fixed ~16s at a steady ~16fps cadence, advancing
   // a fractional grid position so motion is smooth and the duration stays constant
   // no matter how many grid points there are (decoupled from grid resolution).
