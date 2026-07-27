@@ -255,13 +255,24 @@ function loadMaplibre() {
   if (window.maplibregl) return Promise.resolve(window.maplibregl)
   if (maplibrePromise) return maplibrePromise
   maplibrePromise = new Promise((resolve, reject) => {
+    // The main map (whakapapa-snow-forecast.html) has this <link> hardcoded
+    // in <head>, so its CSS is always applied before any map gets built.
+    // Here it's injected at runtime alongside the script, so both loads must
+    // be awaited before resolving — constructing the map before its
+    // stylesheet has actually applied leaves the canvas with no
+    // position/width/height rules (invisible/zero-size), which only showed
+    // up over a real mobile network slow enough for the two loads to race.
+    let cssLoaded = false, jsLoaded = false
+    const maybeResolve = () => { if (cssLoaded && jsLoaded) resolve(window.maplibregl) }
     const link = document.createElement('link')
     link.rel = 'stylesheet'
     link.href = 'https://cdn.jsdelivr.net/npm/maplibre-gl@5.23.0/dist/maplibre-gl.min.css'
+    link.onload = () => { cssLoaded = true; maybeResolve() }
+    link.onerror = reject
     document.head.appendChild(link)
     const script = document.createElement('script')
     script.src = 'https://cdn.jsdelivr.net/npm/maplibre-gl@5.23.0/dist/maplibre-gl.js'
-    script.onload = () => resolve(window.maplibregl)
+    script.onload = () => { jsLoaded = true; maybeResolve() }
     script.onerror = reject
     document.head.appendChild(script)
   })
@@ -329,6 +340,20 @@ function RunDetail({ run }) {
         attributionControl: false,
       })
       mapRef.current = map
+
+      // Same fix as initMap() in whakapapa-snow-forecast.html: MapLibre reads
+      // the container's actual pixel size at construction time, and a slide
+      // inside the flex/scroll-snap carousel isn't guaranteed to be at its
+      // final size the instant the map is built. A one-shot resize() plus
+      // watching the container catches any layout settling afterward.
+      try {
+        map.resize()
+        if (typeof ResizeObserver !== 'undefined') {
+          const ro = new ResizeObserver(() => map.resize())
+          ro.observe(mapEl.current)
+          map.once('remove', () => ro.disconnect())
+        }
+      } catch (e) {}
 
       map.on('load', () => {
         map.addSource('run-line-src', { type: 'geojson', data: runToLineGeoJSON(run.points) })
