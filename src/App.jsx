@@ -1,8 +1,9 @@
 // Updated with Loveland ski area and forecast view switcher
 import { useState, useEffect, useRef } from 'react'
-import { Camera, LineChart, Map as MapIcon, Snowflake, Settings, Wind, Newspaper, Volume2, Square, Loader2, List, ArrowLeft, Video, ArrowUpToLine, ArrowDownToLine } from 'lucide-react'
+import { Camera, LineChart, Map as MapIcon, Snowflake, Settings, Wind, Newspaper, Volume2, Square, Loader2, List, ArrowLeft, Video, ArrowUpToLine, ArrowDownToLine, Route } from 'lucide-react'
 import { computeStormArrival, STORM_BAND_LABELS } from './stormArrival'
 import { subscribeRuapehuProfile } from './pwObs'
+import TrackingPage from './TrackingPage'
 import './App.css'
 
 const METEOBLUE_API_KEY = import.meta.env.VITE_METEOBLUE_API_KEY || 'DEMO'
@@ -3980,6 +3981,8 @@ const NAV_ITEMS = [
   // see HighResSnowPage above.
   { id: 'highres', label: 'High-Res', Icon: Wind, path: '/highres' },
   { id: 'reports', label: 'Snow Reports', Icon: Newspaper, path: '/reports' },
+  // Own top-level tab, not a Map-tab mode toggle — see TrackingPage.jsx.
+  { id: 'tracking', label: 'Tracking', Icon: Route, path: '/tracking' },
   // 'Snow Test' hidden from prod nav now that its two production-ready
   // trials (slope-aware snow overlay, dark-terrain basemap+contours) have
   // shipped as the settings-cog "Winter snow"/"Elevation Contours" toggles
@@ -4178,6 +4181,8 @@ export default function App() {
         {activeTab === 'reports' && (
           <SnowReportsPage resort={resort} setResort={setResort} />
         )}
+
+        {activeTab === 'tracking' && <TrackingPage />}
 
       </main>
     </div>

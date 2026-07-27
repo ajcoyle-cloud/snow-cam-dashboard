@@ -56,7 +56,7 @@
   #map { width: 100%; height: 100%; }
 
   /* ── Timeline scrubber (play/pause + draggable slider) ─────────────────── */
-  #timeline, #live-timeline, #radar-timeline, #isobar-timeline, #tracking-status {
+  #timeline, #live-timeline, #radar-timeline, #isobar-timeline {
     position: absolute; left: 20px; right: 20px; bottom: 20px; z-index: 10;
     display: flex; align-items: center; gap: 14px;
     background: rgba(0,0,0,0.6);
@@ -64,17 +64,7 @@
     border-radius: 30px; padding: 10px 18px;
     box-shadow: 0 6px 26px rgba(0,0,0,0.35);
   }
-  #live-timeline, #radar-timeline, #isobar-timeline, #tracking-status { display: none; }
-  #tracking-status { color: #fff; font-size: 0.85rem; justify-content: space-between; }
-  #tracking-status .dot {
-    width: 8px; height: 8px; border-radius: 50%; background: #4ade80; flex-shrink: 0;
-    box-shadow: 0 0 0 0 rgba(74,222,128,0.6); animation: tracking-pulse 2s infinite;
-  }
-  @keyframes tracking-pulse {
-    0% { box-shadow: 0 0 0 0 rgba(74,222,128,0.55); }
-    70% { box-shadow: 0 0 0 8px rgba(74,222,128,0); }
-    100% { box-shadow: 0 0 0 0 rgba(74,222,128,0); }
-  }
+  #live-timeline, #radar-timeline, #isobar-timeline { display: none; }
   #tl-play, #ltl-play, #rtl-play, #isbtl-play {
     flex-shrink: 0; background: rgba(255,255,255,0.14); color: #fff; border: none;
     width: 38px; height: 38px; border-radius: 50%; cursor: pointer;
@@ -187,23 +177,6 @@
   #orographic-toggle.active { background: rgba(92,92,106,0.95); }
   #orographic-toggle:hover { background: rgba(70,70,80,0.9); }
   #orographic-toggle.active:hover { background: rgba(106,106,122,0.95); }
-
-  /* Tracking-only "recentre on current position" button — same 38px circle/
-     blur/border look as the top icon row above, but bottom-right instead,
-     since nothing in the top row is Tracking-specific. Sits at bottom:92px
-     (clear of #tracking-status's own 20px-tall bottom bar) same convention
-     as #snow-info/#speed-select. Hidden outside Tracking mode (setViewMode). */
-  #tracking-recenter {
-    display: none;
-    position: absolute; bottom: 92px; right: 20px; z-index: 10;
-    background: rgba(54,54,62,0.85); backdrop-filter: blur(14px); color: #fff;
-    border: 1px solid rgba(255,255,255,0.14);
-    width: 38px; height: 38px; border-radius: 50%; cursor: pointer;
-    align-items: center; justify-content: center;
-    box-shadow: 0 4px 24px rgba(0,0,0,0.3);
-    transition: background 0.15s;
-  }
-  #tracking-recenter:hover { background: rgba(70,70,80,0.9); }
 
   /* Tuning panel for the snow-overlay trial — hidden until that toggle is
      on (see toggleSnowOverlay()). Sits below the icon row, clear of
@@ -815,7 +788,6 @@
       <button class="pill-btn" data-mode="accumulated" onclick="setViewMode('accumulated')">Accum</button>
       <button class="pill-btn" data-mode="radar" onclick="setViewMode('radar')">Radar</button>
       <button class="pill-btn" data-mode="isobars" onclick="setViewMode('isobars')">Isobars</button>
-      <button class="pill-btn" data-mode="tracking" onclick="setViewMode('tracking')">Tracking</button>
     </div>
     <div class="pill-group" id="period-switch">
       <button class="pill-btn active" data-days="5" onclick="setPeriod(5)">5</button>
@@ -895,19 +867,6 @@
     <button class="tl-step" id="isbtl-next" onclick="isobarStepFrame(1)">›</button>
     <span id="isbtl-label">—</span>
   </div>
-  <div id="tracking-status">
-    <span style="display:flex; align-items:center; gap:8px;"><span class="dot"></span><span id="tracking-count">— points</span></span>
-    <span id="tracking-updated">—</span>
-  </div>
-  <button id="tracking-recenter" onclick="trackingRecenter()" title="Recentre on current position">
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-      <circle cx="12" cy="12" r="7"/>
-      <line x1="12" y1="1" x2="12" y2="4"/>
-      <line x1="12" y1="20" x2="12" y2="23"/>
-      <line x1="1" y1="12" x2="4" y2="12"/>
-      <line x1="20" y1="12" x2="23" y2="12"/>
-    </svg>
-  </button>
   <div id="speed-select">
     <button class="speed-btn" data-speed="1" onclick="setSpeed(1)">1×</button>
     <button class="speed-btn active" data-speed="3" onclick="setSpeed(3)">3×</button>
@@ -2040,21 +1999,6 @@ function maybeSignalMapReady() {
   // region directly and signal ready, skipping the rest of this function.
   if (viewMode === 'isobars') {
     flyToIsobarRegion();
-    window.parent.postMessage({ type: 'map-ready' }, '*');
-    return;
-  }
-  // Same reasoning as Isobars above, for the same reason: Tracking's camera
-  // comes from wherever the actual recorded points are (renderTrackingView's
-  // own fitCamera), which has nothing to do with this resort's close-up
-  // establishing shot. Without this case, when Tracking was the mode
-  // restored from a previous visit, setViewMode('tracking') would already
-  // have flown the camera to the real tracked position — then THIS sequence
-  // would land later and silently jumpTo/flyTo the resort's own default view
-  // right back over it. That's the reported "Tracking takes a long time and
-  // sometimes doesn't show the right place" — the camera wasn't stuck, it
-  // was being put back by this unrelated reveal sequence after the fact.
-  if (viewMode === 'tracking') {
-    renderTrackingView();
     window.parent.postMessage({ type: 'map-ready' }, '*');
     return;
   }
@@ -5634,316 +5578,6 @@ async function renderIsobarsView() {
   }
 }
 
-// ── OwnTracks Tracking view ──────────────────────────────────────────────
-// Draws whatever api/own/track-points.js has recorded (ingest side: api/own/
-// tracks.js + lib/ownTracksStore.js) as a line with a marker at the most
-// recent fix. Unlike every other view here there's no fixed region to frame
-// — a commute could be anywhere — so the camera fits to the actual recorded
-// points' bounds instead of a canned fly-to like Isobars' own.
-let trackingPollTimer = null;
-// Live-in-progress data worth refreshing often enough to feel live, but not
-// so often it's hammering the read endpoint for what's still a same-day
-// personal feature.
-const TRACKING_POLL_MS = 15000;
-
-// A fix this bad is more likely a bounced signal (indoors, a train carriage,
-// between buildings) than a real position — one of these left in the line
-// geometry reads as the trail suddenly detouring hundreds of metres and back.
-// Excluded from the LINE only; still counted in the point total and still
-// shown as the current-position marker if it's the latest fix (see
-// trackingAccuracyTier) so a bad fix reads as "uncertain," not "vanished."
-const TRACKING_MAX_LINE_ACCURACY_M = 100;
-
-function trackingAccuracyTier(acc) {
-  if (typeof acc !== 'number') return 'unknown';
-  if (acc <= 20) return 'good';
-  if (acc <= 50) return 'fair';
-  return 'poor';
-}
-const TRACKING_TIER_COLOR = { good: '#4ade80', fair: '#facc15', poor: '#f87171', unknown: '#f472b6' };
-
-// Ground speed between two consecutive fixes, computed from distance/time
-// rather than trusting OwnTracks' own reported `vel` — that field is only
-// populated from a real Doppler-derived GPS reading and comes back empty on
-// plenty of fixes (any manual/stationary send, see the very first commute
-// test), where distance/time between two real points is available for
-// virtually every pair regardless. Same equirectangular approximation as
-// buildAccuracyCircleGeoJSON's degree-to-metre conversion — plenty accurate
-// at the scale of two GPS fixes a few seconds/metres apart.
-// Capped well above anything a walk+train commute produces so one noisy,
-// close-together-in-time pair (accuracy-related position jitter divided by a
-// small time delta) can't blow out the whole colour scale for one segment.
-const TRACKING_MAX_PLAUSIBLE_SPEED_KMH = 150;
-function trackingSegmentSpeedKmh(p1, p2) {
-  const dtSec = (p2.tst || 0) - (p1.tst || 0);
-  if (dtSec <= 0) return null;
-  const metersPerDegLat = 111320;
-  const metersPerDegLon = 111320 * Math.cos(((p1.lat + p2.lat) / 2) * Math.PI / 180);
-  const dLat = (p2.lat - p1.lat) * metersPerDegLat;
-  const dLon = (p2.lon - p1.lon) * metersPerDegLon;
-  const distMeters = Math.sqrt(dLat * dLat + dLon * dLon);
-  return Math.min((distMeters / dtSec) * 3.6, TRACKING_MAX_PLAUSIBLE_SPEED_KMH);
-}
-// Blue (stationary) through cyan (walking pace) and green/yellow (transit)
-// to red (train at speed) — a standard thermal-style speed ramp, chosen
-// deliberately distinct in feel from the accuracy dots' flat green/amber/red
-// tiers even though it reuses the same red-for-"the extreme end" instinct.
-const TRACKING_SPEED_COLOR_STOPS = [
-  0, '#3b82f6',
-  5, '#22d3ee',
-  20, '#4ade80',
-  50, '#facc15',
-  90, '#f97316',
-  130, '#ef4444',
-];
-
-// Builds a true-scale (not fixed-pixel) circle polygon around a point, sized
-// in real metres — MapLibre's own 'circle-radius' paint property is always
-// screen pixels, which would grow/shrink the wrong way relative to the map
-// as you zoom. Longitude degrees are scaled by cos(latitude) since a degree
-// of longitude covers less real distance the further from the equator.
-function buildAccuracyCircleGeoJSON(lon, lat, radiusMeters, steps = 32) {
-  const metersPerDegLat = 111320;
-  const metersPerDegLon = 111320 * Math.cos(lat * Math.PI / 180);
-  const ring = [];
-  for (let i = 0; i <= steps; i++) {
-    const angle = (i / steps) * 2 * Math.PI;
-    ring.push([
-      lon + (radiusMeters * Math.cos(angle)) / metersPerDegLon,
-      lat + (radiusMeters * Math.sin(angle)) / metersPerDegLat,
-    ]);
-  }
-  return { type: 'FeatureCollection', features: [{ type: 'Feature', properties: {}, geometry: { type: 'Polygon', coordinates: [ring] } }] };
-}
-
-// Lazily adds the trail source/layers on first use — same 'satellite' layer
-// existing check as ensureIsobarLayer for "the style has actually attached".
-function ensureTrackingLayer() {
-  if (!map || map.getSource('tracking-src')) return true;
-  if (!map.getLayer('satellite')) return false;
-  // Accuracy ring goes in first/bottom-most, under the line and marker —
-  // context for the current-position dot, not the primary read.
-  map.addSource('tracking-accuracy-src', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
-  map.addLayer({
-    id: 'tracking-accuracy-fill', type: 'fill', source: 'tracking-accuracy-src',
-    paint: { 'fill-color': '#ffffff', 'fill-opacity': 0.4 },
-    layout: { visibility: 'none' },
-  });
-  // One source holds both the LineString (the trail so far) and a Point (the
-  // most recent fix) — geometry-type filters route each into its own layer
-  // rather than needing two separate sources for what's really one dataset.
-  map.addSource('tracking-src', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
-  map.addLayer({
-    id: 'tracking-line', type: 'line', source: 'tracking-src',
-    filter: ['==', ['geometry-type'], 'LineString'],
-    paint: {
-      // Each LineString feature here is one short segment between two
-      // consecutive fixes (see trackingPointsToGeoJSON), tagged with its own
-      // 'speed' — MapLibre's line-gradient only varies colour by position
-      // along a SINGLE line's own progress, not by an arbitrary per-vertex
-      // property, so many small coloured segments is the way to get an
-      // actual speed-driven ramp rather than a generic fade.
-      'line-color': ['interpolate', ['linear'], ['get', 'speed'], ...TRACKING_SPEED_COLOR_STOPS],
-      'line-width': 4,
-    },
-    layout: { visibility: 'none', 'line-cap': 'round', 'line-join': 'round' },
-  });
-  // One small dot per RECORDED fix (every point, not just the ones confident
-  // enough to draw into the line above) — the point of this layer is purely
-  // to make ping density visible: tight clusters of dots mean frequent fixes
-  // (stationary, or iOS wasn't throttling), wide gaps mean the interval
-  // stretched out (moving fast, or a weak-signal patch). Excludes the latest
-  // fix, which gets its own bigger marker below instead of doubling up.
-  map.addLayer({
-    id: 'tracking-point-dots', type: 'circle', source: 'tracking-src',
-    filter: ['all', ['==', ['geometry-type'], 'Point'], ['!=', ['get', 'isLatest'], true]],
-    paint: {
-      'circle-radius': 3,
-      'circle-color': ['match', ['get', 'tier'], 'good', TRACKING_TIER_COLOR.good, 'fair', TRACKING_TIER_COLOR.fair, 'poor', TRACKING_TIER_COLOR.poor, TRACKING_TIER_COLOR.unknown],
-      'circle-opacity': 0.85,
-      'circle-stroke-width': 1, 'circle-stroke-color': 'rgba(255,255,255,0.6)',
-    },
-    layout: { visibility: 'none' },
-  });
-  map.addLayer({
-    id: 'tracking-point', type: 'circle', source: 'tracking-src',
-    filter: ['all', ['==', ['geometry-type'], 'Point'], ['==', ['get', 'isLatest'], true]],
-    paint: {
-      'circle-radius': 7,
-      // Coloured by the fix's own accuracy tier — a good fix reads as
-      // confidently "here," a poor one reads as "somewhere around here."
-      'circle-color': ['match', ['get', 'tier'], 'good', TRACKING_TIER_COLOR.good, 'fair', TRACKING_TIER_COLOR.fair, 'poor', TRACKING_TIER_COLOR.poor, TRACKING_TIER_COLOR.unknown],
-      'circle-stroke-width': 2, 'circle-stroke-color': '#ffffff',
-    },
-    layout: { visibility: 'none' },
-  });
-  return true;
-}
-function setTrackingLayerVisible(visible) {
-  if (!map) return;
-  const v = visible ? 'visible' : 'none';
-  if (map.getLayer('tracking-accuracy-fill')) map.setLayoutProperty('tracking-accuracy-fill', 'visibility', v);
-  if (map.getLayer('tracking-line')) map.setLayoutProperty('tracking-line', 'visibility', v);
-  if (map.getLayer('tracking-point-dots')) map.setLayoutProperty('tracking-point-dots', 'visibility', v);
-  if (map.getLayer('tracking-point')) map.setLayoutProperty('tracking-point', 'visibility', v);
-}
-
-function trackingPointsToGeoJSON(points) {
-  const features = [];
-  // Bad-accuracy fixes are skipped when building the LINE only — a wildly
-  // wrong point would otherwise show up as the trail detouring and snapping
-  // back. The full, unfiltered point count still reflects everything received
-  // (see trackingFetchAndDraw) — nothing is hidden, just not drawn as if it
-  // were a confident position.
-  const linePoints = points.filter((p) => typeof p.acc !== 'number' || p.acc <= TRACKING_MAX_LINE_ACCURACY_M);
-  // One short LineString per consecutive pair, each tagged with its own
-  // computed speed — see tracking-line's own paint comment for why this is
-  // many small segments rather than one continuous line. A segment whose
-  // speed can't be computed (equal/missing timestamps — shouldn't happen in
-  // practice) defaults to 0, the stationary/blue end of the ramp, rather
-  // than dropping the segment.
-  for (let i = 1; i < linePoints.length; i++) {
-    const p1 = linePoints[i - 1], p2 = linePoints[i];
-    features.push({
-      type: 'Feature',
-      properties: { speed: trackingSegmentSpeedKmh(p1, p2) ?? 0 },
-      geometry: { type: 'LineString', coordinates: [[p1.lon, p1.lat], [p2.lon, p2.lat]] },
-    });
-  }
-  // EVERY recorded fix becomes its own small Point — this is what makes ping
-  // density visible along the trail (see tracking-point-dots' own comment).
-  // The latest one is tagged separately so it renders via the bigger
-  // tracking-point marker instead of doubling up with a small dot too.
-  points.forEach((p, i) => {
-    features.push({
-      type: 'Feature',
-      properties: { tier: trackingAccuracyTier(p.acc), isLatest: i === points.length - 1 },
-      geometry: { type: 'Point', coordinates: [p.lon, p.lat] },
-    });
-  });
-  return { type: 'FeatureCollection', features };
-}
-
-function trackingRelativeTime(tst) {
-  if (!tst) return 'just now';
-  const secs = Math.max(0, Math.round(Date.now() / 1000 - tst));
-  if (secs < 60) return `${secs}s ago`;
-  if (secs < 3600) return `${Math.round(secs / 60)}m ago`;
-  return `${Math.round(secs / 3600)}h ago`;
-}
-
-// Tracks the most recent fix's own timestamp across calls (module-level, not
-// per-render-token) so a poll tick can tell "a genuinely new ping arrived"
-// apart from "same data, nothing to re-centre for" — recentring the camera
-// every 15s even when nothing's changed would fight anyone trying to pan
-// around and look at the trail.
-let trackingLastTst = null;
-// Latest known { lat, lon } — kept up to date on every fetch (poll or
-// initial) purely so #tracking-recenter can fly there instantly without
-// needing its own network round-trip; the map's own source data is already
-// fresh as of the last poll, this is just a handle to the same point.
-let trackingLastPoint = null;
-
-// Flies the camera back to the last known position — for whenever someone's
-// panned/zoomed away to inspect the trail and wants to snap back to "where
-// am I now" without waiting for the next poll tick's own auto-follow.
-// Math.max on zoom avoids zooming OUT if they were already closer in than 14.
-function trackingRecenter() {
-  if (!map || !trackingLastPoint) return;
-  map.flyTo({
-    center: [trackingLastPoint.lon, trackingLastPoint.lat],
-    zoom: Math.max(map.getZoom(), 14), pitch: 0, bearing: 0,
-    duration: 800, essential: true,
-  });
-}
-
-// Shared by the initial render (always recentres) and each poll tick (only
-// recentres if a new fix actually landed since the last check). Centres on
-// the LATEST position specifically — like Find My/Life360 — rather than
-// fitting the camera to the whole trail's bounding box, which would zoom
-// out further and further as a route grows instead of answering "where am I
-// right now."
-async function trackingFetchAndDraw(token, forceRecentre) {
-  let points = [];
-  try {
-    const res = await fetch('/api/own/track-points');
-    const json = await res.json();
-    points = Array.isArray(json.points)
-      ? json.points.filter((p) => typeof p.lat === 'number' && typeof p.lon === 'number')
-      : [];
-  } catch (e) {
-    console.warn('Tracking: failed to load track points', e);
-  }
-  if (token !== trackingRenderToken || viewMode !== 'tracking' || !map) return;
-
-  points.sort((a, b) => (a.tst || 0) - (b.tst || 0));
-  map.getSource('tracking-src').setData(trackingPointsToGeoJSON(points));
-  setTrackingLayerVisible(true);
-
-  document.getElementById('tracking-count').textContent = `${points.length} point${points.length === 1 ? '' : 's'}`;
-  const last = points[points.length - 1];
-  const secondLast = points[points.length - 2];
-  // Same distance/time computation the line's colour ramp uses, applied to
-  // just the final segment — "how fast right now," not the reported (often
-  // empty) vel field.
-  const currentSpeed = last && secondLast ? trackingSegmentSpeedKmh(secondLast, last) : null;
-  document.getElementById('tracking-updated').textContent = last
-    ? `updated ${trackingRelativeTime(last.tst)}${typeof last.acc === 'number' ? ` · ±${Math.round(last.acc)}m` : ''}${currentSpeed != null ? ` · ${Math.round(currentSpeed)} km/h` : ''}`
-    : 'no points yet';
-
-  // Accuracy ring around the current-position marker — real geographic
-  // metres (see buildAccuracyCircleGeoJSON), not a fixed pixel radius, and
-  // only drawn when the fix actually reported an accuracy figure at all.
-  const accSrc = map.getSource('tracking-accuracy-src');
-  if (accSrc) {
-    accSrc.setData(
-      last && typeof last.acc === 'number'
-        ? buildAccuracyCircleGeoJSON(last.lon, last.lat, last.acc)
-        : { type: 'FeatureCollection', features: [] }
-    );
-  }
-
-  if (!last) return;
-  const isNewFix = last.tst !== trackingLastTst;
-  trackingLastTst = last.tst;
-  trackingLastPoint = { lat: last.lat, lon: last.lon };
-
-  if (forceRecentre) {
-    // First time this view has opened this session — fly in properly with a
-    // sensible starting zoom, same as any other view's establishing shot.
-    map.flyTo({ center: [last.lon, last.lat], zoom: 15, pitch: 0, bearing: 0, duration: 1200, essential: true });
-  } else if (isNewFix) {
-    // A live update mid-poll — pan to follow without yanking whatever zoom
-    // level the person looking at the map has already chosen.
-    map.easeTo({ center: [last.lon, last.lat], duration: 800, essential: true });
-  }
-}
-
-let trackingRenderToken = 0;
-async function renderTrackingView() {
-  initMap();
-  const token = ++trackingRenderToken;
-
-  // Same reasoning/pattern as renderIsobarsView's own wait-for-layer loop —
-  // poll for the style to finish attaching rather than assume it already has.
-  while (!ensureTrackingLayer()) {
-    await new Promise((resolve) => setTimeout(resolve, 80));
-    if (token !== trackingRenderToken || viewMode !== 'tracking') return;
-  }
-
-  await trackingFetchAndDraw(token, true);
-  if (token !== trackingRenderToken || viewMode !== 'tracking') return;
-  trackingStartPoll();
-}
-
-function trackingStartPoll() {
-  trackingStopPoll();
-  trackingPollTimer = setInterval(() => { trackingFetchAndDraw(trackingRenderToken, false); }, TRACKING_POLL_MS);
-}
-function trackingStopPoll() {
-  if (trackingPollTimer) { clearInterval(trackingPollTimer); trackingPollTimer = null; }
-}
-
 let viewMode = 'hourly'; // 'hourly' | 'accumulated'
 let accumDays = 5;
 
@@ -5985,7 +5619,7 @@ function setViewMode(mode) {
   // No forecast data backs the Live temperature map, the Radar map, or the
   // Isobars map (none of them have a per-model breakdown), so the model
   // switcher has nothing to do there.
-  document.getElementById('model-switch').style.display = (mode === 'live' || mode === 'radar' || mode === 'isobars' || mode === 'tracking') ? 'none' : 'block';
+  document.getElementById('model-switch').style.display = (mode === 'live' || mode === 'radar' || mode === 'isobars') ? 'none' : 'block';
   syncTopControlsLayout();
   if (mode === 'live') closeModelMenu();
   document.getElementById('timeline').style.display = mode === 'hourly' ? 'flex' : 'none';
@@ -6006,12 +5640,10 @@ function setViewMode(mode) {
   // those two modes (and for Live when there's no station data to show)
   // instead of just its (already-empty) children.
   document.getElementById('snow-info').style.display =
-    (mode === 'radar' || mode === 'isobars' || mode === 'tracking' || (mode === 'live' && !showLivePanel)) ? 'none' : '';
+    (mode === 'radar' || mode === 'isobars' || (mode === 'live' && !showLivePanel)) ? 'none' : '';
   document.getElementById('live-timeline').style.display = mode === 'live' ? 'flex' : 'none';
   document.getElementById('radar-timeline').style.display = mode === 'radar' ? 'flex' : 'none';
   document.getElementById('isobar-timeline').style.display = mode === 'isobars' ? 'flex' : 'none';
-  document.getElementById('tracking-status').style.display = mode === 'tracking' ? 'flex' : 'none';
-  document.getElementById('tracking-recenter').style.display = mode === 'tracking' ? 'flex' : 'none';
   document.getElementById('map-screen').classList.toggle('live-mode', mode === 'live');
   document.getElementById('map-screen').classList.toggle('accum-mode', mode === 'accumulated');
   document.getElementById('map-screen').classList.toggle('radar-mode', mode === 'radar');
@@ -6035,13 +5667,10 @@ function setViewMode(mode) {
   // either re-paints the correct ramp anyway (openMapView/
   // renderAccumulatedView/renderLiveTempView all call applyRampWhenReady
   // themselves).
-  if (mode === 'radar' || mode === 'isobars' || mode === 'tracking') applyRampWhenReady(buildSnowRamp(null));
+  if (mode === 'radar' || mode === 'isobars') applyRampWhenReady(buildSnowRamp(null));
   // The isobar overlay is Isobars-only — hide it (rather than tear it down)
   // leaving every other mode, same pattern as radar-layer below.
   if (mode !== 'isobars') setIsobarLayerVisible(false);
-  // Same pattern for the OwnTracks trail — Tracking-only, hidden (not torn
-  // down) everywhere else so re-entering doesn't need to re-add the layer.
-  if (mode !== 'tracking') setTrackingLayerVisible(false);
   // orographic-snow-layer is tied to forecastHours[currentIndex] and only
   // refreshed from openMapView (the 'hourly' branch below) — hide it in
   // every other mode rather than leaving a stale hour's overlay showing;
@@ -6051,7 +5680,7 @@ function setViewMode(mode) {
     map.setLayoutProperty('orographic-snow-layer', 'visibility', 'none');
   }
   // Snowfall pin shows on hourly + accumulated; clear it in every other view.
-  if ((mode === 'live' || mode === 'radar' || mode === 'isobars' || mode === 'tracking') && snowfallMarker) { snowfallMarker.remove(); snowfallMarker = null; }
+  if ((mode === 'live' || mode === 'radar' || mode === 'isobars') && snowfallMarker) { snowfallMarker.remove(); snowfallMarker = null; }
   // The minimised-drawer summary is accumulated-only; clear it elsewhere so the
   // :empty rule keeps it hidden.
   if (mode !== 'accumulated') { const dms = document.getElementById('drawer-min-summary'); if (dms) dms.innerHTML = ''; }
@@ -6064,19 +5693,14 @@ function setViewMode(mode) {
   }
   if (mode !== 'radar') radarStopPlay();
   if (mode !== 'isobars') isobarStopPlay();
-  if (mode !== 'tracking') trackingStopPoll();
   if (map && map.getLayer('radar-layer')) map.setLayoutProperty('radar-layer', 'visibility', mode === 'radar' ? 'visible' : 'none');
   // Isobars is the one mode whose camera framing differs from every other
   // mode's shared "resort close-up" — fly out to it on entry, and fly back
   // on the way to any other mode (never on isobars->isobars re-renders,
   // e.g. a resort switch while already on this tab, which would otherwise
-  // restart the same zoom-out animation pointlessly). Tracking doesn't fly
-  // anywhere fixed here — renderTrackingView() below fits the camera to
-  // wherever the actual recorded points are, since that's arbitrary (a
-  // commute, not a resort), but leaving Tracking still needs the same
-  // fly-back-to-resort as leaving Isobars does.
+  // restart the same zoom-out animation pointlessly).
   if (mode === 'isobars' && prevMode !== 'isobars') flyToIsobarRegion();
-  else if (mode !== 'isobars' && mode !== 'tracking' && (prevMode === 'isobars' || prevMode === 'tracking')) flyToResortView();
+  else if (mode !== 'isobars' && prevMode === 'isobars') flyToResortView();
 
   if (mode === 'hourly') {
     stopPlay();
@@ -6091,9 +5715,6 @@ function setViewMode(mode) {
   } else if (mode === 'isobars') {
     stopPlay();
     renderIsobarsView();
-  } else if (mode === 'tracking') {
-    stopPlay();
-    renderTrackingView();
   } else {
     stopPlay();
     renderAccumulatedView();
