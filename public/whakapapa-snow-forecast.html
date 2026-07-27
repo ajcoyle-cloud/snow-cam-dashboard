@@ -5658,10 +5658,20 @@ function trackingRelativeTime(tst) {
   return `${Math.round(secs / 3600)}h ago`;
 }
 
-// Shared by the initial render (fits the camera) and each poll tick (doesn't
-// — re-fitting/zooming out from under someone looking at the map every 15s
-// would be a worse experience than just leaving the camera where they left it).
-async function trackingFetchAndDraw(token, fitCamera) {
+// Tracks the most recent fix's own timestamp across calls (module-level, not
+// per-render-token) so a poll tick can tell "a genuinely new ping arrived"
+// apart from "same data, nothing to re-centre for" — recentring the camera
+// every 15s even when nothing's changed would fight anyone trying to pan
+// around and look at the trail.
+let trackingLastTst = null;
+
+// Shared by the initial render (always recentres) and each poll tick (only
+// recentres if a new fix actually landed since the last check). Centres on
+// the LATEST position specifically — like Find My/Life360 — rather than
+// fitting the camera to the whole trail's bounding box, which would zoom
+// out further and further as a route grows instead of answering "where am I
+// right now."
+async function trackingFetchAndDraw(token, forceRecentre) {
   let points = [];
   try {
     const res = await fetch('/api/own/track-points');
@@ -5682,16 +5692,18 @@ async function trackingFetchAndDraw(token, fitCamera) {
   const last = points[points.length - 1];
   document.getElementById('tracking-updated').textContent = last ? `updated ${trackingRelativeTime(last.tst)}` : 'no points yet';
 
-  if (fitCamera && points.length >= 1) {
-    if (points.length === 1) {
-      map.flyTo({ center: [last.lon, last.lat], zoom: 13, pitch: 0, bearing: 0, duration: 1200, essential: true });
-    } else {
-      const lons = points.map((p) => p.lon), lats = points.map((p) => p.lat);
-      map.fitBounds(
-        [[Math.min(...lons), Math.min(...lats)], [Math.max(...lons), Math.max(...lats)]],
-        { padding: 60, pitch: 0, bearing: 0, duration: 1200, essential: true }
-      );
-    }
+  if (!last) return;
+  const isNewFix = last.tst !== trackingLastTst;
+  trackingLastTst = last.tst;
+
+  if (forceRecentre) {
+    // First time this view has opened this session — fly in properly with a
+    // sensible starting zoom, same as any other view's establishing shot.
+    map.flyTo({ center: [last.lon, last.lat], zoom: 15, pitch: 0, bearing: 0, duration: 1200, essential: true });
+  } else if (isNewFix) {
+    // A live update mid-poll — pan to follow without yanking whatever zoom
+    // level the person looking at the map has already chosen.
+    map.easeTo({ center: [last.lon, last.lat], duration: 800, essential: true });
   }
 }
 
