@@ -33,8 +33,9 @@ export default async function handler(req, res) {
     const batt = typeof p.batt === 'number' ? `batt=${p.batt}%` : '';
     const vel = typeof p.vel === 'number' ? `${p.vel}km/h` : '';
     const alt = typeof p.alt === 'number' ? `alt=${p.alt}m` : '';
+    const pressure = typeof p.p === 'number' ? `${p.p}kPa` : '';
     console.log(
-      `[owntracks] ${when} tid=${p.tid || '??'} ${p.lat},${p.lon} ${acc} ${vel} ${alt} ${batt} trigger=${p.t || '?'}`.replace(/\s+/g, ' ').trim()
+      `[owntracks] ${when} tid=${p.tid || '??'} ${p.lat},${p.lon} ${acc} ${vel} ${alt} ${pressure} ${batt} trigger=${p.t || '?'}`.replace(/\s+/g, ' ').trim()
     );
 
     // Persistence failing (most likely: KV not provisioned/connected yet)
@@ -49,6 +50,13 @@ export default async function handler(req, res) {
         vel: typeof p.vel === 'number' ? p.vel : null,
         batt: typeof p.batt === 'number' ? p.batt : null,
         tid: p.tid || null,
+        // Barometric pressure (kPa), from OwnTracks' `extendedData` setting —
+        // not used anywhere yet, but tracks short-term altitude CHANGES far
+        // more precisely than GPS altitude does, and is what a future lift-
+        // up/run-down classifier will actually want to key off. Cheap to
+        // capture now, before the fact, rather than needing extendedData
+        // turned on retroactively later.
+        pressure: typeof p.p === 'number' ? p.p : null,
       });
     } catch (e) {
       console.warn(`[owntracks] point not persisted (KV): ${(e && e.message) || e}`);
