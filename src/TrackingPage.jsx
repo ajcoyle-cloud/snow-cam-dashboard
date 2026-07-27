@@ -2,16 +2,17 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { ChevronLeft, Timer, Ruler, ArrowDownRight, Gauge, Mountain } from 'lucide-react'
 
 // ── Fake demo data ──────────────────────────────────────────────────────
-// Three dummy runs down Whakapapa's Sky Waka Gondola corridor, so the new
-// Tracking tab has something real-looking to show before it's wired up to
-// actual recorded runs (api/own/track-points.js + the day/run/lift-vs-
-// descent classification discussed separately). Traced from the Sky Waka
-// Gondola's own real lift-line coordinates (see WHAKAPAPA_LIFTS in
-// public/whakapapa-snow-forecast.html) reversed top-to-base and reused here
+// Three dummy runs, one down each of three real Whakapapa lift corridors —
+// Rangatira, Sky Waka Gondola, West Ridge — so the new Tracking tab has
+// something real-looking and visually distinct between cards to show before
+// it's wired up to actual recorded runs (api/own/track-points.js + the day/
+// run/lift-vs-descent classification discussed separately). Each is traced
+// from that lift's own real base-to-top coordinates (see WHAKAPAPA_LIFTS in
+// public/whakapapa-snow-forecast.html), reversed to top-to-base and reused
 // as a plausible ski-run corridor, since an actual named run follows
-// alongside the gondola line. Not real GPS data — deterministically
-// generated (seeded RNG, not Math.random()) so the three cards look the
-// same on every load rather than reshuffling on every reload.
+// alongside every one of these lift lines. Not real GPS data —
+// deterministically generated (seeded RNG, not Math.random()) so the cards
+// look the same on every load rather than reshuffling on every reload.
 const SKYWAKA_GONDOLA_BASE_TO_TOP = [
   [175.5577305, -39.2371913],
   [175.5581591, -39.238178],
@@ -28,8 +29,40 @@ const SKYWAKA_GONDOLA_BASE_TO_TOP = [
   [175.564149, -39.2519642],
   [175.5642725, -39.2522485],
 ]
-const TOP_ELEV_M = 2020   // Knoll Ridge, roughly
-const BASE_ELEV_M = 1630  // Iwikau Village, roughly
+const RANGATIRA_BASE_TO_TOP = [
+  [175.5579073, -39.2370985],
+  [175.5580218, -39.2372995],
+  [175.5582403, -39.237683],
+  [175.5583433, -39.2378638],
+  [175.5587525, -39.2385822],
+  [175.5590186, -39.2390494],
+  [175.5593301, -39.239596],
+  [175.5597208, -39.2402818],
+  [175.5600575, -39.2408729],
+  [175.5604117, -39.2414947],
+  [175.5606518, -39.2419161],
+  [175.5607915, -39.2421614],
+  [175.5610851, -39.2426768],
+  [175.5611627, -39.2428129],
+]
+const WEST_RIDGE_BASE_TO_TOP = [
+  [175.5513071, -39.2477585],
+  [175.5515862, -39.2481326],
+  [175.5520058, -39.2486948],
+  [175.5524502, -39.2492902],
+  [175.552962, -39.2499761],
+  [175.5534835, -39.2506749],
+  [175.5538805, -39.2512069],
+  [175.5542805, -39.2517428],
+  [175.5545969, -39.2521668],
+  [175.5549047, -39.2525792],
+  [175.5551922, -39.2529645],
+  [175.5555746, -39.2534768],
+  [175.5559292, -39.2539519],
+  [175.5561757, -39.2542822],
+  [175.556804, -39.2551241],
+  [175.5569488, -39.2553181],
+]
 const METERS_PER_DEG_LAT = 111320
 
 function seededRandom(seed) {
@@ -47,37 +80,55 @@ function haversineMeters(lat1, lon1, lat2, lon2) {
   return Math.sqrt(dLat * dLat + dLon * dLon)
 }
 
-// Densifies the gondola corridor (top -> base) into a jittered, timestamped,
+// Densifies a lift corridor (top -> base) into a jittered, timestamped,
 // elevation-tagged point series standing in for one GPS-tracked descent.
-function buildFakeRun({ id, name, startedAt, priorLift, seed, samplesPerSegment, avgSpeedKmh }) {
+function buildFakeRun({ id, name, startedAt, priorLift, line, topElevM, baseElevM, seed, samplesPerSegment, avgSpeedKmh, meanderM = 45 }) {
   const rand = seededRandom(seed)
-  const topToBase = [...SKYWAKA_GONDOLA_BASE_TO_TOP].reverse()
+  const topToBase = [...line].reverse()
 
   const dense = []
-  for (let i = 0; i < topToBase.length - 1; i++) {
+  const totalSegments = topToBase.length - 1
+  for (let i = 0; i < totalSegments; i++) {
     const [lon1, lat1] = topToBase[i]
     const [lon2, lat2] = topToBase[i + 1]
+    // Perpendicular-to-the-fall-line unit vector (in real metres, not raw
+    // lon/lat degrees, which aren't equal-length at this latitude) — lets
+    // the wobble read as actual side-to-side traversing/turns rather than
+    // just noise hugging the lift line.
+    const mPerDegLon = METERS_PER_DEG_LAT * Math.cos(lat1 * Math.PI / 180)
+    const segLonM = (lon2 - lon1) * mPerDegLon
+    const segLatM = (lat2 - lat1) * METERS_PER_DEG_LAT
+    const segLenM = Math.hypot(segLonM, segLatM) || 1
+    const perpLonM = -segLatM / segLenM
+    const perpLatM = segLonM / segLenM
     for (let s = 0; s < samplesPerSegment; s++) {
       const t = s / samplesPerSegment
       const lon = lon1 + (lon2 - lon1) * t
       const lat = lat1 + (lat2 - lat1) * t
       // Lateral wobble fades out near the very top/base so every run still
       // starts/ends at the same two real points, same as a real skier
-      // funnelling through the same load/unload points every lap.
+      // funnelling through the same load/unload points every lap. A slow
+      // sine sweep (wide traverses/turns) plus per-point jitter (noise).
       const edgeFade = Math.min(t, 1 - t, 0.15) / 0.15
-      const jitterM = (rand() - 0.5) * 22 * edgeFade
-      const jitterDeg = jitterM / METERS_PER_DEG_LAT
-      dense.push([lon + jitterDeg * (rand() - 0.5) * 1.4, lat + jitterDeg])
+      const globalT = (i + t) / totalSegments
+      const meander = Math.sin(globalT * Math.PI * 2.4 + (seed % 7)) * meanderM
+      const offsetM = (meander + (rand() - 0.5) * 14) * edgeFade
+      const offsetDegLon = (perpLonM * offsetM) / mPerDegLon
+      const offsetDegLat = (perpLatM * offsetM) / METERS_PER_DEG_LAT
+      dense.push([lon + offsetDegLon, lat + offsetDegLat])
     }
   }
   dense.push(topToBase[topToBase.length - 1])
 
   const points = []
   let tstSec = Math.floor(startedAt.getTime() / 1000)
+  let prevAlt = topElevM
   for (let i = 0; i < dense.length; i++) {
     const [lon, lat] = dense[i]
     const frac = i / (dense.length - 1)
-    const alt = TOP_ELEV_M + (BASE_ELEV_M - TOP_ELEV_M) * frac + (rand() - 0.5) * 4
+    // Always downhill — clamped to never tick back up, even with noise.
+    const alt = Math.min(prevAlt, topElevM + (baseElevM - topElevM) * frac + (rand() - 0.5) * 3)
+    prevAlt = alt
     // Speed profile: slower funnelling out of the top and into the base,
     // faster in the middle, with turn-to-turn variation layered on.
     const speedFactor = 0.55 + 0.55 * Math.sin(frac * Math.PI) + (rand() - 0.5) * 0.5
@@ -136,17 +187,20 @@ async function fetchRealCommuteRun() {
 
 const DEMO_RUNS = [
   buildFakeRun({
-    id: 'run-1', name: 'Run 1', priorLift: 'Sky Waka Gondola',
+    id: 'run-1', name: 'Run 1', priorLift: 'Rangatira Express Quad Chair',
+    line: RANGATIRA_BASE_TO_TOP, topElevM: 1900, baseElevM: 1630,
     startedAt: new Date('2026-07-27T09:15:00+12:00'),
     seed: 1001, samplesPerSegment: 14, avgSpeedKmh: 28,
   }),
   buildFakeRun({
     id: 'run-2', name: 'Run 2', priorLift: 'Sky Waka Gondola',
+    line: SKYWAKA_GONDOLA_BASE_TO_TOP, topElevM: 2020, baseElevM: 1630,
     startedAt: new Date('2026-07-27T10:05:00+12:00'),
     seed: 2002, samplesPerSegment: 14, avgSpeedKmh: 34,
   }),
   buildFakeRun({
-    id: 'run-3', name: 'Run 3', priorLift: 'Sky Waka Gondola',
+    id: 'run-3', name: 'Run 3', priorLift: 'West Ridge Quad Chair',
+    line: WEST_RIDGE_BASE_TO_TOP, topElevM: 1930, baseElevM: 1660,
     startedAt: new Date('2026-07-27T11:20:00+12:00'),
     seed: 3003, samplesPerSegment: 14, avgSpeedKmh: 24,
   }),
