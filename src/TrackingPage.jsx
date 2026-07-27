@@ -424,12 +424,22 @@ function RunDetail({ run }) {
   const { stats } = run
   return (
     <div className="run-detail">
-      <div className="run-detail-map" ref={mapEl} />
-      {/* Left always-on (not just error/slow) until the compositing fix
-          (removing .run-slide's border-radius+overflow:hidden) is actually
-          confirmed on a real device — otherwise a still-black screen with
-          no text is ambiguous between "on an old deploy" and "fix didn't
-          work". Drop back to error/slow-only once that's confirmed. */}
+      {/* The inner div is what gets passed to `new maplibregl.Map({container})`
+          — MapLibre attaches its own "maplibregl-map" class to that exact
+          element, and its CSS (loaded later, so it wins any same-specificity
+          tie) sets position:relative, silently overriding a position:absolute
+          set via a class on that same element and turning inset:0 into a
+          no-op (container collapses to 0 height, since its only child —
+          MapLibre's internal canvas wrapper — is itself absolutely
+          positioned and so contributes nothing to auto layout). The outer
+          wrapper owns the absolute/inset positioning instead; the inner one
+          only ever needs width/height:100%, same as #map/#map-screen in
+          whakapapa-snow-forecast.html (which sidesteps this entirely by
+          keying off an ID, which always wins specificity regardless of
+          load order, and never needing position:absolute on #map itself). */}
+      <div className="run-detail-map-wrap">
+        <div className="run-detail-map" ref={mapEl} />
+      </div>
       <div className={`run-detail-map-status${mapError ? ' run-detail-map-status--error' : ''}`}>
         {mapError ? `Map error: ${mapError}` : `Map status: ${mapStatus}`}
       </div>

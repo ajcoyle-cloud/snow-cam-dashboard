@@ -1946,9 +1946,13 @@
   inset: 0;
   background: #0b0f14;
 }
-.run-detail-map {
+.run-detail-map-wrap {
   position: absolute;
   inset: 0;
+}
+.run-detail-map {
+  width: 100%;
+  height: 100%;
 }
 .run-detail-back {
   position: absolute;
