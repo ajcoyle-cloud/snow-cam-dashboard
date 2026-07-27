@@ -299,96 +299,124 @@ function runToLineGeoJSON(points) {
 function RunDetail({ run }) {
   const mapEl = useRef(null)
   const mapRef = useRef(null)
+  // Surfaced on screen rather than only in devtools — a real phone has no
+  // console to check, and the sandbox this was built in can't reach any of
+  // these CDN/tile hosts to reproduce failures, so a silent blank map gives
+  // no way to diagnose it remotely. 'slow' fires if 'load' hasn't happened
+  // after a few seconds (still probably just slow tiles, not broken).
+  const [mapStatus, setMapStatus] = useState('loading')
+  const [mapError, setMapError] = useState(null)
 
   useEffect(() => {
     let cancelled = false
-    loadMaplibre().then((maplibregl) => {
-      if (cancelled || !mapEl.current) return
-      const map = new maplibregl.Map({
-        container: mapEl.current,
-        style: {
-          version: 8,
-          sources: {
-            terrain: { type: 'raster-dem', url: 'https://tiles.mapterhorn.com/tilejson.json', tileSize: 512 },
-            satellite: {
-              type: 'raster',
-              tiles: ['https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'],
-              tileSize: 256,
-              attribution: 'Tiles &copy; Esri',
-            },
-          },
-          layers: [
-            { id: 'background', type: 'background', paint: { 'background-color': '#2d5a1b' } },
-            { id: 'satellite', type: 'raster', source: 'satellite' },
-            {
-              id: 'depth-shade', type: 'hillshade', source: 'terrain',
-              paint: {
-                'hillshade-shadow-color': 'rgba(30,20,10,0.45)',
-                'hillshade-highlight-color': 'rgba(255,255,255,0)',
-                'hillshade-accent-color': 'rgba(80,60,40,0.2)',
-                'hillshade-illumination-direction': 310,
-                'hillshade-exaggeration': 0.6,
+    const slowTimer = setTimeout(() => setMapStatus((s) => (s === 'loading' ? 'slow' : s)), 6000)
+
+    loadMaplibre()
+      .catch((err) => {
+        throw new Error('Failed to load MapLibre script/CSS: ' + (err?.message || err))
+      })
+      .then((maplibregl) => {
+        if (cancelled || !mapEl.current) return
+        const map = new maplibregl.Map({
+          container: mapEl.current,
+          style: {
+            version: 8,
+            sources: {
+              terrain: { type: 'raster-dem', url: 'https://tiles.mapterhorn.com/tilejson.json', tileSize: 512 },
+              satellite: {
+                type: 'raster',
+                tiles: ['https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'],
+                tileSize: 256,
+                attribution: 'Tiles &copy; Esri',
               },
             },
-          ],
-          terrain: { source: 'terrain', exaggeration: 1.2 },
-        },
-        center: [run.points[0].lon, run.points[0].lat],
-        zoom: 14,
-        pitch: 60,
-        maxPitch: 85,
-        attributionControl: false,
-      })
-      mapRef.current = map
-
-      // Same fix as initMap() in whakapapa-snow-forecast.html: MapLibre reads
-      // the container's actual pixel size at construction time, and a slide
-      // inside the flex/scroll-snap carousel isn't guaranteed to be at its
-      // final size the instant the map is built. A one-shot resize() plus
-      // watching the container catches any layout settling afterward.
-      try {
-        map.resize()
-        if (typeof ResizeObserver !== 'undefined') {
-          const ro = new ResizeObserver(() => map.resize())
-          ro.observe(mapEl.current)
-          map.once('remove', () => ro.disconnect())
-        }
-      } catch (e) {}
-
-      map.on('load', () => {
-        map.addSource('run-line-src', { type: 'geojson', data: runToLineGeoJSON(run.points) })
-        map.addLayer({
-          id: 'run-line', type: 'line', source: 'run-line-src',
-          paint: { 'line-color': ['get', 'color'], 'line-width': 5 },
-          layout: { 'line-cap': 'round', 'line-join': 'round' },
-        })
-        map.addSource('run-ends-src', {
-          type: 'geojson',
-          data: {
-            type: 'FeatureCollection',
-            features: [
-              { type: 'Feature', properties: { label: 'start' }, geometry: { type: 'Point', coordinates: [run.points[0].lon, run.points[0].lat] } },
-              { type: 'Feature', properties: { label: 'end' }, geometry: { type: 'Point', coordinates: [run.points[run.points.length - 1].lon, run.points[run.points.length - 1].lat] } },
+            layers: [
+              { id: 'background', type: 'background', paint: { 'background-color': '#2d5a1b' } },
+              { id: 'satellite', type: 'raster', source: 'satellite' },
+              {
+                id: 'depth-shade', type: 'hillshade', source: 'terrain',
+                paint: {
+                  'hillshade-shadow-color': 'rgba(30,20,10,0.45)',
+                  'hillshade-highlight-color': 'rgba(255,255,255,0)',
+                  'hillshade-accent-color': 'rgba(80,60,40,0.2)',
+                  'hillshade-illumination-direction': 310,
+                  'hillshade-exaggeration': 0.6,
+                },
+              },
             ],
+            terrain: { source: 'terrain', exaggeration: 1.2 },
           },
+          center: [run.points[0].lon, run.points[0].lat],
+          zoom: 14,
+          pitch: 60,
+          maxPitch: 85,
+          attributionControl: false,
         })
-        map.addLayer({
-          id: 'run-ends', type: 'circle', source: 'run-ends-src',
-          paint: {
-            'circle-radius': 7,
-            'circle-color': ['match', ['get', 'label'], 'start', '#4ade80', '#ef4444'],
-            'circle-stroke-width': 2, 'circle-stroke-color': '#ffffff',
-          },
+        mapRef.current = map
+
+        // Surface any style/tile error instead of leaving a silent blank
+        // canvas — this is the only way to see what's actually failing on a
+        // device with no console attached.
+        map.on('error', (e) => {
+          if (cancelled) return
+          setMapError(e?.error?.message || String(e?.error || 'Unknown map error'))
         })
-        const lons = run.points.map(p => p.lon), lats = run.points.map(p => p.lat)
-        map.fitBounds(
-          [[Math.min(...lons), Math.min(...lats)], [Math.max(...lons), Math.max(...lats)]],
-          { padding: 64, pitch: 60, duration: 0 }
-        )
+
+        // Same fix as initMap() in whakapapa-snow-forecast.html: MapLibre reads
+        // the container's actual pixel size at construction time, and a slide
+        // inside the flex/scroll-snap carousel isn't guaranteed to be at its
+        // final size the instant the map is built. A one-shot resize() plus
+        // watching the container catches any layout settling afterward.
+        try {
+          map.resize()
+          if (typeof ResizeObserver !== 'undefined') {
+            const ro = new ResizeObserver(() => map.resize())
+            ro.observe(mapEl.current)
+            map.once('remove', () => ro.disconnect())
+          }
+        } catch (e) {}
+
+        map.on('load', () => {
+          if (cancelled) return
+          setMapStatus('ready')
+          map.addSource('run-line-src', { type: 'geojson', data: runToLineGeoJSON(run.points) })
+          map.addLayer({
+            id: 'run-line', type: 'line', source: 'run-line-src',
+            paint: { 'line-color': ['get', 'color'], 'line-width': 5 },
+            layout: { 'line-cap': 'round', 'line-join': 'round' },
+          })
+          map.addSource('run-ends-src', {
+            type: 'geojson',
+            data: {
+              type: 'FeatureCollection',
+              features: [
+                { type: 'Feature', properties: { label: 'start' }, geometry: { type: 'Point', coordinates: [run.points[0].lon, run.points[0].lat] } },
+                { type: 'Feature', properties: { label: 'end' }, geometry: { type: 'Point', coordinates: [run.points[run.points.length - 1].lon, run.points[run.points.length - 1].lat] } },
+              ],
+            },
+          })
+          map.addLayer({
+            id: 'run-ends', type: 'circle', source: 'run-ends-src',
+            paint: {
+              'circle-radius': 7,
+              'circle-color': ['match', ['get', 'label'], 'start', '#4ade80', '#ef4444'],
+              'circle-stroke-width': 2, 'circle-stroke-color': '#ffffff',
+            },
+          })
+          const lons = run.points.map(p => p.lon), lats = run.points.map(p => p.lat)
+          map.fitBounds(
+            [[Math.min(...lons), Math.min(...lats)], [Math.max(...lons), Math.max(...lats)]],
+            { padding: 64, pitch: 60, duration: 0 }
+          )
+        })
       })
-    })
+      .catch((err) => {
+        if (!cancelled) setMapError(err?.message || String(err))
+      })
+
     return () => {
       cancelled = true
+      clearTimeout(slowTimer)
       if (mapRef.current) { mapRef.current.remove(); mapRef.current = null }
     }
   }, [run])
@@ -397,6 +425,12 @@ function RunDetail({ run }) {
   return (
     <div className="run-detail">
       <div className="run-detail-map" ref={mapEl} />
+      {mapError && (
+        <div className="run-detail-map-status run-detail-map-status--error">Map failed to load: {mapError}</div>
+      )}
+      {!mapError && mapStatus === 'slow' && (
+        <div className="run-detail-map-status">Still loading map tiles…</div>
+      )}
       <div className="run-detail-panel">
         <div className="run-detail-title">
           {run.name}

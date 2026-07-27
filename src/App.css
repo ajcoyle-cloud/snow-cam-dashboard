@@ -1967,6 +1967,26 @@
 .run-detail-back:hover {
   background: rgba(40, 46, 54, 0.9);
 }
+/* Visible fallback for map load failures/slowness — a phone has no console
+   to check, so any problem needs to be readable directly on screen. */
+.run-detail-map-status {
+  position: absolute;
+  top: 16px;
+  left: 64px;
+  right: 16px;
+  z-index: 6;
+  background: rgba(18, 24, 31, 0.9);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 10px;
+  padding: 8px 12px;
+  color: #d5dae0;
+  font-size: 0.82em;
+  line-height: 1.4;
+}
+.run-detail-map-status--error {
+  color: #fca5a5;
+  border-color: rgba(239, 68, 68, 0.4);
+}
 .run-detail-panel {
   position: absolute;
   left: 16px;
