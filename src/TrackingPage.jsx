@@ -238,10 +238,10 @@ function RunCard({ run, onOpen }) {
         </div>
         {run.priorLift && <div className="run-card-lift">via {run.priorLift}</div>}
         <div className="run-card-stats">
-          <span><Timer size={13} strokeWidth={2} /> {fmtDuration(stats.durationSec)}</span>
-          <span><Ruler size={13} strokeWidth={2} /> {stats.distanceKm.toFixed(2)} km</span>
-          <span><ArrowDownRight size={13} strokeWidth={2} /> {Math.round(stats.verticalM)} m</span>
-          <span><Gauge size={13} strokeWidth={2} /> {Math.round(stats.avgSpeedKmh)} km/h avg</span>
+          <span><Timer size={16} strokeWidth={2} /> {fmtDuration(stats.durationSec)}</span>
+          <span><Ruler size={16} strokeWidth={2} /> {stats.distanceKm.toFixed(2)} km</span>
+          <span><ArrowDownRight size={16} strokeWidth={2} /> {Math.round(stats.verticalM)} m</span>
+          <span><Gauge size={16} strokeWidth={2} /> {Math.round(stats.avgSpeedKmh)} km/h avg</span>
         </div>
       </div>
     </button>
@@ -280,8 +280,12 @@ function runToLineGeoJSON(points) {
   return { type: 'FeatureCollection', features }
 }
 
-// ── Detail view: the run's full line on a real map ────────────────────────
-function RunDetail({ run, onBack }) {
+// ── Detail view: the run's full line on a real 3D map ──────────────────────
+// Same terrain+hillshade+pitch style as the main resort map (initMap() in
+// whakapapa-snow-forecast.html) — this used to be a flat pitch:0 satellite-
+// only view, but "plotted on the 3D map" means matching that oblique terrain
+// look, not a top-down plan view.
+function RunDetail({ run }) {
   const mapEl = useRef(null)
   const mapRef = useRef(null)
 
@@ -294,6 +298,7 @@ function RunDetail({ run, onBack }) {
         style: {
           version: 8,
           sources: {
+            terrain: { type: 'raster-dem', url: 'https://tiles.mapterhorn.com/tilejson.json', tileSize: 512 },
             satellite: {
               type: 'raster',
               tiles: ['https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'],
@@ -302,12 +307,25 @@ function RunDetail({ run, onBack }) {
             },
           },
           layers: [
-            { id: 'background', type: 'background', paint: { 'background-color': '#0b0f14' } },
+            { id: 'background', type: 'background', paint: { 'background-color': '#2d5a1b' } },
             { id: 'satellite', type: 'raster', source: 'satellite' },
+            {
+              id: 'depth-shade', type: 'hillshade', source: 'terrain',
+              paint: {
+                'hillshade-shadow-color': 'rgba(30,20,10,0.45)',
+                'hillshade-highlight-color': 'rgba(255,255,255,0)',
+                'hillshade-accent-color': 'rgba(80,60,40,0.2)',
+                'hillshade-illumination-direction': 310,
+                'hillshade-exaggeration': 0.6,
+              },
+            },
           ],
+          terrain: { source: 'terrain', exaggeration: 1.2 },
         },
         center: [run.points[0].lon, run.points[0].lat],
         zoom: 14,
+        pitch: 60,
+        maxPitch: 85,
         attributionControl: false,
       })
       mapRef.current = map
@@ -340,7 +358,7 @@ function RunDetail({ run, onBack }) {
         const lons = run.points.map(p => p.lon), lats = run.points.map(p => p.lat)
         map.fitBounds(
           [[Math.min(...lons), Math.min(...lats)], [Math.max(...lons), Math.max(...lats)]],
-          { padding: 48, duration: 0 }
+          { padding: 64, pitch: 60, duration: 0 }
         )
       })
     })
@@ -354,9 +372,6 @@ function RunDetail({ run, onBack }) {
   return (
     <div className="run-detail">
       <div className="run-detail-map" ref={mapEl} />
-      <button className="run-detail-back" onClick={onBack} aria-label="Back to Tracking">
-        <ChevronLeft size={22} strokeWidth={2.25} />
-      </button>
       <div className="run-detail-panel">
         <div className="run-detail-title">
           {run.name}
@@ -370,6 +385,69 @@ function RunDetail({ run, onBack }) {
           <div><Gauge size={15} strokeWidth={2} /><span>{Math.round(stats.avgSpeedKmh)} km/h</span><small>Avg speed</small></div>
           <div><Gauge size={15} strokeWidth={2} /><span>{Math.round(stats.maxSpeedKmh)} km/h</span><small>Max speed</small></div>
         </div>
+      </div>
+    </div>
+  )
+}
+
+// ── Carousel: swipe sideways between runs, each centred with a peek of its
+// neighbours — a native horizontal scroll-snap row rather than a custom
+// drag handler, so touch swipe/momentum/rubber-banding all come for free.
+// One shared back button (fixed to the wrapper, not per-slide); each slide
+// is its own full RunDetail (own map + own stats panel). At the current
+// scale (a handful of runs) every slide's map mounts immediately rather
+// than virtualising by distance from the active slide — fine for now, worth
+// revisiting if the run list ever grows to the point that N live WebGL
+// contexts at once becomes a real cost.
+function RunCarousel({ runs, initialRunId, onBack, onActiveChange }) {
+  const containerRef = useRef(null)
+  const slideRefs = useRef({})
+
+  // Scroll to the run that was actually tapped, once, on mount — later
+  // prop changes (e.g. onActiveChange firing as the user swipes) must NOT
+  // re-trigger this, or it'd fight their own scroll gesture.
+  useEffect(() => {
+    const el = slideRefs.current[initialRunId]
+    if (el) el.scrollIntoView({ inline: 'center', block: 'nearest', behavior: 'instant' })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  useEffect(() => {
+    const container = containerRef.current
+    if (!container) return
+    let raf = null
+    const onScroll = () => {
+      if (raf) return
+      raf = requestAnimationFrame(() => {
+        raf = null
+        const containerRect = container.getBoundingClientRect()
+        const centerX = containerRect.left + containerRect.width / 2
+        let closest = null, closestDist = Infinity
+        for (const run of runs) {
+          const el = slideRefs.current[run.id]
+          if (!el) continue
+          const r = el.getBoundingClientRect()
+          const dist = Math.abs((r.left + r.width / 2) - centerX)
+          if (dist < closestDist) { closestDist = dist; closest = run }
+        }
+        if (closest) onActiveChange(closest.id)
+      })
+    }
+    container.addEventListener('scroll', onScroll, { passive: true })
+    return () => container.removeEventListener('scroll', onScroll)
+  }, [runs, onActiveChange])
+
+  return (
+    <div className="run-carousel-wrap">
+      <button className="run-detail-back" onClick={onBack} aria-label="Back to Tracking">
+        <ChevronLeft size={22} strokeWidth={2.25} />
+      </button>
+      <div className="run-carousel" ref={containerRef}>
+        {runs.map((run) => (
+          <div key={run.id} className="run-slide" ref={(el) => { slideRefs.current[run.id] = el }}>
+            <RunDetail run={run} />
+          </div>
+        ))}
       </div>
     </div>
   )
@@ -389,7 +467,16 @@ export default function TrackingPage() {
   const allRuns = realRun ? [realRun, ...DEMO_RUNS] : DEMO_RUNS
   const openRun = allRuns.find(r => r.id === openRunId) || null
 
-  if (openRun) return <RunDetail run={openRun} onBack={() => setOpenRunId(null)} />
+  if (openRun) {
+    return (
+      <RunCarousel
+        runs={allRuns}
+        initialRunId={openRun.id}
+        onBack={() => setOpenRunId(null)}
+        onActiveChange={setOpenRunId}
+      />
+    )
+  }
 
   return (
     <div className="tracking-page">
