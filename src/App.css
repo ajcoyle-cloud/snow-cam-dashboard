@@ -1944,6 +1944,15 @@
   top: 16px;
   right: 16px;
   z-index: 20;
+  display: flex;
+  gap: 10px;
+}
+/* Same "on" treatment as the main map's #rotate-toggle.active. */
+.run-carousel-settings .map-settings-toggle.active {
+  background: rgba(92, 92, 106, 0.95);
+}
+.run-carousel-settings .map-settings-toggle.active:hover {
+  background: rgba(106, 106, 122, 0.95);
 }
 /* Prev/next arrows, top-center of each run's own card — lets you switch
    runs with a tap instead of only a swipe/scroll gesture. */

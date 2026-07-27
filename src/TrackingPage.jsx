@@ -735,6 +735,10 @@ const CHASE_ZOOM = 16.5
 const CHASE_PITCH = 70
 const CHASE_DISTANCE_M = 70 // metres behind the marker the chase camera sits
 
+function runDurationSec(run) {
+  return run.points[run.points.length - 1].tst - run.points[0].tst
+}
+
 // Binary-searches `run.points` for the last point whose elapsed time (since
 // the run started) is <= elapsedSec — drives both auto-playback and manual
 // chart scrubbing off the same lookup.
@@ -887,11 +891,17 @@ function RunCarousel({ runs, initialRunId, onBack, onActiveChange }) {
     const dtReal = (now - lastFrameRef.current) / 1000
     lastFrameRef.current = now
     playElapsedRef.current += dtReal * playbackSpeedRef.current
-    const totalDur = run.points[run.points.length - 1].tst - run.points[0].tst
+    const totalDur = runDurationSec(run)
     let finished = false
     if (playElapsedRef.current >= totalDur) { playElapsedRef.current = totalDur; finished = true }
     const idx = pointIndexAtElapsed(run, playElapsedRef.current)
-    updateSceneForIndex(run, idx)
+    // A throw in here (e.g. from the map mid-camera-move) must not kill the
+    // rAF chain — that would silently freeze playback with no visible cause.
+    try {
+      updateSceneForIndex(run, idx)
+    } catch (e) {
+      console.error('playback frame failed:', e)
+    }
     if (now - lastChartUpdateRef.current > 60) {
       lastChartUpdateRef.current = now
       setPlayheadIndex(idx)
@@ -902,6 +912,13 @@ function RunCarousel({ runs, initialRunId, onBack, onActiveChange }) {
 
   function startPlayback() {
     if (!mapRef.current || !mapReadyRef.current) return
+    const run = runsRef.current.find((r) => r.id === activeRunIdRef.current)
+    if (!run) return
+    // Restart from the top if the playhead is already at (or past) the end —
+    // otherwise the very first tick immediately satisfies the finished check
+    // and playback stops after a single frame. Hits every replay after one
+    // full play-through, and after scrubbing to the end.
+    if (playElapsedRef.current >= runDurationSec(run) - 0.05) playElapsedRef.current = 0
     stopRotate() // don't fight the chase camera, same as any other camera override
     isPlayingRef.current = true
     setIsPlaying(true)
@@ -1089,6 +1106,14 @@ function RunCarousel({ runs, initialRunId, onBack, onActiveChange }) {
         <ChevronLeft size={22} strokeWidth={2.25} />
       </button>
       <div className="run-carousel-settings" ref={settingsRef}>
+        <button
+          className={`map-settings-toggle${autoRotateOn ? ' active' : ''}`}
+          onClick={() => (autoRotateOn ? stopRotate() : startRotate(true))}
+          aria-label={autoRotateOn ? 'Pause map rotation' : 'Resume map rotation'}
+          title={autoRotateOn ? 'Pause map rotation' : 'Resume map rotation'}
+        >
+          <RotateCw size={18} />
+        </button>
         <button className="map-settings-toggle" onClick={() => setSettingsOpen((o) => !o)} aria-label="Map settings" title="Map settings">
           <Settings size={18} />
         </button>
@@ -1130,14 +1155,6 @@ function RunCarousel({ runs, initialRunId, onBack, onActiveChange }) {
           aria-label="Previous run"
         >
           <ChevronLeft size={20} strokeWidth={2.25} />
-        </button>
-        <button
-          className={`run-detail-nav-btn${autoRotateOn ? ' active' : ''}`}
-          onClick={() => (autoRotateOn ? stopRotate() : startRotate(true))}
-          aria-label={autoRotateOn ? 'Pause map rotation' : 'Resume map rotation'}
-          title={autoRotateOn ? 'Pause map rotation' : 'Resume map rotation'}
-        >
-          <RotateCw size={18} strokeWidth={2.25} />
         </button>
         <button
           className="run-detail-nav-btn"
