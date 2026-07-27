@@ -5663,9 +5663,26 @@ function ensureTrackingLayer() {
     paint: { 'line-color': '#f472b6', 'line-width': 3 },
     layout: { visibility: 'none', 'line-cap': 'round', 'line-join': 'round' },
   });
+  // One small dot per RECORDED fix (every point, not just the ones confident
+  // enough to draw into the line above) — the point of this layer is purely
+  // to make ping density visible: tight clusters of dots mean frequent fixes
+  // (stationary, or iOS wasn't throttling), wide gaps mean the interval
+  // stretched out (moving fast, or a weak-signal patch). Excludes the latest
+  // fix, which gets its own bigger marker below instead of doubling up.
+  map.addLayer({
+    id: 'tracking-point-dots', type: 'circle', source: 'tracking-src',
+    filter: ['all', ['==', ['geometry-type'], 'Point'], ['!=', ['get', 'isLatest'], true]],
+    paint: {
+      'circle-radius': 3,
+      'circle-color': ['match', ['get', 'tier'], 'good', TRACKING_TIER_COLOR.good, 'fair', TRACKING_TIER_COLOR.fair, 'poor', TRACKING_TIER_COLOR.poor, TRACKING_TIER_COLOR.unknown],
+      'circle-opacity': 0.85,
+      'circle-stroke-width': 1, 'circle-stroke-color': 'rgba(255,255,255,0.6)',
+    },
+    layout: { visibility: 'none' },
+  });
   map.addLayer({
     id: 'tracking-point', type: 'circle', source: 'tracking-src',
-    filter: ['==', ['geometry-type'], 'Point'],
+    filter: ['all', ['==', ['geometry-type'], 'Point'], ['==', ['get', 'isLatest'], true]],
     paint: {
       'circle-radius': 7,
       // Coloured by the fix's own accuracy tier — a good fix reads as
@@ -5682,6 +5699,7 @@ function setTrackingLayerVisible(visible) {
   const v = visible ? 'visible' : 'none';
   if (map.getLayer('tracking-accuracy-fill')) map.setLayoutProperty('tracking-accuracy-fill', 'visibility', v);
   if (map.getLayer('tracking-line')) map.setLayoutProperty('tracking-line', 'visibility', v);
+  if (map.getLayer('tracking-point-dots')) map.setLayoutProperty('tracking-point-dots', 'visibility', v);
   if (map.getLayer('tracking-point')) map.setLayoutProperty('tracking-point', 'visibility', v);
 }
 
@@ -5699,16 +5717,17 @@ function trackingPointsToGeoJSON(points) {
       geometry: { type: 'LineString', coordinates: linePoints.map((p) => [p.lon, p.lat]) },
     });
   }
-  if (points.length >= 1) {
-    // The current-position marker always reflects the true latest fix, even
-    // a poor one — tagged with its own tier so it's styled as "uncertain"
-    // rather than just disappearing, which would read as a bug, not caution.
-    const last = points[points.length - 1];
+  // EVERY recorded fix becomes its own small Point — this is what makes ping
+  // density visible along the trail (see tracking-point-dots' own comment).
+  // The latest one is tagged separately so it renders via the bigger
+  // tracking-point marker instead of doubling up with a small dot too.
+  points.forEach((p, i) => {
     features.push({
-      type: 'Feature', properties: { tier: trackingAccuracyTier(last.acc) },
-      geometry: { type: 'Point', coordinates: [last.lon, last.lat] },
+      type: 'Feature',
+      properties: { tier: trackingAccuracyTier(p.acc), isLatest: i === points.length - 1 },
+      geometry: { type: 'Point', coordinates: [p.lon, p.lat] },
     });
-  }
+  });
   return { type: 'FeatureCollection', features };
 }
 
