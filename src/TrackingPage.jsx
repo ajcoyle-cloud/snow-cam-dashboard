@@ -425,14 +425,12 @@ function RunDetail({ run }) {
   return (
     <div className="run-detail">
       <div className="run-detail-map" ref={mapEl} />
-      {/* Always visible (not just on error/slow) — 'ready' with a still-black
-          map behind it means 'load' fired fine but tiles never painted,
-          which otherwise looks identical to every other failure mode. Once
-          the real cause here is found and fixed, drop back to only showing
-          this on error/slow. */}
-      <div className={`run-detail-map-status${mapError ? ' run-detail-map-status--error' : ''}`}>
-        {mapError ? `Map error: ${mapError}` : `Map status: ${mapStatus}`}
-      </div>
+      {mapError && (
+        <div className="run-detail-map-status run-detail-map-status--error">Map failed to load: {mapError}</div>
+      )}
+      {!mapError && mapStatus === 'slow' && (
+        <div className="run-detail-map-status">Still loading map tiles…</div>
+      )}
       <div className="run-detail-panel">
         <div className="run-detail-title">
           {run.name}

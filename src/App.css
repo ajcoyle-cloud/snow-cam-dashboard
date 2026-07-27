@@ -1931,8 +1931,12 @@
   min-height: 100vh;
   scroll-snap-align: center;
   scroll-snap-stop: always;
-  border-radius: 18px;
-  overflow: hidden;
+  /* No border-radius+overflow:hidden here — a WebGL canvas (the map)
+     nested inside an ancestor with both set fails to composite at all on
+     iOS Safari (renders nothing, not even a plain background-color layer),
+     while working fine everywhere else. Confirmed by "Map status: ready"
+     showing on screen with a still-black canvas underneath it — MapLibre
+     itself was never in an error/loading state. */
 }
 
 /* ── Run detail: full-bleed map + floating stats panel (one shared back
