@@ -2054,3 +2054,12 @@
   .run-carousel { padding: 0 4%; }
   .run-slide { flex-basis: 92%; }
 }
+
+/* Desktop: the neighbour-peek is a touch-swipe affordance that doesn't earn
+   its keep on a wide screen with a mouse — the open run should just fill
+   the space. Scrolling sideways (trackpad/shift+wheel) still switches runs,
+   there's just nothing to peek at either side while it does. */
+@media (min-width: 901px) {
+  .run-carousel { padding: 0; gap: 0; }
+  .run-slide { flex-basis: 100%; }
+}
