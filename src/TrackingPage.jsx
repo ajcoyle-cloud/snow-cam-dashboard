@@ -425,12 +425,14 @@ function RunDetail({ run }) {
   return (
     <div className="run-detail">
       <div className="run-detail-map" ref={mapEl} />
-      {mapError && (
-        <div className="run-detail-map-status run-detail-map-status--error">Map failed to load: {mapError}</div>
-      )}
-      {!mapError && mapStatus === 'slow' && (
-        <div className="run-detail-map-status">Still loading map tiles…</div>
-      )}
+      {/* Left always-on (not just error/slow) until the compositing fix
+          (removing .run-slide's border-radius+overflow:hidden) is actually
+          confirmed on a real device — otherwise a still-black screen with
+          no text is ambiguous between "on an old deploy" and "fix didn't
+          work". Drop back to error/slow-only once that's confirmed. */}
+      <div className={`run-detail-map-status${mapError ? ' run-detail-map-status--error' : ''}`}>
+        {mapError ? `Map error: ${mapError}` : `Map status: ${mapStatus}`}
+      </div>
       <div className="run-detail-panel">
         <div className="run-detail-title">
           {run.name}
