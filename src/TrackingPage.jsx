@@ -556,7 +556,7 @@ function buildElevationProfile(points) {
 // null) draws a persistent marker when not being actively touched, and
 // `onScrub(index)` fires on click/drag/touch so dragging along the chart
 // seeks playback.
-function ElevationSpeedChart({ points, profile, playheadIndex, onScrub, height = 100 }) {
+function ElevationSpeedChart({ points, profile, playheadIndex, onScrub, isPlaying, height = 100 }) {
   const wrapRef = useRef(null)
   const svgRef = useRef(null)
   const [hover, setHover] = useState(null)
@@ -612,11 +612,13 @@ function ElevationSpeedChart({ points, profile, playheadIndex, onScrub, height =
       ` L${W},${toY(lastSeg.a2).toFixed(1)} L${W},${height} Z`
     : ''
 
-  // Prefer the interactive hover/drag point; fall back to the passed-in
-  // playback position so the marker keeps moving on its own while playing.
-  const marker = hover || (playheadIndex != null
+  // While playing, the playhead wins — otherwise a mouse left resting over
+  // the chart pins the marker in place and playback looks frozen. Paused,
+  // the interactive hover point takes precedence.
+  const playheadMarker = playheadIndex != null
     ? { frac: cumDist[playheadIndex] / totalDist, alt: points[playheadIndex].alt, speed: points[playheadIndex].vel }
-    : null)
+    : null
+  const marker = isPlaying ? (playheadMarker || hover) : (hover || playheadMarker)
 
   return (
     <div className="run-elev-chart" ref={wrapRef}>
@@ -714,7 +716,7 @@ function RunPanel({ run, profile, isPlaying, onTogglePlay, playheadIndex, onScru
         >
           {isPlaying ? <Pause size={18} strokeWidth={2.25} /> : <Play size={18} strokeWidth={2.25} />}
         </button>
-        <ElevationSpeedChart points={run.points} profile={profile} playheadIndex={playheadIndex} onScrub={onScrub} />
+        <ElevationSpeedChart points={run.points} profile={profile} playheadIndex={playheadIndex} onScrub={onScrub} isPlaying={isPlaying} />
       </div>
       <div className="run-speed-control">
         {PLAYBACK_SPEEDS.map((s) => (
@@ -809,6 +811,7 @@ function RunCarousel({ runs, initialRunId, onBack, onActiveChange }) {
   const playAnimRef = useRef(null)
   const lastFrameRef = useRef(null)
   const lastChartUpdateRef = useRef(0)
+  const playFrameCountRef = useRef(0)
   useEffect(() => { playbackSpeedRef.current = playbackSpeed }, [playbackSpeed])
 
   useEffect(() => {
@@ -885,35 +888,52 @@ function RunCarousel({ runs, initialRunId, onBack, onActiveChange }) {
 
   function playTick(now) {
     if (!isPlayingRef.current) { playAnimRef.current = null; return }
-    const run = runsRef.current.find((r) => r.id === activeRunIdRef.current)
-    if (!run) { playAnimRef.current = requestAnimationFrame(playTick); return }
-    if (lastFrameRef.current == null) lastFrameRef.current = now
-    const dtReal = (now - lastFrameRef.current) / 1000
-    lastFrameRef.current = now
-    playElapsedRef.current += dtReal * playbackSpeedRef.current
-    const totalDur = runDurationSec(run)
-    let finished = false
-    if (playElapsedRef.current >= totalDur) { playElapsedRef.current = totalDur; finished = true }
-    const idx = pointIndexAtElapsed(run, playElapsedRef.current)
-    // A throw in here (e.g. from the map mid-camera-move) must not kill the
-    // rAF chain — that would silently freeze playback with no visible cause.
+    // The ENTIRE body is guarded: an uncaught throw anywhere in here kills
+    // the requestAnimationFrame chain, which presents as playback silently
+    // freezing after a frame or two with nothing in the UI to explain it.
+    // Whatever fails, we log it once and keep the loop alive.
     try {
-      updateSceneForIndex(run, idx)
+      const run = runsRef.current.find((r) => r.id === activeRunIdRef.current)
+      if (!run) { playAnimRef.current = requestAnimationFrame(playTick); return }
+      if (lastFrameRef.current == null) lastFrameRef.current = now
+      const dtReal = (now - lastFrameRef.current) / 1000
+      lastFrameRef.current = now
+      playElapsedRef.current += dtReal * playbackSpeedRef.current
+      const totalDur = runDurationSec(run)
+      let finished = false
+      if (playElapsedRef.current >= totalDur) { playElapsedRef.current = totalDur; finished = true }
+      const idx = pointIndexAtElapsed(run, playElapsedRef.current)
+      playFrameCountRef.current += 1
+      if (playFrameCountRef.current <= 3 || finished) {
+        console.log('[playback] frame', playFrameCountRef.current, 'elapsed', playElapsedRef.current.toFixed(2), '/', totalDur, 'idx', idx, finished ? '(finished)' : '')
+      }
+      try {
+        updateSceneForIndex(run, idx)
+      } catch (e) {
+        console.error('[playback] camera update failed:', e)
+      }
+      if (now - lastChartUpdateRef.current > 60) {
+        lastChartUpdateRef.current = now
+        setPlayheadIndex(idx)
+      }
+      if (finished) { stopPlayback(); return }
     } catch (e) {
-      console.error('playback frame failed:', e)
+      console.error('[playback] tick failed (loop continues):', e)
     }
-    if (now - lastChartUpdateRef.current > 60) {
-      lastChartUpdateRef.current = now
-      setPlayheadIndex(idx)
-    }
-    if (finished) { stopPlayback(); return }
     playAnimRef.current = requestAnimationFrame(playTick)
   }
 
   function startPlayback() {
-    if (!mapRef.current || !mapReadyRef.current) return
+    if (!mapRef.current || !mapReadyRef.current) {
+      console.warn('[playback] cannot start — map not ready', { hasMap: !!mapRef.current, ready: mapReadyRef.current })
+      return
+    }
     const run = runsRef.current.find((r) => r.id === activeRunIdRef.current)
-    if (!run) return
+    if (!run) {
+      console.warn('[playback] cannot start — no active run', activeRunIdRef.current)
+      return
+    }
+    playFrameCountRef.current = 0
     // Restart from the top if the playhead is already at (or past) the end —
     // otherwise the very first tick immediately satisfies the finished check
     // and playback stops after a single frame. Hits every replay after one
@@ -1051,10 +1071,19 @@ function RunCarousel({ runs, initialRunId, onBack, onActiveChange }) {
           })
 
           map.fitBounds(runBoundsArr(initialRun), { padding: 64, pitch: 60, bearing, duration: 0 })
-          applyDarkMode(map, darkModeRef.current)
-          applyWinterSnow(map, RESORT_SNOW_AREA, winterSnowRef.current, snowAnimRef)
+
+          // Marked ready as soon as the core layers exist, BEFORE the
+          // optional decorations below — those are cosmetic, but a throw in
+          // one of them (the snow layer compiles its own WebGL shaders, so
+          // it can fail on a GPU/driver we never see) used to abort the rest
+          // of this handler and leave mapReadyRef false forever. Playback
+          // checks that flag, so a snow-layer failure silently disabled the
+          // play button entirely. Each decoration is isolated now.
           mapReadyRef.current = true
-          startRotate(true)
+
+          try { applyDarkMode(map, darkModeRef.current) } catch (e) { console.error('dark mode failed:', e) }
+          try { applyWinterSnow(map, RESORT_SNOW_AREA, winterSnowRef.current, snowAnimRef) } catch (e) { console.error('winter snow failed:', e) }
+          try { startRotate(true) } catch (e) { console.error('auto-rotate failed:', e) }
         })
       })
       .catch((err) => console.error('tracking map failed to load:', err))
