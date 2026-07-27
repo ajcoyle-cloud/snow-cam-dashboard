@@ -2043,6 +2043,21 @@ function maybeSignalMapReady() {
     window.parent.postMessage({ type: 'map-ready' }, '*');
     return;
   }
+  // Same reasoning as Isobars above, for the same reason: Tracking's camera
+  // comes from wherever the actual recorded points are (renderTrackingView's
+  // own fitCamera), which has nothing to do with this resort's close-up
+  // establishing shot. Without this case, when Tracking was the mode
+  // restored from a previous visit, setViewMode('tracking') would already
+  // have flown the camera to the real tracked position — then THIS sequence
+  // would land later and silently jumpTo/flyTo the resort's own default view
+  // right back over it. That's the reported "Tracking takes a long time and
+  // sometimes doesn't show the right place" — the camera wasn't stuck, it
+  // was being put back by this unrelated reveal sequence after the fact.
+  if (viewMode === 'tracking') {
+    renderTrackingView();
+    window.parent.postMessage({ type: 'map-ready' }, '*');
+    return;
+  }
   // Auto-rotate does not run during load/fly-in (it's only kicked off once
   // the fly-in lands), so there's nothing to pause here — the camera bearing
   // is wherever the constructor set it. Snap to the exact default bearing so
