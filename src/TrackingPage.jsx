@@ -182,30 +182,107 @@ function computeRunStats(points) {
   return { durationSec, distanceKm: distanceM / 1000, verticalM, avgSpeedKmh: avgSpeed, maxSpeedKmh: maxSpeed }
 }
 
-// ── Real recorded commute (api/own/tracks.js -> lib/ownTracksStore.js) ────
-// Everything ever POSTed by OwnTracks, as one single run — there's no day/
-// run/lift-vs-descent splitting yet (separate follow-up), so this is
-// deliberately "the whole recorded trail so far," not an attempt to isolate
-// just one commute. `isReal` flags it for the small badge in the card/detail
-// views, so it's never confused with the three demo runs sitting next to it.
-async function fetchRealCommuteRun() {
+// ── Real recorded tracks (api/own/tracks.js -> lib/ownTracksStore.js) ─────
+// KV holds ONE flat, ever-growing list of every point OwnTracks has ever
+// POSTed — yesterday's commute and whatever's streaming in right now sit
+// end-to-end in the same array, with nothing in the data marking where one
+// ended and the next began.
+//
+// So there's exactly one rule here, and it exists only to find where the
+// CURRENT recording starts: OwnTracks pings every ~30-60s while moving, so a
+// gap far larger than that means it stopped reporting — parked up, out of
+// signal, or a whole night — and a new recording begins after it. Without
+// this the live card starts at yesterday's first fix: ~26 hours elapsed, with
+// yesterday's kilometres counted into today's distance.
+//
+// This is NOT run detection. Nothing here looks at uphill/downhill, lifts, or
+// the barometric pressure api/own/tracks.js captures — it's a clock gap and
+// nothing more.
+const SESSION_GAP_SEC = 20 * 60
+// How recent the newest point must be for the recording to still count as
+// in-progress. Generous on purpose: it has to survive the quiet stretch
+// between two pings, plus a set of lights or a dead spot in coverage, without
+// the card flickering out of LIVE and back.
+const LIVE_RECENT_SEC = 10 * 60
+// Poll cadence while the Tracking tab is open. Faster than the ping interval
+// so a new fix shows up promptly, slow enough not to hammer KV all day.
+const LIVE_POLL_MS = 15000
+
+function splitIntoSessions(points) {
+  const sessions = []
+  let current = []
+  for (const p of points) {
+    const prev = current[current.length - 1]
+    if (prev && p.tst - prev.tst > SESSION_GAP_SEC) {
+      sessions.push(current)
+      current = []
+    }
+    current.push(p)
+  }
+  if (current.length) sessions.push(current)
+  // A one-point recording has no distance, no duration and nothing to draw —
+  // it's a single stray fix.
+  return sessions.filter((s) => s.length >= 2)
+}
+
+// Calendar day in the RESORT's timezone, not the viewer's — same reasoning as
+// fmtTime. Used only to compare two days for equality, so the exact format
+// doesn't matter as long as it's stable.
+const NZ_DAY_FMT = new Intl.DateTimeFormat('en-NZ', {
+  timeZone: 'Pacific/Auckland', year: 'numeric', month: '2-digit', day: '2-digit',
+})
+const NZ_LABEL_FMT = new Intl.DateTimeFormat('en-NZ', {
+  timeZone: 'Pacific/Auckland', weekday: 'short', day: 'numeric', month: 'short',
+})
+function dayLabel(date, now) {
+  const day = NZ_DAY_FMT.format(date)
+  if (day === NZ_DAY_FMT.format(now)) return 'Today'
+  if (day === NZ_DAY_FMT.format(new Date(now.getTime() - 86400000))) return 'Yesterday'
+  return NZ_LABEL_FMT.format(date)
+}
+
+// Returns each recording as its own card, newest first, with the most recent
+// flagged `isLive` while points are still arriving. `isReal` keeps flagging
+// all of them for the badge, so they're never confused with the three demo
+// runs sitting next to them.
+async function fetchTrackedRuns() {
   let json
   try {
     const res = await fetch('/api/own/track-points')
     json = await res.json()
   } catch (e) {
-    return null
+    return []
   }
   const points = Array.isArray(json?.points)
-    ? json.points.filter(p => typeof p.lat === 'number' && typeof p.lon === 'number' && typeof p.tst === 'number')
+    ? json.points.filter((p) => typeof p.lat === 'number' && typeof p.lon === 'number' && typeof p.tst === 'number')
     : []
-  if (points.length < 2) return null
+  if (points.length < 2) return []
   points.sort((a, b) => a.tst - b.tst)
-  return {
-    id: 'real-commute', name: 'My Commute', priorLift: null, isReal: true,
-    startedAt: new Date(points[0].tst * 1000),
-    points, stats: computeRunStats(points),
-  }
+
+  const now = new Date()
+  const nowSec = Math.floor(now.getTime() / 1000)
+  const sessions = splitIntoSessions(points)
+  return sessions.map((sessionPoints, i) => {
+    const startedAt = new Date(sessionPoints[0].tst * 1000)
+    const lastTst = sessionPoints[sessionPoints.length - 1].tst
+    // Only the newest recording can be live — an older one having a recent-
+    // looking timestamp would mean the clock or the ordering is wrong.
+    const isLive = i === sessions.length - 1 && nowSec - lastTst <= LIVE_RECENT_SEC
+    return {
+      // Keyed off the recording's own start time so the id stays stable across
+      // polls as it grows — React keys and the carousel's activeRunId both
+      // depend on it not changing under them.
+      id: `own-${sessionPoints[0].tst}`,
+      name: dayLabel(startedAt, now),
+      priorLift: null,
+      isReal: true,
+      isLive,
+      lastFixAt: new Date(lastTst * 1000),
+      startedAt,
+      points: sessionPoints,
+      stats: computeRunStats(sessionPoints),
+    }
+  }).reverse() // newest first — the live one belongs at the top of the list
 }
 
 const DEMO_RUNS = [
@@ -257,16 +334,44 @@ function fmtTime(date) {
 // Cropped/zoomed to the run's own bounding box — deliberately not a real
 // satellite thumbnail (would mean a network image fetch per card); a plain
 // dark ground with a faint grid reads as "map" cheaply and loads instantly.
-function RouteThumbnail({ points, height = 130 }) {
-  const { pathD, viewBox } = useMemo(() => {
+function RouteThumbnail({ points, height = 130, live = false }) {
+  // The card's width comes from a responsive grid, so it's only knowable at
+  // runtime — same ResizeObserver approach ElevationSpeedChart already uses
+  // for the same reason. 300 is a placeholder for the first paint only.
+  // Measuring the <svg> itself is safe (no feedback loop): its rendered box is
+  // width:100% x a fixed pixel height, which the viewBox has no say over.
+  const svgRef = useRef(null)
+  const [boxW, setBoxW] = useState(300)
+  useEffect(() => {
+    const el = svgRef.current
+    if (!el || typeof ResizeObserver === 'undefined') return
+    const ro = new ResizeObserver((entries) => {
+      const w = entries[0]?.contentRect?.width
+      if (w) setBoxW(w)
+    })
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [])
+
+  const { pathD, viewBox, endXY } = useMemo(() => {
     const lons = points.map(p => p.lon), lats = points.map(p => p.lat)
     const minLon = Math.min(...lons), maxLon = Math.max(...lons)
     const minLat = Math.min(...lats), maxLat = Math.max(...lats)
     const padFrac = 0.14
-    const lonPad = (maxLon - minLon) * padFrac || 0.0005
-    const latPad = (maxLat - minLat) * padFrac || 0.0005
-    const vb = { minLon: minLon - lonPad, maxLon: maxLon + lonPad, minLat: minLat - latPad, maxLat: maxLat + latPad }
-    const w = 300, h = 300 * (vb.maxLat - vb.minLat > 0 ? (vb.maxLon - vb.minLon) / (vb.maxLat - vb.minLat) : 1)
+    // Grow the shorter axis of the bounding box until the box has the SAME
+    // aspect ratio as the element actually rendered on screen. With them
+    // equal, preserveAspectRatio has nothing left to crop — previously the
+    // box was shaped by the route alone, and `slice` cropped whichever axis
+    // didn't fit, which cut the end of a long diagonal route (and, on a live
+    // card, the position dot sitting on it) clean off the thumbnail.
+    const cLon = (minLon + maxLon) / 2, cLat = (minLat + maxLat) / 2
+    let halfLon = ((maxLon - minLon) / 2) * (1 + padFrac * 2) || 0.0005
+    let halfLat = ((maxLat - minLat) / 2) * (1 + padFrac * 2) || 0.0005
+    const targetAspect = boxW / height
+    if (halfLon / halfLat < targetAspect) halfLon = halfLat * targetAspect
+    else halfLat = halfLon / targetAspect
+    const vb = { minLon: cLon - halfLon, maxLon: cLon + halfLon, minLat: cLat - halfLat, maxLat: cLat + halfLat }
+    const w = 300, h = 300 / targetAspect
     const toXY = (lon, lat) => [
       ((lon - vb.minLon) / (vb.maxLon - vb.minLon)) * w,
       h - ((lat - vb.minLat) / (vb.maxLat - vb.minLat)) * h, // flip: north up
@@ -275,14 +380,12 @@ function RouteThumbnail({ points, height = 130 }) {
       const [x, y] = toXY(p.lon, p.lat)
       return `${i === 0 ? 'M' : 'L'}${x.toFixed(1)},${y.toFixed(1)}`
     }).join(' ')
-    return { pathD: d, viewBox: `0 0 ${w} ${h}` }
-  }, [points])
-
-  const start = points[0], end = points[points.length - 1]
-  const [sx, sy] = viewBox.split(' ').slice(2).map(Number)
+    const last = points[points.length - 1]
+    return { pathD: d, viewBox: `0 0 ${w} ${h}`, endXY: toXY(last.lon, last.lat) }
+  }, [points, boxW, height])
 
   return (
-    <svg viewBox={viewBox} width="100%" height={height} preserveAspectRatio="xMidYMid slice" style={{ display: 'block', borderRadius: 12 }}>
+    <svg ref={svgRef} viewBox={viewBox} width="100%" height={height} preserveAspectRatio="xMidYMid slice" style={{ display: 'block', borderRadius: 12 }}>
       <defs>
         <linearGradient id={`thumb-bg`} x1="0" y1="0" x2="1" y2="1">
           <stop offset="0%" stopColor="#161b22" />
@@ -294,14 +397,67 @@ function RouteThumbnail({ points, height = 130 }) {
       </defs>
       <rect width="100%" height="100%" fill="url(#thumb-bg)" />
       <rect width="100%" height="100%" fill="url(#thumb-grid)" />
-      <path d={pathD} fill="none" stroke="#60a5fa" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round" opacity="0.95" />
+      <path d={pathD} fill="none" stroke={live ? '#f43f5e' : '#60a5fa'} strokeWidth="4" strokeLinecap="round" strokeLinejoin="round" opacity="0.95" />
+      {/* Current position — the head of a line that's still being drawn. The
+          pulse is an SVG <animate> rather than a CSS keyframe so it rides
+          along with the dot wherever the re-fitted viewBox puts it. */}
+      {live && (
+        <g transform={`translate(${endXY[0].toFixed(1)},${endXY[1].toFixed(1)})`}>
+          <circle r="6" fill="#f43f5e" opacity="0.45">
+            <animate attributeName="r" values="6;16;6" dur="1.8s" repeatCount="indefinite" />
+            <animate attributeName="opacity" values="0.45;0;0.45" dur="1.8s" repeatCount="indefinite" />
+          </circle>
+          <circle r="6" fill="#f43f5e" stroke="#fff" strokeWidth="2.5" />
+        </g>
+      )}
     </svg>
   )
 }
 
+// "12s ago" / "3m ago" — how stale the newest fix is. Deliberately shown on
+// the live card: a run that's still LIVE but hasn't had a fix in four minutes
+// is a phone that's lost signal, and that's worth being able to see.
+function fmtAgo(sec) {
+  if (sec < 60) return `${Math.max(0, Math.round(sec))}s ago`
+  return `${Math.round(sec / 60)}m ago`
+}
+
 // ── One card in the run list ──────────────────────────────────────────────
-function RunCard({ run, onOpen }) {
+// `nowMs` is passed in rather than read from Date.now() in here so every live
+// readout on the page ticks off the same clock, on the same frame.
+function RunCard({ run, onOpen, nowMs }) {
   const { stats } = run
+  if (run.isLive) {
+    // Elapsed runs off the wall clock, not the last point's timestamp, so it
+    // keeps counting between pings instead of freezing until the next fix.
+    const elapsedSec = Math.max(0, (nowMs - run.startedAt.getTime()) / 1000)
+    const sinceFixSec = (nowMs - run.lastFixAt.getTime()) / 1000
+    const currentSpeed = run.points[run.points.length - 1].vel
+    return (
+      <button className="run-card live" onClick={() => onOpen(run.id)}>
+        <RouteThumbnail points={run.points} live />
+        <div className="run-card-body">
+          <div className="run-card-head">
+            <span className="run-card-name">
+              {run.name}
+              <span className="run-live-badge"><span className="run-live-dot" />LIVE</span>
+            </span>
+            <span className="run-card-time">from {fmtTime(run.startedAt)}</span>
+          </div>
+          <div className="run-card-lift">Recording now · {run.points.length} fixes · last {fmtAgo(sinceFixSec)}</div>
+          <div className="run-card-stats">
+            <span><Timer size={16} strokeWidth={2} /> {fmtDuration(elapsedSec)}</span>
+            <span><Ruler size={16} strokeWidth={2} /> {stats.distanceKm.toFixed(2)} km</span>
+            <span><ArrowDownRight size={16} strokeWidth={2} /> {Math.round(stats.verticalM)} m</span>
+            <span>
+              <Gauge size={16} strokeWidth={2} />{' '}
+              {typeof currentSpeed === 'number' ? `${Math.round(currentSpeed)} km/h now` : `${Math.round(stats.avgSpeedKmh)} km/h avg`}
+            </span>
+          </div>
+        </div>
+      </button>
+    )
+  }
   return (
     <button className="run-card" onClick={() => onOpen(run.id)}>
       <RouteThumbnail points={run.points} />
@@ -373,7 +529,10 @@ function runEndsGeoJSON(run) {
     type: 'FeatureCollection',
     features: [
       { type: 'Feature', properties: { label: 'start' }, geometry: { type: 'Point', coordinates: [run.points[0].lon, run.points[0].lat] } },
-      { type: 'Feature', properties: { label: 'end' }, geometry: { type: 'Point', coordinates: [run.points[run.points.length - 1].lon, run.points[run.points.length - 1].lat] } },
+      // A run still being recorded has no finish line yet — its last point is
+      // "where they are right now", so it gets its own label/colour rather
+      // than the red end-of-run dot.
+      { type: 'Feature', properties: { label: run.isLive ? 'live' : 'end' }, geometry: { type: 'Point', coordinates: [run.points[run.points.length - 1].lon, run.points[run.points.length - 1].lat] } },
     ],
   }
 }
@@ -689,18 +848,27 @@ function bearingDeg(lat1, lon1, lat2, lon2) {
 // currently showing.
 const PLAYBACK_SPEEDS = [1, 3, 5, 10]
 
-function RunPanel({ run, profile, isPlaying, onTogglePlay, playheadIndex, onScrub, playbackSpeed, onSetSpeed }) {
+function RunPanel({ run, profile, isPlaying, onTogglePlay, playheadIndex, onScrub, playbackSpeed, onSetSpeed, nowMs }) {
   const { stats } = run
+  // Same wall-clock elapsed as the live card, for the same reason — it keeps
+  // ticking between pings instead of sitting still until the next fix lands.
+  const liveElapsedSec = run.isLive ? Math.max(0, (nowMs - run.startedAt.getTime()) / 1000) : null
   return (
     <div className="run-detail-panel">
       <div className="run-detail-panel-main">
         <div className="run-detail-title">
           {run.name}
-          {run.isReal && <span className="run-real-badge">REAL</span>}
+          {run.isLive
+            ? <span className="run-live-badge"><span className="run-live-dot" />LIVE</span>
+            : run.isReal && <span className="run-real-badge">REAL</span>}
         </div>
-        <div className="run-detail-sub">{fmtTime(run.startedAt)}{run.priorLift ? ` · via ${run.priorLift}` : ''}</div>
+        <div className="run-detail-sub">
+          {run.isLive
+            ? `Recording since ${fmtTime(run.startedAt)} · last fix ${fmtAgo((nowMs - run.lastFixAt.getTime()) / 1000)}`
+            : `${fmtTime(run.startedAt)}${run.priorLift ? ` · via ${run.priorLift}` : ''}`}
+        </div>
         <div className="run-detail-stats">
-          <div><Timer size={15} strokeWidth={2} /><span>{fmtDuration(stats.durationSec)}</span><small>Duration</small></div>
+          <div><Timer size={15} strokeWidth={2} /><span>{fmtDuration(liveElapsedSec ?? stats.durationSec)}</span><small>{run.isLive ? 'Elapsed' : 'Duration'}</small></div>
           <div><Ruler size={15} strokeWidth={2} /><span>{stats.distanceKm.toFixed(2)} km</span><small>Distance</small></div>
           <div><Mountain size={15} strokeWidth={2} /><span>{Math.round(stats.verticalM)} m</span><small>Vertical</small></div>
           <div><Gauge size={15} strokeWidth={2} /><span>{Math.round(stats.avgSpeedKmh)} km/h</span><small>Avg speed</small></div>
@@ -769,7 +937,7 @@ function loadTrackingMapSettings() {
 // reads as one continuous flight rather than a hard cut. Playback drives
 // the same camera in a chase-cam view trailing the GPS marker along the
 // route.
-function RunCarousel({ runs, initialRunId, onBack, onActiveChange }) {
+function RunCarousel({ runs, initialRunId, onBack, onActiveChange, nowMs }) {
   const mapEl = useRef(null)
   const mapRef = useRef(null)
   const mapReadyRef = useRef(false)
@@ -795,6 +963,12 @@ function RunCarousel({ runs, initialRunId, onBack, onActiveChange }) {
   const winterSnowRef = useRef(false)
   useEffect(() => { darkModeRef.current = darkMode }, [darkMode])
   useEffect(() => { winterSnowRef.current = winterSnow }, [winterSnow])
+
+  // Whether the camera should keep re-centring on a live run's newest fix.
+  // Starts on, switches off the moment the user pans/zooms the map themselves
+  // — same "your interaction wins" rule as auto-rotate — and switches back on
+  // when a run is deliberately selected (see setActiveRunId).
+  const followLiveRef = useRef(true)
 
   const [autoRotateOn, setAutoRotateOn] = useState(true)
   const autoRotateOnRef = useRef(true)
@@ -968,10 +1142,22 @@ function RunCarousel({ runs, initialRunId, onBack, onActiveChange }) {
   const setActiveRunId = (id) => {
     if (id === activeRunIdRef.current) return
     stopPlayback()
+    followLiveRef.current = true
     activeRunIdRef.current = id
     setActiveRunIdState(id)
     onActiveChange(id)
   }
+
+  // Stop following on the first real pan/zoom/scroll, so the camera doesn't
+  // yank itself back to the live position while the user is looking elsewhere.
+  useEffect(() => {
+    const el = mapEl.current
+    if (!el) return
+    const stopFollow = () => { followLiveRef.current = false }
+    const events = ['mousedown', 'touchstart', 'wheel']
+    events.forEach((evt) => el.addEventListener(evt, stopFollow, { passive: true }))
+    return () => events.forEach((evt) => el.removeEventListener(evt, stopFollow))
+  }, [])
 
   // Build the map once — every later run switch flies this same instance
   // (see the activeRunId effect below) rather than mounting a new one.
@@ -1060,7 +1246,7 @@ function RunCarousel({ runs, initialRunId, onBack, onActiveChange }) {
             id: 'run-ends', type: 'circle', source: 'run-ends-src',
             paint: {
               'circle-radius': 7,
-              'circle-color': ['match', ['get', 'label'], 'start', '#4ade80', '#ef4444'],
+              'circle-color': ['match', ['get', 'label'], 'start', '#4ade80', 'live', '#f43f5e', '#ef4444'],
               'circle-stroke-width': 2, 'circle-stroke-color': '#ffffff',
             },
           })
@@ -1128,6 +1314,35 @@ function RunCarousel({ runs, initialRunId, onBack, onActiveChange }) {
     playElapsedRef.current = 0
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeRunId])
+
+  // Extend the drawn line as a live run grows, without re-framing the whole
+  // view. Deliberately separate from the run-switch effect above: that one
+  // owns fitBounds (an overview of the run you just opened), this one only
+  // ever appends, so a fix landing mid-look doesn't snap the camera back out
+  // to a full-route overview every 15 seconds.
+  const liveSyncRef = useRef({ runId: null, count: 0 })
+  useEffect(() => {
+    const run = runs.find((r) => r.id === activeRunId)
+    if (!run) return
+    const prev = liveSyncRef.current
+    // Only a run that grew IN PLACE is new data; a change of run id is a
+    // switch, already handled (and framed) by the effect above.
+    const grew = prev.runId === run.id && run.points.length > prev.count
+    liveSyncRef.current = { runId: run.id, count: run.points.length }
+    const map = mapRef.current
+    if (!grew || !map || !mapReadyRef.current) return
+    if (map.getSource('run-line-src')) map.getSource('run-line-src').setData(runToLineGeoJSON(run.points))
+    if (map.getSource('run-ends-src')) map.getSource('run-ends-src').setData(runEndsGeoJSON(run))
+    // Playback drives the camera itself (chase cam), so following would fight
+    // it — the marker being replayed is somewhere back down the route.
+    if (run.isLive && followLiveRef.current && !isPlayingRef.current) {
+      const last = run.points[run.points.length - 1]
+      // setCenter, not easeTo: auto-rotate sets a new bearing every frame, and
+      // an in-flight camera animation would fight it into a stutter.
+      map.setCenter([last.lon, last.lat])
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeRunId, activeRun.points.length, runs])
 
   return (
     <div className="run-carousel-wrap">
@@ -1203,6 +1418,7 @@ function RunCarousel({ runs, initialRunId, onBack, onActiveChange }) {
         onScrub={handleScrub}
         playbackSpeed={playbackSpeed}
         onSetSpeed={setPlaybackSpeed}
+        nowMs={nowMs}
       />
     </div>
   )
@@ -1210,13 +1426,47 @@ function RunCarousel({ runs, initialRunId, onBack, onActiveChange }) {
 
 export default function TrackingPage() {
   const [openRunId, setOpenRunId] = useState(null)
-  // null while loading/unavailable — the real run only appears once (if)
+  // Empty while loading/unavailable — recorded runs only appear once (if)
   // api/own/track-points.js actually has ≥2 points to show, same "just
   // don't render it" degradation the old iframe view used for empty data.
-  const [realRun, setRealRun] = useState(null)
-  useEffect(() => { fetchRealCommuteRun().then(setRealRun) }, [])
+  const [trackedRuns, setTrackedRuns] = useState([])
+  const hasLive = trackedRuns.some((r) => r.isLive)
 
-  const allRuns = realRun ? [realRun, ...DEMO_RUNS] : DEMO_RUNS
+  // Poll while the Tracking tab is open (App.jsx only mounts this component
+  // for the active tab, so nothing polls in the background). Skipped while
+  // the page is hidden — a phone in a pocket with the tab backgrounded
+  // shouldn't be burning battery and KV reads on fixes nobody's looking at —
+  // and re-fetched immediately on the way back so the card is never showing
+  // a minutes-old position at the moment it becomes visible again.
+  useEffect(() => {
+    let cancelled = false
+    const load = () => {
+      if (document.hidden) return
+      fetchTrackedRuns().then((runs) => { if (!cancelled) setTrackedRuns(runs) })
+    }
+    load()
+    const timer = setInterval(load, LIVE_POLL_MS)
+    document.addEventListener('visibilitychange', load)
+    return () => {
+      cancelled = true
+      clearInterval(timer)
+      document.removeEventListener('visibilitychange', load)
+    }
+  }, [])
+
+  // One shared clock for every live readout (elapsed, "last fix Xs ago"), so
+  // they all tick together on the same render. Only runs while something is
+  // actually live — no live run, no per-second re-renders.
+  const [nowMs, setNowMs] = useState(() => Date.now())
+  useEffect(() => {
+    if (!hasLive) return
+    const timer = setInterval(() => setNowMs(Date.now()), 1000)
+    return () => clearInterval(timer)
+  }, [hasLive])
+
+  // Memoised so a per-second clock tick doesn't hand RunCarousel a brand new
+  // array (and re-run its live-sync effect) when no run data has changed.
+  const allRuns = useMemo(() => [...trackedRuns, ...DEMO_RUNS], [trackedRuns])
   const openRun = allRuns.find(r => r.id === openRunId) || null
 
   if (openRun) {
@@ -1226,6 +1476,7 @@ export default function TrackingPage() {
         initialRunId={openRun.id}
         onBack={() => setOpenRunId(null)}
         onActiveChange={setOpenRunId}
+        nowMs={nowMs}
       />
     )
   }
@@ -1234,10 +1485,16 @@ export default function TrackingPage() {
     <div className="tracking-page">
       <div className="tracking-header">
         <h1>Tracking</h1>
-        <p>{realRun ? 'Your recorded commute, plus 3 demo runs down' : 'Demo data — 3 runs down'} Whakapapa's Sky Waka corridor.</p>
+        <p>
+          {hasLive
+            ? 'Recording now — the live run updates as fixes come in.'
+            : trackedRuns.length
+              ? `${trackedRuns.length} recorded ${trackedRuns.length === 1 ? 'session' : 'sessions'}, plus 3 demo runs down Whakapapa's Sky Waka corridor.`
+              : "Demo data — 3 runs down Whakapapa's Sky Waka corridor."}
+        </p>
       </div>
       <div className="run-list">
-        {allRuns.map((run) => <RunCard key={run.id} run={run} onOpen={setOpenRunId} />)}
+        {allRuns.map((run) => <RunCard key={run.id} run={run} onOpen={setOpenRunId} nowMs={nowMs} />)}
       </div>
     </div>
   )

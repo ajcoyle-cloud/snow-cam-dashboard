@@ -1867,6 +1867,47 @@
   background: rgba(74, 222, 128, 0.14);
   vertical-align: middle;
 }
+/* A run that's still being recorded — lifted out of the list with a warm
+   border/glow so it reads as "happening now" next to the finished runs,
+   which stay in the neutral #202832 treatment above. */
+.run-card.live {
+  border-color: rgba(244, 63, 94, 0.55);
+  box-shadow: 0 0 0 1px rgba(244, 63, 94, 0.12), 0 6px 26px rgba(244, 63, 94, 0.13);
+}
+.run-card.live:hover {
+  border-color: rgba(244, 63, 94, 0.85);
+}
+.run-live-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-left: 8px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 0.5em;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  color: #fda4af;
+  background: rgba(244, 63, 94, 0.16);
+  vertical-align: middle;
+}
+.run-live-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #f43f5e;
+  animation: run-live-pulse 1.8s ease-in-out infinite;
+}
+@keyframes run-live-pulse {
+  0%, 100% { opacity: 1; box-shadow: 0 0 0 0 rgba(244, 63, 94, 0.6); }
+  50% { opacity: 0.55; box-shadow: 0 0 0 4px rgba(244, 63, 94, 0); }
+}
+/* Respect a reduced-motion preference — the pulse is decoration, the colour
+   already carries the meaning. Also covers the thumbnail's SVG <animate>. */
+@media (prefers-reduced-motion: reduce) {
+  .run-live-dot { animation: none; }
+  .run-card.live svg animate { display: none; }
+}
 .run-card-time {
   color: #7c8792;
   font-size: 1.02em;
