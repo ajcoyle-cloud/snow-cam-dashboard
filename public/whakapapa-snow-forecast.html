@@ -188,6 +188,23 @@
   #orographic-toggle:hover { background: rgba(70,70,80,0.9); }
   #orographic-toggle.active:hover { background: rgba(106,106,122,0.95); }
 
+  /* Tracking-only "recentre on current position" button — same 38px circle/
+     blur/border look as the top icon row above, but bottom-right instead,
+     since nothing in the top row is Tracking-specific. Sits at bottom:92px
+     (clear of #tracking-status's own 20px-tall bottom bar) same convention
+     as #snow-info/#speed-select. Hidden outside Tracking mode (setViewMode). */
+  #tracking-recenter {
+    display: none;
+    position: absolute; bottom: 92px; right: 20px; z-index: 10;
+    background: rgba(54,54,62,0.85); backdrop-filter: blur(14px); color: #fff;
+    border: 1px solid rgba(255,255,255,0.14);
+    width: 38px; height: 38px; border-radius: 50%; cursor: pointer;
+    align-items: center; justify-content: center;
+    box-shadow: 0 4px 24px rgba(0,0,0,0.3);
+    transition: background 0.15s;
+  }
+  #tracking-recenter:hover { background: rgba(70,70,80,0.9); }
+
   /* Tuning panel for the snow-overlay trial — hidden until that toggle is
      on (see toggleSnowOverlay()). Sits below the icon row, clear of
      top-controls/model-switch on the right and #snow-info at the bottom. */
@@ -882,6 +899,15 @@
     <span style="display:flex; align-items:center; gap:8px;"><span class="dot"></span><span id="tracking-count">— points</span></span>
     <span id="tracking-updated">—</span>
   </div>
+  <button id="tracking-recenter" onclick="trackingRecenter()" title="Recentre on current position">
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <circle cx="12" cy="12" r="7"/>
+      <line x1="12" y1="1" x2="12" y2="4"/>
+      <line x1="12" y1="20" x2="12" y2="23"/>
+      <line x1="1" y1="12" x2="4" y2="12"/>
+      <line x1="20" y1="12" x2="23" y2="12"/>
+    </svg>
+  </button>
   <div id="speed-select">
     <button class="speed-btn" data-speed="1" onclick="setSpeed(1)">1×</button>
     <button class="speed-btn active" data-speed="3" onclick="setSpeed(3)">3×</button>
@@ -5685,7 +5711,7 @@ function ensureTrackingLayer() {
   map.addSource('tracking-accuracy-src', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
   map.addLayer({
     id: 'tracking-accuracy-fill', type: 'fill', source: 'tracking-accuracy-src',
-    paint: { 'fill-color': '#f472b6', 'fill-opacity': 0.16 },
+    paint: { 'fill-color': '#ffffff', 'fill-opacity': 0.4 },
     layout: { visibility: 'none' },
   });
   // One source holds both the LineString (the trail so far) and a Point (the
@@ -5797,6 +5823,24 @@ function trackingRelativeTime(tst) {
 // every 15s even when nothing's changed would fight anyone trying to pan
 // around and look at the trail.
 let trackingLastTst = null;
+// Latest known { lat, lon } — kept up to date on every fetch (poll or
+// initial) purely so #tracking-recenter can fly there instantly without
+// needing its own network round-trip; the map's own source data is already
+// fresh as of the last poll, this is just a handle to the same point.
+let trackingLastPoint = null;
+
+// Flies the camera back to the last known position — for whenever someone's
+// panned/zoomed away to inspect the trail and wants to snap back to "where
+// am I now" without waiting for the next poll tick's own auto-follow.
+// Math.max on zoom avoids zooming OUT if they were already closer in than 14.
+function trackingRecenter() {
+  if (!map || !trackingLastPoint) return;
+  map.flyTo({
+    center: [trackingLastPoint.lon, trackingLastPoint.lat],
+    zoom: Math.max(map.getZoom(), 14), pitch: 0, bearing: 0,
+    duration: 800, essential: true,
+  });
+}
 
 // Shared by the initial render (always recentres) and each poll tick (only
 // recentres if a new fix actually landed since the last check). Centres on
@@ -5847,6 +5891,7 @@ async function trackingFetchAndDraw(token, forceRecentre) {
   if (!last) return;
   const isNewFix = last.tst !== trackingLastTst;
   trackingLastTst = last.tst;
+  trackingLastPoint = { lat: last.lat, lon: last.lon };
 
   if (forceRecentre) {
     // First time this view has opened this session — fly in properly with a
@@ -5951,6 +5996,7 @@ function setViewMode(mode) {
   document.getElementById('radar-timeline').style.display = mode === 'radar' ? 'flex' : 'none';
   document.getElementById('isobar-timeline').style.display = mode === 'isobars' ? 'flex' : 'none';
   document.getElementById('tracking-status').style.display = mode === 'tracking' ? 'flex' : 'none';
+  document.getElementById('tracking-recenter').style.display = mode === 'tracking' ? 'flex' : 'none';
   document.getElementById('map-screen').classList.toggle('live-mode', mode === 'live');
   document.getElementById('map-screen').classList.toggle('accum-mode', mode === 'accumulated');
   document.getElementById('map-screen').classList.toggle('radar-mode', mode === 'radar');
