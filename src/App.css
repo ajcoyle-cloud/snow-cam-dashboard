@@ -1896,54 +1896,12 @@
   flex-shrink: 0;
 }
 
-/* ── Swipe-between-runs carousel ─────────────────────────────────────────
-   Native horizontal scroll-snap, not a custom drag handler — touch swipe,
-   momentum and rubber-banding all come from the browser for free. Each
-   slide is 82% of the wrap's width with a visible gap, so the previous/
-   next runs peek in from the edges; side padding on the row lets the FIRST
-   and LAST slide still scroll to a centred position instead of being stuck
-   flush against the edge. */
+/* ── Run view: ONE shared full-bleed map (RunCarousel flies it between runs
+   rather than mounting a separate map per run) + floating stats panel. ──── */
 .run-carousel-wrap {
   position: relative;
   height: 100%;
   min-height: 100vh;
-  background: #0b0f14;
-}
-.run-carousel {
-  display: flex;
-  height: 100%;
-  min-height: 100vh;
-  overflow-x: auto;
-  overflow-y: hidden;
-  scroll-snap-type: x mandatory;
-  gap: 14px;
-  padding: 0 9%;
-  scrollbar-width: none;
-  -webkit-overflow-scrolling: touch;
-}
-.run-carousel::-webkit-scrollbar {
-  display: none;
-}
-.run-slide {
-  position: relative;
-  flex: 0 0 82%;
-  height: 100%;
-  min-height: 100vh;
-  scroll-snap-align: center;
-  scroll-snap-stop: always;
-  /* No border-radius+overflow:hidden here — a WebGL canvas (the map)
-     nested inside an ancestor with both set fails to composite at all on
-     iOS Safari (renders nothing, not even a plain background-color layer),
-     while working fine everywhere else. Confirmed by "Map status: ready"
-     showing on screen with a still-black canvas underneath it — MapLibre
-     itself was never in an error/loading state. */
-}
-
-/* ── Run detail: full-bleed map + floating stats panel (one shared back
-   button lives on .run-carousel-wrap instead, see above) ──────────────── */
-.run-detail {
-  position: absolute;
-  inset: 0;
   background: #0b0f14;
 }
 .run-detail-map-wrap {
@@ -2019,18 +1977,87 @@
   opacity: 0.35;
   cursor: default;
 }
+/* Same "on" treatment as the main map's #rotate-toggle.active. */
+.run-detail-nav-btn.active {
+  background: rgba(92, 92, 106, 0.95);
+}
+.run-detail-nav-btn.active:hover {
+  background: rgba(106, 106, 122, 0.95);
+}
 .run-detail-panel {
   position: absolute;
   left: 16px;
   right: 16px;
   bottom: 16px;
   z-index: 5;
+  display: flex;
+  align-items: center;
+  gap: 24px;
   background: rgba(18, 24, 31, 0.88);
   backdrop-filter: blur(14px);
   border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: 14px;
   padding: 14px 18px 16px;
   box-shadow: 0 6px 28px rgba(0, 0, 0, 0.4);
+}
+.run-detail-panel-main {
+  flex: 0 0 auto;
+}
+/* Elevation/speed chart lives beside the stats instead of below them —
+   keeps the panel short so it doesn't eat too much of the map above it. */
+.run-elev-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 1;
+  min-width: 0;
+}
+.run-play-btn {
+  flex-shrink: 0;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: rgba(96, 165, 250, 0.18);
+  border: 1px solid rgba(96, 165, 250, 0.4);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+.run-play-btn:hover {
+  background: rgba(96, 165, 250, 0.3);
+}
+/* Playback speed picker — bottom-right corner of the panel. */
+.run-speed-control {
+  position: absolute;
+  bottom: 10px;
+  right: 14px;
+  z-index: 2;
+  display: flex;
+  gap: 2px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 999px;
+  padding: 3px;
+}
+.run-speed-btn {
+  padding: 4px 9px;
+  border-radius: 999px;
+  border: none;
+  background: none;
+  color: #9aa2ab;
+  font-size: 0.7em;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+}
+.run-speed-btn:hover {
+  color: #fff;
+}
+.run-speed-btn.active {
+  background: #60a5fa;
+  color: #0b0f14;
 }
 .run-detail-title {
   font-weight: 700;
@@ -2075,7 +2102,11 @@
    the page/carousel underneath it. */
 .run-elev-chart {
   position: relative;
-  margin-top: 14px;
+  flex: 1;
+  min-width: 0;
+  /* Leaves clear room on the right so the speed-control pill (bottom-right
+     of the panel) doesn't sit on top of the chart's own data. */
+  padding-right: 130px;
 }
 .run-elev-chart svg {
   display: block;
@@ -2113,17 +2144,7 @@
 @media (max-width: 700px) {
   .tracking-page { padding: 20px 16px 40px; }
   .run-list { grid-template-columns: 1fr; }
-  /* Less room to spare on a phone width — a narrower peek keeps the active
-     slide from feeling cramped. */
-  .run-carousel { padding: 0 4%; }
-  .run-slide { flex-basis: 92%; }
-}
-
-/* Desktop: the neighbour-peek is a touch-swipe affordance that doesn't earn
-   its keep on a wide screen with a mouse — the open run should just fill
-   the space. Scrolling sideways (trackpad/shift+wheel) still switches runs,
-   there's just nothing to peek at either side while it does. */
-@media (min-width: 901px) {
-  .run-carousel { padding: 0; gap: 0; }
-  .run-slide { flex-basis: 100%; }
+  /* Not enough width for stats and the chart side by side on a phone. */
+  .run-detail-panel { flex-direction: column; align-items: stretch; }
+  .run-elev-row { margin-top: 12px; }
 }

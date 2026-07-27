@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { ChevronLeft, ChevronRight, Settings, Timer, Ruler, ArrowDownRight, Gauge, Mountain } from 'lucide-react'
+import { ChevronLeft, ChevronRight, RotateCw, Settings, Play, Pause, Timer, Ruler, ArrowDownRight, Gauge, Mountain } from 'lucide-react'
 
 // ── Fake demo data ──────────────────────────────────────────────────────
 // Three dummy runs, one down each of three real Whakapapa lift corridors —
@@ -63,19 +63,30 @@ const WEST_RIDGE_BASE_TO_TOP = [
   [175.556804, -39.2551241],
   [175.5569488, -39.2553181],
 ]
-// Red lift lines drawn on the tracking map — same 3 lifts the demo runs are
-// built from, same colour/width/opacity as the main map's own lift layer
-// (applyLiftDataForResort in whakapapa-snow-forecast.html: #e60000, 2.8,
-// 0.9) so it reads as the same visual language.
-const TRACKING_LIFT_LINES_GEOJSON = {
-  type: 'FeatureCollection',
-  features: [
-    { type: 'Feature', properties: { name: 'Sky Waka Gondola' }, geometry: { type: 'LineString', coordinates: SKYWAKA_GONDOLA_BASE_TO_TOP } },
-    { type: 'Feature', properties: { name: 'Rangatira Express Quad Chair' }, geometry: { type: 'LineString', coordinates: RANGATIRA_BASE_TO_TOP } },
-    { type: 'Feature', properties: { name: 'West Ridge Chair' }, geometry: { type: 'LineString', coordinates: WEST_RIDGE_BASE_TO_TOP } },
-  ],
-}
+// Red lift lines drawn on the tracking map — the WHOLE Whakapapa lift
+// network (not just the 3 lifts the demo runs are built from), same literal
+// dataset as WHAKAPAPA_LIFTS in whakapapa-snow-forecast.html, and the same
+// colour/width/opacity as that file's own lift layer (applyLiftDataForResort:
+// #e60000, 2.8, 0.9) so it reads as the same visual language.
+const TRACKING_LIFT_LINES_GEOJSON = {"type":"FeatureCollection","features":[{"type":"Feature","geometry":{"type":"LineString","coordinates":[[175.5579073,-39.2370985],[175.5580218,-39.2372995],[175.5582403,-39.237683],[175.5583433,-39.2378638],[175.5587525,-39.2385822],[175.5590186,-39.2390494],[175.5593301,-39.239596],[175.5597208,-39.2402818],[175.5600575,-39.2408729],[175.5604117,-39.2414947],[175.5606518,-39.2419161],[175.5607915,-39.2421614],[175.5610851,-39.2426768],[175.5611627,-39.2428129]]},"properties":{"aerialway":"chair_lift","aerialway:occupancy":"4","name":"Rangatira Express Quad Chair","ref":"J"}},{"type":"Feature","geometry":{"type":"LineString","coordinates":[[175.5631117,-39.2513945],[175.5631894,-39.2518343],[175.5633132,-39.2525353],[175.5634256,-39.2531715],[175.5635946,-39.2541285],[175.5637612,-39.2550714],[175.5639561,-39.2561749],[175.5640797,-39.2568743],[175.5641997,-39.2575538],[175.5643238,-39.2582561],[175.5644193,-39.2587965],[175.5645364,-39.2594595]]},"properties":{"aerialway":"t-bar","name":"Knoll Ridge T-Bar","piste:lift":"t-bar","ref":"M"}},{"type":"Feature","geometry":{"type":"LineString","coordinates":[[175.5627205,-39.2496241],[175.5627025,-39.2502387],[175.5626832,-39.2508933],[175.5626628,-39.2515911],[175.5626582,-39.2517473],[175.5626413,-39.2523223],[175.5626278,-39.2527828],[175.5626091,-39.2534175],[175.5625908,-39.2540418],[175.5625842,-39.2542665]]},"properties":{"aerialway":"chair_lift","aerialway:occupancy":"4","name":"Delta Quad Chair","piste:lift":"t-bar","ref":"L"}},{"type":"Feature","geometry":{"type":"LineString","coordinates":[[175.5513071,-39.2477585],[175.5515862,-39.2481326],[175.5520058,-39.2486948],[175.5524502,-39.2492902],[175.552962,-39.2499761],[175.5534835,-39.2506749],[175.5538805,-39.2512069],[175.5542805,-39.2517428],[175.5545969,-39.2521668],[175.5549047,-39.2525792],[175.5551922,-39.2529645],[175.5555746,-39.2534768],[175.5559292,-39.2539519],[175.5561757,-39.2542822],[175.556804,-39.2551241],[175.5569488,-39.2553181]]},"properties":{"aerialway":"chair_lift","aerialway:occupancy":"4","name":"West Ridge Chair","ref":"B"}},{"type":"Feature","geometry":{"type":"LineString","coordinates":[[175.5529419,-39.2547952],[175.5530109,-39.2548997],[175.5532619,-39.2552798],[175.55387,-39.2562006],[175.554211,-39.256717],[175.554687,-39.2574377],[175.5551032,-39.258068],[175.5555632,-39.2587644],[175.5560508,-39.2595027],[175.5566064,-39.260344],[175.5571564,-39.2611768],[175.5575115,-39.2617144],[175.5578929,-39.262292]]},"properties":{"aerialway":"t-bar","name":"Far West T-Bar","piste:lift":"t-bar","ref":"A"}},{"type":"Feature","geometry":{"type":"LineString","coordinates":[[175.5647318,-39.2512253],[175.5652256,-39.2518137],[175.5658514,-39.2525593],[175.5662414,-39.2530241],[175.5665602,-39.2534076],[175.5674044,-39.2544128],[175.5679379,-39.2550491],[175.5685599,-39.2557908],[175.5691079,-39.2564334],[175.5691231,-39.2564533]]},"properties":{"aerialway":"t-bar","name":"Valley T-Bar","piste:lift":"t-bar","ref":"N"}},{"type":"Feature","geometry":{"type":"LineString","coordinates":[[175.5558395,-39.2340932],[175.5560873,-39.2344784],[175.5565717,-39.2352313],[175.5569876,-39.2358778],[175.5572997,-39.236363],[175.5574367,-39.2365759]]},"properties":{"aerialway":"chair_lift","aerialway:occupancy":"2","name":"Double Happy Chair","ref":"E"}},{"type":"Feature","geometry":{"type":"LineString","coordinates":[[175.5564901,-39.234172],[175.5574924,-39.2352269]]},"properties":{"aerialway":"magic_carpet","name":"Carpet 4","ref":"F"}},{"type":"Feature","geometry":{"type":"LineString","coordinates":[[175.5576663,-39.2367192],[175.5590528,-39.236468]]},"properties":{"aerialway":"magic_carpet","name":"Carpet 1","ref":"G"}},{"type":"Feature","geometry":{"type":"LineString","coordinates":[[175.5562448,-39.2350692],[175.5566294,-39.2363323]]},"properties":{"aerialway":"magic_carpet","name":"Carpet 3"}},{"type":"Feature","geometry":{"type":"LineString","coordinates":[[175.5563678,-39.2357365],[175.5565371,-39.2363502]]},"properties":{"aerialway":"magic_carpet","name":"Carpet 2 (sledding)"}},{"type":"Feature","geometry":{"type":"LineString","coordinates":[[175.5577305,-39.2371913],[175.5581591,-39.238178],[175.5588528,-39.2397746],[175.5596365,-39.2415785],[175.5602875,-39.2430768],[175.5609715,-39.2446512],[175.5616563,-39.2462273],[175.561689,-39.2463026],[175.5621302,-39.2473181],[175.562605,-39.2484108],[175.5630741,-39.2494906],[175.5637066,-39.2509461],[175.564149,-39.2519642],[175.5642725,-39.2522485]]},"properties":{"aerialway":"gondola","aerialway:bicycle":"no","aerialway:duration":"5","aerialway:heating":"no","aerialway:occupancy":"10","name":"Sky Waka Gondola","oneway":"no"}},{"type":"Feature","geometry":{"type":"LineString","coordinates":[[175.5691231,-39.2564533],[175.5695604,-39.2569748]]},"properties":{"aerialway":"t-bar","name":"Valley T-Bar","piste:lift":"t-bar","ref":"N"}}]}
 const METERS_PER_DEG_LAT = 111320
+
+// Winter snow's spawn volume — resort-wide (derived from the whole lift
+// network's own bounding box) rather than per-run, since there's one shared
+// map/camera now (see RunCarousel) and ambient snow shouldn't need to be
+// rebuilt every time the active run changes.
+const RESORT_SNOW_AREA = (() => {
+  const coords = TRACKING_LIFT_LINES_GEOJSON.features.flatMap(f => f.geometry.coordinates)
+  const lons = coords.map(c => c[0]), lats = coords.map(c => c[1])
+  const minLon = Math.min(...lons), maxLon = Math.max(...lons)
+  const minLat = Math.min(...lats), maxLat = Math.max(...lats)
+  return {
+    center: [(minLon + maxLon) / 2, (minLat + maxLat) / 2],
+    spawnRadiusDeg: Math.max(maxLon - minLon, maxLat - minLat) * 0.7,
+    topAlt: 2300,
+    bottomAlt: 1500,
+  }
+})()
 
 function seededRandom(seed) {
   let s = seed >>> 0
@@ -357,6 +368,27 @@ function runToLineGeoJSON(points) {
   return { type: 'FeatureCollection', features }
 }
 
+function runEndsGeoJSON(run) {
+  return {
+    type: 'FeatureCollection',
+    features: [
+      { type: 'Feature', properties: { label: 'start' }, geometry: { type: 'Point', coordinates: [run.points[0].lon, run.points[0].lat] } },
+      { type: 'Feature', properties: { label: 'end' }, geometry: { type: 'Point', coordinates: [run.points[run.points.length - 1].lon, run.points[run.points.length - 1].lat] } },
+    ],
+  }
+}
+
+function runBoundsArr(run) {
+  const lons = run.points.map(p => p.lon), lats = run.points.map(p => p.lat)
+  return [[Math.min(...lons), Math.min(...lats)], [Math.max(...lons), Math.max(...lats)]]
+}
+
+// bearing "up the slope" for a run — see bearingDeg below for why.
+function runUpSlopeBearing(run) {
+  const top = run.points[0], base = run.points[run.points.length - 1]
+  return bearingDeg(base.lat, base.lon, top.lat, top.lon)
+}
+
 // ── Settings-cog toggles (Winter snow / Dark mode) for the tracking map ────
 // Winter snow is a literal port of the main map's "3D snow particles" trial
 // (createSnowLayer/toggleSnowParticles in whakapapa-snow-forecast.html): raw
@@ -461,16 +493,13 @@ function createSnowLayer({ center, topAlt, bottomAlt, spawnRadiusDeg, particleCo
 
 // Idempotent — safe to call repeatedly with the same `active` value from
 // both the map's initial 'load' handler and the settings-change effect.
-function applyWinterSnow(map, run, active, animHandleRef) {
+// `area` is resort-wide (see RESORT_SNOW_AREA) rather than per-run — there's
+// one shared map/camera now (see RunCarousel), not one WebGL context per
+// run, so ambient snow no longer needs to be recomputed on every run switch.
+function applyWinterSnow(map, area, active, animHandleRef) {
   if (active) {
     if (!map.getLayer('run-snow-particles')) {
-      const lons = run.points.map(p => p.lon), lats = run.points.map(p => p.lat)
-      const alts = run.points.map(p => p.alt ?? 0)
-      const spawnRadiusDeg = Math.max(Math.max(...lons) - Math.min(...lons), Math.max(...lats) - Math.min(...lats), 0.006) * 1.4
-      const center = [(Math.max(...lons) + Math.min(...lons)) / 2, (Math.max(...lats) + Math.min(...lats)) / 2]
-      const topAlt = Math.max(...alts) + 300
-      const bottomAlt = Math.max(0, Math.min(...alts) - 150)
-      map.addLayer(createSnowLayer({ center, topAlt, bottomAlt, spawnRadiusDeg }))
+      map.addLayer(createSnowLayer(area))
     }
     if (!animHandleRef.current) {
       const loop = () => {
@@ -499,38 +528,64 @@ function applyDarkMode(map, enabled) {
   if (map.getLayer('background')) map.setPaintProperty('background', 'background-color', enabled ? '#05080d' : '#2d5a1b')
 }
 
+// Cumulative distance/segment data shared by the chart (its own rendering)
+// and RunCarousel (mapping playback's elapsed time to a chart position and
+// looking up points by index) — computed once per run rather than twice.
+function buildElevationProfile(points) {
+  const cum = [0]
+  for (let i = 1; i < points.length; i++) {
+    cum.push(cum[i - 1] + haversineMeters(points[i - 1].lat, points[i - 1].lon, points[i].lat, points[i].lon))
+  }
+  const alts = points.map(p => p.alt ?? 0)
+  const minAlt = Math.min(...alts), maxAlt = Math.max(...alts)
+  const totalDist = cum[cum.length - 1] || 1
+  const segments = []
+  for (let i = 1; i < points.length; i++) {
+    segments.push({ x1: cum[i - 1] / totalDist, x2: cum[i] / totalDist, a1: alts[i - 1], a2: alts[i], color: speedColor(points[i].vel) })
+  }
+  return { segments, cumDist: cum, minAlt, maxAlt, totalDist }
+}
+
 // ── Elevation/speed profile — cross-section of the descent, altitude on the
 // Y axis against cumulative distance on the X axis, coloured per-segment by
 // the same speed ramp as the map line/thumbnail so "correlating speed" reads
 // as one consistent visual language across the whole feature. Hovering (or
 // dragging a finger, on touch) shows speed/altitude/distance-so-far at that
 // point — dead simple nearest-point-by-distance lookup, no interpolation.
-function ElevationSpeedChart({ points, height = 108 }) {
+// Doubles as the playback timeslider: `playheadIndex` (a point index, or
+// null) draws a persistent marker when not being actively touched, and
+// `onScrub(index)` fires on click/drag/touch so dragging along the chart
+// seeks playback.
+function ElevationSpeedChart({ points, profile, playheadIndex, onScrub, height = 100 }) {
+  const wrapRef = useRef(null)
   const svgRef = useRef(null)
   const [hover, setHover] = useState(null)
-  const W = 600
+  // 1 viewBox unit === 1 real rendered pixel, kept in sync via ResizeObserver
+  // — a fixed viewBox width stretched non-uniformly to fit whatever the
+  // container's actual (different) aspect ratio turned out to be, which
+  // distorted the hover dot into an ellipse and the line strokes into
+  // inconsistent widths. Matching them 1:1 removes any scaling distortion.
+  const [W, setW] = useState(300)
 
-  const { segments, cumDist, minAlt, maxAlt, totalDist } = useMemo(() => {
-    const cum = [0]
-    for (let i = 1; i < points.length; i++) {
-      cum.push(cum[i - 1] + haversineMeters(points[i - 1].lat, points[i - 1].lon, points[i].lat, points[i].lon))
-    }
-    const alts = points.map(p => p.alt ?? 0)
-    const minAlt = Math.min(...alts), maxAlt = Math.max(...alts)
-    const totalDist = cum[cum.length - 1] || 1
-    const segs = []
-    for (let i = 1; i < points.length; i++) {
-      segs.push({ x1: cum[i - 1] / totalDist, x2: cum[i] / totalDist, a1: alts[i - 1], a2: alts[i], color: speedColor(points[i].vel) })
-    }
-    return { segments: segs, cumDist: cum, minAlt, maxAlt, totalDist }
-  }, [points])
+  useEffect(() => {
+    const el = wrapRef.current
+    if (!el || typeof ResizeObserver === 'undefined') return
+    const ro = new ResizeObserver((entries) => {
+      const w = entries[0]?.contentRect?.width
+      if (w) setW(w)
+    })
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [])
+
+  const { segments, cumDist, minAlt, maxAlt, totalDist } = profile
 
   const altRange = (maxAlt - minAlt) || 1
   const toY = (alt) => (height - 10) - ((alt - minAlt) / altRange) * (height - 20)
 
-  const handleMove = (clientX) => {
+  const indexForClientX = (clientX) => {
     const svg = svgRef.current
-    if (!svg) return
+    if (!svg) return null
     const rect = svg.getBoundingClientRect()
     const frac = Math.min(1, Math.max(0, (clientX - rect.left) / rect.width))
     const targetDist = frac * totalDist
@@ -540,8 +595,15 @@ function ElevationSpeedChart({ points, height = 108 }) {
       if (cumDist[mid] < targetDist) lo = mid + 1
       else hi = mid
     }
-    const p = points[lo]
-    setHover({ frac: cumDist[lo] / totalDist, alt: p.alt, speed: p.vel, distKm: cumDist[lo] / 1000 })
+    return lo
+  }
+
+  const handlePointer = (clientX, scrub) => {
+    const idx = indexForClientX(clientX)
+    if (idx == null) return
+    const p = points[idx]
+    setHover({ frac: cumDist[idx] / totalDist, alt: p.alt, speed: p.vel, distKm: cumDist[idx] / 1000 })
+    if (scrub && onScrub) onScrub(idx)
   }
 
   const lastSeg = segments[segments.length - 1]
@@ -550,18 +612,24 @@ function ElevationSpeedChart({ points, height = 108 }) {
       ` L${W},${toY(lastSeg.a2).toFixed(1)} L${W},${height} Z`
     : ''
 
+  // Prefer the interactive hover/drag point; fall back to the passed-in
+  // playback position so the marker keeps moving on its own while playing.
+  const marker = hover || (playheadIndex != null
+    ? { frac: cumDist[playheadIndex] / totalDist, alt: points[playheadIndex].alt, speed: points[playheadIndex].vel }
+    : null)
+
   return (
-    <div className="run-elev-chart">
+    <div className="run-elev-chart" ref={wrapRef}>
       <svg
         ref={svgRef}
         viewBox={`0 0 ${W} ${height}`}
-        preserveAspectRatio="none"
         width="100%"
         height={height}
-        onMouseMove={(e) => handleMove(e.clientX)}
+        onMouseMove={(e) => handlePointer(e.clientX, e.buttons === 1)}
+        onMouseDown={(e) => handlePointer(e.clientX, true)}
         onMouseLeave={() => setHover(null)}
-        onTouchStart={(e) => handleMove(e.touches[0].clientX)}
-        onTouchMove={(e) => { e.preventDefault(); handleMove(e.touches[0].clientX) }}
+        onTouchStart={(e) => handlePointer(e.touches[0].clientX, true)}
+        onTouchMove={(e) => { e.preventDefault(); handlePointer(e.touches[0].clientX, true) }}
         onTouchEnd={() => setHover(null)}
       >
         <defs>
@@ -579,10 +647,10 @@ function ElevationSpeedChart({ points, height = 108 }) {
             stroke={s.color} strokeWidth="2.5" strokeLinecap="round"
           />
         ))}
-        {hover && (
+        {marker && (
           <g>
-            <line x1={(hover.frac * W).toFixed(1)} y1="2" x2={(hover.frac * W).toFixed(1)} y2={height - 2} stroke="rgba(255,255,255,0.35)" strokeWidth="1.5" />
-            <circle cx={(hover.frac * W).toFixed(1)} cy={toY(hover.alt).toFixed(1)} r="4.5" fill="#fff" stroke={speedColor(hover.speed)} strokeWidth="2.5" />
+            <line x1={(marker.frac * W).toFixed(1)} y1="2" x2={(marker.frac * W).toFixed(1)} y2={height - 2} stroke="rgba(255,255,255,0.35)" strokeWidth="1.5" />
+            <circle cx={(marker.frac * W).toFixed(1)} cy={toY(marker.alt).toFixed(1)} r="4.5" fill="#fff" stroke={speedColor(marker.speed)} strokeWidth="2.5" />
           </g>
         )}
       </svg>
@@ -613,38 +681,273 @@ function bearingDeg(lat1, lon1, lat2, lon2) {
   return (toDeg(Math.atan2(y, x)) + 360) % 360
 }
 
-// ── Detail view: the run's full line on a real 3D map ──────────────────────
-// Same terrain+hillshade+pitch style as the main resort map (initMap() in
-// whakapapa-snow-forecast.html) — this used to be a flat pitch:0 satellite-
-// only view, but "plotted on the 3D map" means matching that oblique terrain
-// look, not a top-down plan view.
-function RunDetail({ run, winterSnow, darkMode, isActive, hasPrev, hasNext, onPrev, onNext }) {
+// ── Run panel: title/stats + playback controls (play/pause, scrubbable
+// elevation chart, speed picker) — no map here; RunCarousel owns the one
+// shared map instance and just flies it to whichever run this panel is
+// currently showing.
+const PLAYBACK_SPEEDS = [1, 3, 5, 10]
+
+function RunPanel({ run, profile, isPlaying, onTogglePlay, playheadIndex, onScrub, playbackSpeed, onSetSpeed }) {
+  const { stats } = run
+  return (
+    <div className="run-detail-panel">
+      <div className="run-detail-panel-main">
+        <div className="run-detail-title">
+          {run.name}
+          {run.isReal && <span className="run-real-badge">REAL</span>}
+        </div>
+        <div className="run-detail-sub">{fmtTime(run.startedAt)}{run.priorLift ? ` · via ${run.priorLift}` : ''}</div>
+        <div className="run-detail-stats">
+          <div><Timer size={15} strokeWidth={2} /><span>{fmtDuration(stats.durationSec)}</span><small>Duration</small></div>
+          <div><Ruler size={15} strokeWidth={2} /><span>{stats.distanceKm.toFixed(2)} km</span><small>Distance</small></div>
+          <div><Mountain size={15} strokeWidth={2} /><span>{Math.round(stats.verticalM)} m</span><small>Vertical</small></div>
+          <div><Gauge size={15} strokeWidth={2} /><span>{Math.round(stats.avgSpeedKmh)} km/h</span><small>Avg speed</small></div>
+          <div><Gauge size={15} strokeWidth={2} /><span>{Math.round(stats.maxSpeedKmh)} km/h</span><small>Max speed</small></div>
+        </div>
+      </div>
+      <div className="run-elev-row">
+        <button
+          className="run-play-btn"
+          onClick={onTogglePlay}
+          aria-label={isPlaying ? 'Pause playback' : 'Play route'}
+          title={isPlaying ? 'Pause playback' : 'Play route'}
+        >
+          {isPlaying ? <Pause size={18} strokeWidth={2.25} /> : <Play size={18} strokeWidth={2.25} />}
+        </button>
+        <ElevationSpeedChart points={run.points} profile={profile} playheadIndex={playheadIndex} onScrub={onScrub} />
+      </div>
+      <div className="run-speed-control">
+        {PLAYBACK_SPEEDS.map((s) => (
+          <button
+            key={s}
+            className={`run-speed-btn${playbackSpeed === s ? ' active' : ''}`}
+            onClick={() => onSetSpeed(s)}
+          >
+            {s}x
+          </button>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+const CHASE_ZOOM = 16.5
+const CHASE_PITCH = 70
+const CHASE_DISTANCE_M = 70 // metres behind the marker the chase camera sits
+
+// Binary-searches `run.points` for the last point whose elapsed time (since
+// the run started) is <= elapsedSec — drives both auto-playback and manual
+// chart scrubbing off the same lookup.
+function pointIndexAtElapsed(run, elapsedSec) {
+  const pts = run.points
+  const t0 = pts[0].tst
+  let lo = 0, hi = pts.length - 1
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1
+    if (pts[mid].tst - t0 < elapsedSec) lo = mid + 1
+    else hi = mid
+  }
+  return lo
+}
+
+const TRACKING_MAP_SETTINGS_KEY = 'sc-tracking-map-settings'
+function loadTrackingMapSettings() {
+  try { return JSON.parse(localStorage.getItem(TRACKING_MAP_SETTINGS_KEY)) || {} }
+  catch (e) { return {} }
+}
+
+// ── Carousel: ONE shared MapLibre instance for the whole feature — switching
+// runs (prev/next, or tapping a card in the list) flies this same camera to
+// the new run's framing (map.fitBounds with a real duration) instead of
+// mounting a whole new WebGL context per run, which is both cheaper and
+// reads as one continuous flight rather than a hard cut. Playback drives
+// the same camera in a chase-cam view trailing the GPS marker along the
+// route.
+function RunCarousel({ runs, initialRunId, onBack, onActiveChange }) {
   const mapEl = useRef(null)
   const mapRef = useRef(null)
+  const mapReadyRef = useRef(false)
+  const runsRef = useRef(runs)
+  useEffect(() => { runsRef.current = runs }, [runs])
+
+  const [activeRunId, setActiveRunIdState] = useState(initialRunId)
+  const activeRunIdRef = useRef(initialRunId)
+  const activeRun = runs.find((r) => r.id === activeRunId) || runs[0]
+  const activeIndex = runs.findIndex((r) => r.id === activeRunId)
+  const profile = useMemo(() => buildElevationProfile(activeRun.points), [activeRun])
+
+  const [winterSnow, setWinterSnow] = useState(false)
+  const [darkMode, setDarkMode] = useState(false)
+  const [settingsOpen, setSettingsOpen] = useState(false)
+  const settingsRef = useRef(null)
   const snowAnimRef = useRef(null)
-  // Read inside the map's async 'load' handler so a setting toggled in the
-  // brief window between construction and the style actually finishing
-  // load still gets applied — a plain closure over the prop would only see
-  // whatever it was at mount.
-  const darkModeRef = useRef(darkMode)
-  const wantSnowRef = useRef(winterSnow && isActive)
+  // Read inside the map's async 'load' handler, which only ever fires once
+  // right after mount — a plain closure over the winterSnow/darkMode state
+  // variables would still see their initial (false/false) values there,
+  // since the localStorage-loaded values land via a later, separate render.
+  const darkModeRef = useRef(false)
+  const winterSnowRef = useRef(false)
   useEffect(() => { darkModeRef.current = darkMode }, [darkMode])
-  useEffect(() => { wantSnowRef.current = winterSnow && isActive }, [winterSnow, isActive])
+  useEffect(() => { winterSnowRef.current = winterSnow }, [winterSnow])
+
+  const [autoRotateOn, setAutoRotateOn] = useState(true)
+  const autoRotateOnRef = useRef(true)
+  const rotateRampStartRef = useRef(null)
+  const rotateAnimRef = useRef(null)
+  useEffect(() => { autoRotateOnRef.current = autoRotateOn }, [autoRotateOn])
+
+  const [isPlaying, setIsPlaying] = useState(false)
+  const isPlayingRef = useRef(false)
+  const [playbackSpeed, setPlaybackSpeed] = useState(1)
+  const playbackSpeedRef = useRef(1)
+  const [playheadIndex, setPlayheadIndex] = useState(null)
+  const playElapsedRef = useRef(0)
+  const playAnimRef = useRef(null)
+  const lastFrameRef = useRef(null)
+  const lastChartUpdateRef = useRef(0)
+  useEffect(() => { playbackSpeedRef.current = playbackSpeed }, [playbackSpeed])
 
   useEffect(() => {
-    let cancelled = false
+    const saved = loadTrackingMapSettings()
+    setWinterSnow(!!saved.winterSnow)
+    setDarkMode(!!saved.darkMode)
+  }, [])
 
+  useEffect(() => {
+    const onClickOutside = (e) => {
+      if (settingsRef.current && !settingsRef.current.contains(e.target)) setSettingsOpen(false)
+    }
+    document.addEventListener('click', onClickOutside)
+    return () => document.removeEventListener('click', onClickOutside)
+  }, [])
+
+  const saveSettings = (patch) => {
+    const next = { ...loadTrackingMapSettings(), ...patch }
+    try { localStorage.setItem(TRACKING_MAP_SETTINGS_KEY, JSON.stringify(next)) } catch (e) {}
+  }
+
+  // rotateStep/startRotate/stopRotate/armInteractionStop — same easing and
+  // stop-on-interaction pattern as toggleAutoRotate/startAutoRotate in
+  // whakapapa-snow-forecast.html.
+  function rotateStep() {
+    const map = mapRef.current
+    if (!map || !autoRotateOnRef.current || isPlayingRef.current) { rotateAnimRef.current = null; return }
+    let speed = AUTO_ROTATE_SPEED
+    if (rotateRampStartRef.current != null) {
+      const t = Math.min((performance.now() - rotateRampStartRef.current) / AUTO_ROTATE_RAMP_MS, 1)
+      speed = AUTO_ROTATE_SPEED * (t * t)
+      if (t >= 1) rotateRampStartRef.current = null
+    }
+    map.setBearing(map.getBearing() + speed)
+    rotateAnimRef.current = requestAnimationFrame(rotateStep)
+  }
+  function startRotate(ramp) {
+    autoRotateOnRef.current = true
+    setAutoRotateOn(true)
+    if (ramp) rotateRampStartRef.current = performance.now()
+    if (!rotateAnimRef.current) rotateAnimRef.current = requestAnimationFrame(rotateStep)
+    armInteractionStop()
+  }
+  function stopRotate() {
+    autoRotateOnRef.current = false
+    setAutoRotateOn(false)
+    if (rotateAnimRef.current) { cancelAnimationFrame(rotateAnimRef.current); rotateAnimRef.current = null }
+  }
+  function armInteractionStop() {
+    const el = mapEl.current
+    if (!el) return
+    ;['mousedown', 'touchstart', 'wheel'].forEach((evt) =>
+      el.addEventListener(evt, stopRotate, { once: true, passive: true })
+    )
+  }
+
+  // Positions the camera CHASE_DISTANCE_M behind point `idx` along the
+  // reverse of its direction of travel, facing the direction of travel —
+  // "flying directly behind the GPS marker as it moves along the route."
+  function updateSceneForIndex(run, idx) {
+    const map = mapRef.current
+    if (!map) return
+    const p = run.points[idx]
+    const prev = run.points[Math.max(0, idx - 1)]
+    const travelBearing = bearingDeg(prev.lat, prev.lon, p.lat, p.lon)
+    const backRad = ((travelBearing + 180) % 360) * (Math.PI / 180)
+    const mPerDegLon = METERS_PER_DEG_LAT * Math.cos((p.lat * Math.PI) / 180)
+    const dLat = (Math.cos(backRad) * CHASE_DISTANCE_M) / METERS_PER_DEG_LAT
+    const dLon = (Math.sin(backRad) * CHASE_DISTANCE_M) / mPerDegLon
+    map.jumpTo({ center: [p.lon + dLon, p.lat + dLat], bearing: travelBearing, pitch: CHASE_PITCH, zoom: CHASE_ZOOM })
+    const src = map.getSource('play-marker-src')
+    if (src) src.setData({ type: 'Feature', geometry: { type: 'Point', coordinates: [p.lon, p.lat] } })
+  }
+
+  function playTick(now) {
+    if (!isPlayingRef.current) { playAnimRef.current = null; return }
+    const run = runsRef.current.find((r) => r.id === activeRunIdRef.current)
+    if (!run) { playAnimRef.current = requestAnimationFrame(playTick); return }
+    if (lastFrameRef.current == null) lastFrameRef.current = now
+    const dtReal = (now - lastFrameRef.current) / 1000
+    lastFrameRef.current = now
+    playElapsedRef.current += dtReal * playbackSpeedRef.current
+    const totalDur = run.points[run.points.length - 1].tst - run.points[0].tst
+    let finished = false
+    if (playElapsedRef.current >= totalDur) { playElapsedRef.current = totalDur; finished = true }
+    const idx = pointIndexAtElapsed(run, playElapsedRef.current)
+    updateSceneForIndex(run, idx)
+    if (now - lastChartUpdateRef.current > 60) {
+      lastChartUpdateRef.current = now
+      setPlayheadIndex(idx)
+    }
+    if (finished) { stopPlayback(); return }
+    playAnimRef.current = requestAnimationFrame(playTick)
+  }
+
+  function startPlayback() {
+    if (!mapRef.current || !mapReadyRef.current) return
+    stopRotate() // don't fight the chase camera, same as any other camera override
+    isPlayingRef.current = true
+    setIsPlaying(true)
+    lastFrameRef.current = null
+    if (!playAnimRef.current) playAnimRef.current = requestAnimationFrame(playTick)
+  }
+  function stopPlayback() {
+    isPlayingRef.current = false
+    setIsPlaying(false)
+    if (playAnimRef.current) { cancelAnimationFrame(playAnimRef.current); playAnimRef.current = null }
+    lastFrameRef.current = null
+    // Camera/marker stay right where playback left them — only switching
+    // runs (its own flyTo below) resets to an overview.
+  }
+  function togglePlayback() {
+    if (isPlaying) stopPlayback()
+    else startPlayback()
+  }
+  function handleScrub(idx) {
+    if (isPlaying) stopPlayback()
+    const run = activeRun
+    playElapsedRef.current = run.points[idx].tst - run.points[0].tst
+    updateSceneForIndex(run, idx)
+    setPlayheadIndex(idx)
+  }
+
+  const setActiveRunId = (id) => {
+    if (id === activeRunIdRef.current) return
+    stopPlayback()
+    activeRunIdRef.current = id
+    setActiveRunIdState(id)
+    onActiveChange(id)
+  }
+
+  // Build the map once — every later run switch flies this same instance
+  // (see the activeRunId effect below) rather than mounting a new one.
+  useEffect(() => {
+    let cancelled = false
     loadMaplibre()
       .catch((err) => {
         throw new Error('Failed to load MapLibre script/CSS: ' + (err?.message || err))
       })
       .then((maplibregl) => {
         if (cancelled || !mapEl.current) return
-        // points[0] is the top of the run (see buildFakeRun) and the last
-        // point is the base — bearing FROM base TO top orients "up the
-        // slope" as "up the screen".
-        const top = run.points[0], base = run.points[run.points.length - 1]
-        const bearing = bearingDeg(base.lat, base.lon, top.lat, top.lon)
+        const initialRun = runsRef.current.find((r) => r.id === activeRunIdRef.current) || runsRef.current[0]
+        const bearing = runUpSlopeBearing(initialRun)
         const map = new maplibregl.Map({
           container: mapEl.current,
           style: {
@@ -674,7 +977,7 @@ function RunDetail({ run, winterSnow, darkMode, isActive, hasPrev, hasNext, onPr
             ],
             terrain: { source: 'terrain', exaggeration: 1.2 },
           },
-          center: [run.points[0].lon, run.points[0].lat],
+          center: [initialRun.points[0].lon, initialRun.points[0].lat],
           zoom: 14,
           pitch: 60,
           bearing,
@@ -683,18 +986,11 @@ function RunDetail({ run, winterSnow, darkMode, isActive, hasPrev, hasNext, onPr
         })
         mapRef.current = map
 
-        // No on-screen error surfacing — this was a debugging aid for
-        // tracking down a since-fixed load-order bug (see git history);
-        // console-only now that the map reliably renders.
-        map.on('error', (e) => {
-          console.error('tracking map error:', e?.error || e)
-        })
+        map.on('error', (e) => console.error('tracking map error:', e?.error || e))
 
-        // Same fix as initMap() in whakapapa-snow-forecast.html: MapLibre reads
-        // the container's actual pixel size at construction time, and a slide
-        // inside the flex/scroll-snap carousel isn't guaranteed to be at its
-        // final size the instant the map is built. A one-shot resize() plus
-        // watching the container catches any layout settling afterward.
+        // Same fix as initMap() in whakapapa-snow-forecast.html: MapLibre
+        // reads the container's actual pixel size at construction time,
+        // which isn't guaranteed settled the instant the map is built.
         try {
           map.resize()
           if (typeof ResizeObserver !== 'undefined') {
@@ -706,30 +1002,23 @@ function RunDetail({ run, winterSnow, darkMode, isActive, hasPrev, hasNext, onPr
 
         map.on('load', () => {
           if (cancelled) return
-          // Red lift lines — added first so the run's own coloured line and
-          // start/end markers always draw on top of them.
+          // Red lift lines — added first so the run's own coloured line,
+          // start/end markers and playback marker always draw on top.
           map.addSource('tracking-lifts-src', { type: 'geojson', data: TRACKING_LIFT_LINES_GEOJSON })
           map.addLayer({
             id: 'tracking-lifts-line', type: 'line', source: 'tracking-lifts-src',
             layout: { 'line-cap': 'round' },
             paint: { 'line-color': '#e60000', 'line-width': 2.8, 'line-opacity': 0.9 },
           })
-          map.addSource('run-line-src', { type: 'geojson', data: runToLineGeoJSON(run.points) })
+          // Data-only sources from here — switching the active run just
+          // calls .setData() on these, it never re-adds them.
+          map.addSource('run-line-src', { type: 'geojson', data: runToLineGeoJSON(initialRun.points) })
           map.addLayer({
             id: 'run-line', type: 'line', source: 'run-line-src',
             paint: { 'line-color': ['get', 'color'], 'line-width': 5 },
             layout: { 'line-cap': 'round', 'line-join': 'round' },
           })
-          map.addSource('run-ends-src', {
-            type: 'geojson',
-            data: {
-              type: 'FeatureCollection',
-              features: [
-                { type: 'Feature', properties: { label: 'start' }, geometry: { type: 'Point', coordinates: [run.points[0].lon, run.points[0].lat] } },
-                { type: 'Feature', properties: { label: 'end' }, geometry: { type: 'Point', coordinates: [run.points[run.points.length - 1].lon, run.points[run.points.length - 1].lat] } },
-              ],
-            },
-          })
+          map.addSource('run-ends-src', { type: 'geojson', data: runEndsGeoJSON(initialRun) })
           map.addLayer({
             id: 'run-ends', type: 'circle', source: 'run-ends-src',
             paint: {
@@ -738,177 +1027,61 @@ function RunDetail({ run, winterSnow, darkMode, isActive, hasPrev, hasNext, onPr
               'circle-stroke-width': 2, 'circle-stroke-color': '#ffffff',
             },
           })
-          const lons = run.points.map(p => p.lon), lats = run.points.map(p => p.lat)
-          map.fitBounds(
-            [[Math.min(...lons), Math.min(...lats)], [Math.max(...lons), Math.max(...lats)]],
-            { padding: 64, pitch: 60, bearing, duration: 0 }
-          )
-          // Initial apply of whatever the settings-cog toggles are already
-          // set to (covers the race where they were flipped before 'load').
+          map.addSource('play-marker-src', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } })
+          map.addLayer({
+            id: 'play-marker', type: 'circle', source: 'play-marker-src',
+            paint: { 'circle-radius': 9, 'circle-color': '#60a5fa', 'circle-stroke-width': 3, 'circle-stroke-color': '#ffffff' },
+          })
+
+          map.fitBounds(runBoundsArr(initialRun), { padding: 64, pitch: 60, bearing, duration: 0 })
           applyDarkMode(map, darkModeRef.current)
-          applyWinterSnow(map, run, wantSnowRef.current, snowAnimRef)
+          applyWinterSnow(map, RESORT_SNOW_AREA, winterSnowRef.current, snowAnimRef)
+          mapReadyRef.current = true
+          startRotate(true)
         })
       })
-      .catch((err) => {
-        console.error('tracking map failed to load:', err)
-      })
+      .catch((err) => console.error('tracking map failed to load:', err))
 
     return () => {
       cancelled = true
       if (snowAnimRef.current) { cancelAnimationFrame(snowAnimRef.current); snowAnimRef.current = null }
+      if (rotateAnimRef.current) { cancelAnimationFrame(rotateAnimRef.current); rotateAnimRef.current = null }
+      if (playAnimRef.current) { cancelAnimationFrame(playAnimRef.current); playAnimRef.current = null }
       if (mapRef.current) { mapRef.current.remove(); mapRef.current = null }
     }
-  }, [run])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
-  // Live-react to the settings cog after the map's already loaded.
+  // Live-react to the settings cog after the map's already loaded. If the
+  // map isn't ready yet, do nothing — the 'load' handler above already
+  // applies whatever darkModeRef/winterSnowRef hold as its last step.
   useEffect(() => {
     const map = mapRef.current
-    if (!map) return
-    const apply = () => applyDarkMode(map, darkMode)
-    if (map.isStyleLoaded()) apply()
-    else map.once('load', apply)
+    if (!map || !mapReadyRef.current) return
+    applyDarkMode(map, darkMode)
   }, [darkMode])
 
   useEffect(() => {
     const map = mapRef.current
-    if (!map) return
-    const want = winterSnow && isActive
-    const apply = () => applyWinterSnow(map, run, want, snowAnimRef)
-    if (map.isStyleLoaded()) apply()
-    else map.once('load', apply)
-  }, [winterSnow, isActive, run])
+    if (!map || !mapReadyRef.current) return
+    applyWinterSnow(map, RESORT_SNOW_AREA, winterSnow, snowAnimRef)
+  }, [winterSnow])
 
-  const { stats } = run
-  return (
-    <div className="run-detail">
-      {/* The inner div is what gets passed to `new maplibregl.Map({container})`
-          — MapLibre attaches its own "maplibregl-map" class to that exact
-          element, and its CSS (loaded later, so it wins any same-specificity
-          tie) sets position:relative, silently overriding a position:absolute
-          set via a class on that same element and turning inset:0 into a
-          no-op (container collapses to 0 height, since its only child —
-          MapLibre's internal canvas wrapper — is itself absolutely
-          positioned and so contributes nothing to auto layout). The outer
-          wrapper owns the absolute/inset positioning instead; the inner one
-          only ever needs width/height:100%, same as #map/#map-screen in
-          whakapapa-snow-forecast.html (which sidesteps this entirely by
-          keying off an ID, which always wins specificity regardless of
-          load order, and never needing position:absolute on #map itself). */}
-      <div className="run-detail-map-wrap">
-        <div className="run-detail-map" ref={mapEl} />
-      </div>
-      <div className="run-detail-nav">
-        <button className="run-detail-nav-btn" onClick={onPrev} disabled={!hasPrev} aria-label="Previous run">
-          <ChevronLeft size={20} strokeWidth={2.25} />
-        </button>
-        <button className="run-detail-nav-btn" onClick={onNext} disabled={!hasNext} aria-label="Next run">
-          <ChevronRight size={20} strokeWidth={2.25} />
-        </button>
-      </div>
-      <div className="run-detail-panel">
-        <div className="run-detail-title">
-          {run.name}
-          {run.isReal && <span className="run-real-badge">REAL</span>}
-        </div>
-        <div className="run-detail-sub">{fmtTime(run.startedAt)}{run.priorLift ? ` · via ${run.priorLift}` : ''}</div>
-        <div className="run-detail-stats">
-          <div><Timer size={15} strokeWidth={2} /><span>{fmtDuration(stats.durationSec)}</span><small>Duration</small></div>
-          <div><Ruler size={15} strokeWidth={2} /><span>{stats.distanceKm.toFixed(2)} km</span><small>Distance</small></div>
-          <div><Mountain size={15} strokeWidth={2} /><span>{Math.round(stats.verticalM)} m</span><small>Vertical</small></div>
-          <div><Gauge size={15} strokeWidth={2} /><span>{Math.round(stats.avgSpeedKmh)} km/h</span><small>Avg speed</small></div>
-          <div><Gauge size={15} strokeWidth={2} /><span>{Math.round(stats.maxSpeedKmh)} km/h</span><small>Max speed</small></div>
-        </div>
-        <ElevationSpeedChart points={run.points} />
-      </div>
-    </div>
-  )
-}
-
-// ── Carousel: swipe sideways between runs, each centred with a peek of its
-// neighbours — a native horizontal scroll-snap row rather than a custom
-// drag handler, so touch swipe/momentum/rubber-banding all come for free.
-// One shared back button (fixed to the wrapper, not per-slide); each slide
-// is its own full RunDetail (own map + own stats panel). At the current
-// scale (a handful of runs) every slide's map mounts immediately rather
-// than virtualising by distance from the active slide — fine for now, worth
-// revisiting if the run list ever grows to the point that N live WebGL
-// contexts at once becomes a real cost.
-const TRACKING_MAP_SETTINGS_KEY = 'sc-tracking-map-settings'
-function loadTrackingMapSettings() {
-  try { return JSON.parse(localStorage.getItem(TRACKING_MAP_SETTINGS_KEY)) || {} }
-  catch (e) { return {} }
-}
-
-function RunCarousel({ runs, initialRunId, onBack, onActiveChange }) {
-  const containerRef = useRef(null)
-  const slideRefs = useRef({})
-  // Tracked locally (separate from the parent's openRunId) so winter-snow's
-  // animation loop can be gated to only the centred slide — every slide's
-  // map is mounted at once for the peek, and running N particle animations
-  // simultaneously would be wasted GPU/battery on the ones barely visible.
-  const [activeRunId, setActiveRunId] = useState(initialRunId)
-  const [winterSnow, setWinterSnow] = useState(false)
-  const [darkMode, setDarkMode] = useState(false)
-  const [settingsOpen, setSettingsOpen] = useState(false)
-  const settingsRef = useRef(null)
-
+  // Fly the SAME map to the newly active run instead of mounting a new one.
   useEffect(() => {
-    const saved = loadTrackingMapSettings()
-    setWinterSnow(!!saved.winterSnow)
-    setDarkMode(!!saved.darkMode)
-  }, [])
-
-  useEffect(() => {
-    const onClickOutside = (e) => {
-      if (settingsRef.current && !settingsRef.current.contains(e.target)) setSettingsOpen(false)
-    }
-    document.addEventListener('click', onClickOutside)
-    return () => document.removeEventListener('click', onClickOutside)
-  }, [])
-
-  const saveSettings = (patch) => {
-    const next = { ...loadTrackingMapSettings(), ...patch }
-    try { localStorage.setItem(TRACKING_MAP_SETTINGS_KEY, JSON.stringify(next)) } catch (e) {}
-  }
-
-  const scrollToRun = (id) => {
-    const el = slideRefs.current[id]
-    if (el) el.scrollIntoView({ inline: 'center', block: 'nearest', behavior: 'smooth' })
-  }
-
-  // Scroll to the run that was actually tapped, once, on mount — later
-  // prop changes (e.g. onActiveChange firing as the user swipes) must NOT
-  // re-trigger this, or it'd fight their own scroll gesture.
-  useEffect(() => {
-    const el = slideRefs.current[initialRunId]
-    if (el) el.scrollIntoView({ inline: 'center', block: 'nearest', behavior: 'instant' })
+    const map = mapRef.current
+    if (!map || !mapReadyRef.current) return
+    const run = runs.find((r) => r.id === activeRunId)
+    if (!run) return
+    if (map.getSource('run-line-src')) map.getSource('run-line-src').setData(runToLineGeoJSON(run.points))
+    if (map.getSource('run-ends-src')) map.getSource('run-ends-src').setData(runEndsGeoJSON(run))
+    if (map.getSource('play-marker-src')) map.getSource('play-marker-src').setData({ type: 'FeatureCollection', features: [] })
+    const bearing = runUpSlopeBearing(run)
+    map.fitBounds(runBoundsArr(run), { padding: 64, pitch: 60, bearing, duration: 1200 })
+    setPlayheadIndex(null)
+    playElapsedRef.current = 0
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
-
-  useEffect(() => {
-    const container = containerRef.current
-    if (!container) return
-    let raf = null
-    const onScroll = () => {
-      if (raf) return
-      raf = requestAnimationFrame(() => {
-        raf = null
-        const containerRect = container.getBoundingClientRect()
-        const centerX = containerRect.left + containerRect.width / 2
-        let closest = null, closestDist = Infinity
-        for (const run of runs) {
-          const el = slideRefs.current[run.id]
-          if (!el) continue
-          const r = el.getBoundingClientRect()
-          const dist = Math.abs((r.left + r.width / 2) - centerX)
-          if (dist < closestDist) { closestDist = dist; closest = run }
-        }
-        if (closest) { onActiveChange(closest.id); setActiveRunId(closest.id) }
-      })
-    }
-    container.addEventListener('scroll', onScroll, { passive: true })
-    return () => container.removeEventListener('scroll', onScroll)
-  }, [runs, onActiveChange])
+  }, [activeRunId])
 
   return (
     <div className="run-carousel-wrap">
@@ -946,29 +1119,49 @@ function RunCarousel({ runs, initialRunId, onBack, onActiveChange }) {
           </div>
         )}
       </div>
-      <div className="run-carousel" ref={containerRef}>
-        {runs.map((run, index) => (
-          <div key={run.id} className="run-slide" ref={(el) => { slideRefs.current[run.id] = el }}>
-            <RunDetail
-              run={run}
-              winterSnow={winterSnow}
-              darkMode={darkMode}
-              isActive={run.id === activeRunId}
-              hasPrev={index > 0}
-              hasNext={index < runs.length - 1}
-              onPrev={() => scrollToRun(runs[index - 1]?.id)}
-              onNext={() => scrollToRun(runs[index + 1]?.id)}
-            />
-          </div>
-        ))}
+      <div className="run-detail-map-wrap">
+        <div className="run-detail-map" ref={mapEl} />
       </div>
+      <div className="run-detail-nav">
+        <button
+          className="run-detail-nav-btn"
+          onClick={() => activeIndex > 0 && setActiveRunId(runs[activeIndex - 1].id)}
+          disabled={activeIndex <= 0}
+          aria-label="Previous run"
+        >
+          <ChevronLeft size={20} strokeWidth={2.25} />
+        </button>
+        <button
+          className={`run-detail-nav-btn${autoRotateOn ? ' active' : ''}`}
+          onClick={() => (autoRotateOn ? stopRotate() : startRotate(true))}
+          aria-label={autoRotateOn ? 'Pause map rotation' : 'Resume map rotation'}
+          title={autoRotateOn ? 'Pause map rotation' : 'Resume map rotation'}
+        >
+          <RotateCw size={18} strokeWidth={2.25} />
+        </button>
+        <button
+          className="run-detail-nav-btn"
+          onClick={() => activeIndex < runs.length - 1 && setActiveRunId(runs[activeIndex + 1].id)}
+          disabled={activeIndex >= runs.length - 1}
+          aria-label="Next run"
+        >
+          <ChevronRight size={20} strokeWidth={2.25} />
+        </button>
+      </div>
+      <RunPanel
+        run={activeRun}
+        profile={profile}
+        isPlaying={isPlaying}
+        onTogglePlay={togglePlayback}
+        playheadIndex={playheadIndex}
+        onScrub={handleScrub}
+        playbackSpeed={playbackSpeed}
+        onSetSpeed={setPlaybackSpeed}
+      />
     </div>
   )
 }
 
-// ── Top-level page: list <-> detail, own dark UI, no map-mode-toggle
-// involvement — this used to be a pill inside the Map tab's own iframe
-// (whakapapa-snow-forecast.html's viewMode), now a real top-level tab. ────
 export default function TrackingPage() {
   const [openRunId, setOpenRunId] = useState(null)
   // null while loading/unavailable — the real run only appears once (if)
