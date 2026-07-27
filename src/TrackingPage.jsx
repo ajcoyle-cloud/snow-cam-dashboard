@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { ChevronLeft, Timer, Ruler, ArrowDownRight, Gauge, Mountain } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Settings, Timer, Ruler, ArrowDownRight, Gauge, Mountain } from 'lucide-react'
 
 // ── Fake demo data ──────────────────────────────────────────────────────
 // Three dummy runs, one down each of three real Whakapapa lift corridors —
@@ -63,6 +63,18 @@ const WEST_RIDGE_BASE_TO_TOP = [
   [175.556804, -39.2551241],
   [175.5569488, -39.2553181],
 ]
+// Red lift lines drawn on the tracking map — same 3 lifts the demo runs are
+// built from, same colour/width/opacity as the main map's own lift layer
+// (applyLiftDataForResort in whakapapa-snow-forecast.html: #e60000, 2.8,
+// 0.9) so it reads as the same visual language.
+const TRACKING_LIFT_LINES_GEOJSON = {
+  type: 'FeatureCollection',
+  features: [
+    { type: 'Feature', properties: { name: 'Sky Waka Gondola' }, geometry: { type: 'LineString', coordinates: SKYWAKA_GONDOLA_BASE_TO_TOP } },
+    { type: 'Feature', properties: { name: 'Rangatira Express Quad Chair' }, geometry: { type: 'LineString', coordinates: RANGATIRA_BASE_TO_TOP } },
+    { type: 'Feature', properties: { name: 'West Ridge Chair' }, geometry: { type: 'LineString', coordinates: WEST_RIDGE_BASE_TO_TOP } },
+  ],
+}
 const METERS_PER_DEG_LAT = 111320
 
 function seededRandom(seed) {
@@ -271,7 +283,7 @@ function RouteThumbnail({ points, height = 130 }) {
       </defs>
       <rect width="100%" height="100%" fill="url(#thumb-bg)" />
       <rect width="100%" height="100%" fill="url(#thumb-grid)" />
-      <path d={pathD} fill="none" stroke="#f472b6" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round" opacity="0.95" />
+      <path d={pathD} fill="none" stroke="#60a5fa" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round" opacity="0.95" />
     </svg>
   )
 }
@@ -345,25 +357,282 @@ function runToLineGeoJSON(points) {
   return { type: 'FeatureCollection', features }
 }
 
+// ── Settings-cog toggles (Winter snow / Dark mode) for the tracking map ────
+// Winter snow is a literal port of the main map's "3D snow particles" trial
+// (createSnowLayer/toggleSnowParticles in whakapapa-snow-forecast.html): raw
+// WebGL point sprites positioned via MercatorCoordinate.fromLngLat(lngLat,
+// altitudeMeters) — the same 3D space the terrain itself renders into, so
+// depth-testing occludes flakes behind ridges correctly. Spawn area/altitude
+// band is scaled to the run's own bounding box rather than the whole-resort
+// radius the original used, since a single run's framing is much tighter.
+// `window.maplibregl` is used directly (not threaded through as a param) —
+// by the time this layer's render() ever runs, the map itself already
+// required it to be loaded.
+function createSnowLayer({ center, topAlt, bottomAlt, spawnRadiusDeg, particleCount = 400 }) {
+  const FALL_SPEED = 40 // metres/sec — tuned by eye, not physically modelled
+  const lngs = new Float64Array(particleCount)
+  const lats = new Float64Array(particleCount)
+  const alts = new Float64Array(particleCount)
+  const phases = new Float32Array(particleCount)
+  const sways = new Float32Array(particleCount)
+  const verts = new Float32Array(particleCount * 3)
+
+  function respawn(i, randomAltitude) {
+    const ang = Math.random() * Math.PI * 2
+    const r = Math.random() * spawnRadiusDeg
+    lngs[i] = center[0] + (Math.cos(ang) * r) / Math.cos((center[1] * Math.PI) / 180)
+    lats[i] = center[1] + Math.sin(ang) * r
+    alts[i] = randomAltitude ? bottomAlt + Math.random() * (topAlt - bottomAlt) : topAlt
+    phases[i] = Math.random() * Math.PI * 2
+    sways[i] = 0.00015 + Math.random() * 0.00025
+  }
+  for (let i = 0; i < particleCount; i++) respawn(i, true)
+
+  let program, buffer, aPos, uMatrix, lastT = null
+
+  return {
+    id: 'run-snow-particles',
+    type: 'custom',
+    renderingMode: '3d',
+    onAdd(map, gl) {
+      const compile = (type, src) => {
+        const s = gl.createShader(type)
+        gl.shaderSource(s, src)
+        gl.compileShader(s)
+        return s
+      }
+      program = gl.createProgram()
+      gl.attachShader(program, compile(gl.VERTEX_SHADER, `
+        uniform mat4 u_matrix;
+        attribute vec3 a_pos;
+        void main() {
+          gl_Position = u_matrix * vec4(a_pos, 1.0);
+          gl_PointSize = 6.0;
+        }
+      `))
+      // A pure white dot barely shows up against snow-covered white terrain —
+      // gives each flake a soft dark rim around a white core so it reads
+      // against light and dark backgrounds alike.
+      gl.attachShader(program, compile(gl.FRAGMENT_SHADER, `
+        precision mediump float;
+        void main() {
+          float dist = length(gl_PointCoord - vec2(0.5));
+          if (dist > 0.5) discard;
+          float core = 1.0 - smoothstep(0.24, 0.4, dist);
+          float rim = smoothstep(0.24, 0.4, dist) * (1.0 - smoothstep(0.4, 0.5, dist));
+          vec3 color = mix(vec3(0.2, 0.28, 0.4), vec3(1.0), core);
+          gl_FragColor = vec4(color, max(core, rim * 0.7));
+        }
+      `))
+      gl.linkProgram(program)
+      aPos = gl.getAttribLocation(program, 'a_pos')
+      uMatrix = gl.getUniformLocation(program, 'u_matrix')
+      buffer = gl.createBuffer()
+    },
+    render(gl, matrix) {
+      const now = performance.now()
+      const dt = lastT == null ? 0 : Math.min(0.1, (now - lastT) / 1000)
+      lastT = now
+      for (let i = 0; i < particleCount; i++) {
+        alts[i] -= FALL_SPEED * dt
+        phases[i] += dt
+        if (alts[i] < bottomAlt) respawn(i, false)
+        const swayLng = Math.sin(phases[i]) * sways[i]
+        const mc = window.maplibregl.MercatorCoordinate.fromLngLat([lngs[i] + swayLng, lats[i]], alts[i])
+        verts[i * 3] = mc.x; verts[i * 3 + 1] = mc.y; verts[i * 3 + 2] = mc.z
+      }
+      gl.useProgram(program)
+      gl.uniformMatrix4fv(uMatrix, false, matrix)
+      gl.bindBuffer(gl.ARRAY_BUFFER, buffer)
+      gl.bufferData(gl.ARRAY_BUFFER, verts, gl.DYNAMIC_DRAW)
+      gl.enableVertexAttribArray(aPos)
+      gl.vertexAttribPointer(aPos, 3, gl.FLOAT, false, 0, 0)
+      gl.enable(gl.BLEND)
+      gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
+      gl.enable(gl.DEPTH_TEST)
+      // Flakes shouldn't occlude each other/write into the depth buffer —
+      // only terrain should ever block them.
+      gl.depthMask(false)
+      gl.drawArrays(gl.POINTS, 0, particleCount)
+      gl.depthMask(true)
+    },
+  }
+}
+
+// Idempotent — safe to call repeatedly with the same `active` value from
+// both the map's initial 'load' handler and the settings-change effect.
+function applyWinterSnow(map, run, active, animHandleRef) {
+  if (active) {
+    if (!map.getLayer('run-snow-particles')) {
+      const lons = run.points.map(p => p.lon), lats = run.points.map(p => p.lat)
+      const alts = run.points.map(p => p.alt ?? 0)
+      const spawnRadiusDeg = Math.max(Math.max(...lons) - Math.min(...lons), Math.max(...lats) - Math.min(...lats), 0.006) * 1.4
+      const center = [(Math.max(...lons) + Math.min(...lons)) / 2, (Math.max(...lats) + Math.min(...lats)) / 2]
+      const topAlt = Math.max(...alts) + 300
+      const bottomAlt = Math.max(0, Math.min(...alts) - 150)
+      map.addLayer(createSnowLayer({ center, topAlt, bottomAlt, spawnRadiusDeg }))
+    }
+    if (!animHandleRef.current) {
+      const loop = () => {
+        map.triggerRepaint()
+        animHandleRef.current = requestAnimationFrame(loop)
+      }
+      loop()
+    }
+  } else {
+    if (animHandleRef.current) { cancelAnimationFrame(animHandleRef.current); animHandleRef.current = null }
+    if (map.getLayer('run-snow-particles')) map.removeLayer('run-snow-particles')
+  }
+}
+
+// A scaled-down equivalent of the main map's settings-cog "Dark mode" (which
+// swaps in a whole custom dark-terrain raster protocol + contour lines +
+// country outline — overkill for a single run's simple satellite+hillshade
+// style): hides the satellite photo and deepens the background/hillshade so
+// the terrain relief still reads clearly against a darker basemap.
+function applyDarkMode(map, enabled) {
+  if (map.getLayer('satellite')) map.setLayoutProperty('satellite', 'visibility', enabled ? 'none' : 'visible')
+  if (map.getLayer('depth-shade')) {
+    map.setPaintProperty('depth-shade', 'hillshade-exaggeration', enabled ? 1.0 : 0.6)
+    map.setPaintProperty('depth-shade', 'hillshade-shadow-color', enabled ? 'rgba(0,0,0,0.55)' : 'rgba(30,20,10,0.45)')
+  }
+  if (map.getLayer('background')) map.setPaintProperty('background', 'background-color', enabled ? '#05080d' : '#2d5a1b')
+}
+
+// ── Elevation/speed profile — cross-section of the descent, altitude on the
+// Y axis against cumulative distance on the X axis, coloured per-segment by
+// the same speed ramp as the map line/thumbnail so "correlating speed" reads
+// as one consistent visual language across the whole feature. Hovering (or
+// dragging a finger, on touch) shows speed/altitude/distance-so-far at that
+// point — dead simple nearest-point-by-distance lookup, no interpolation.
+function ElevationSpeedChart({ points, height = 108 }) {
+  const svgRef = useRef(null)
+  const [hover, setHover] = useState(null)
+  const W = 600
+
+  const { segments, cumDist, minAlt, maxAlt, totalDist } = useMemo(() => {
+    const cum = [0]
+    for (let i = 1; i < points.length; i++) {
+      cum.push(cum[i - 1] + haversineMeters(points[i - 1].lat, points[i - 1].lon, points[i].lat, points[i].lon))
+    }
+    const alts = points.map(p => p.alt ?? 0)
+    const minAlt = Math.min(...alts), maxAlt = Math.max(...alts)
+    const totalDist = cum[cum.length - 1] || 1
+    const segs = []
+    for (let i = 1; i < points.length; i++) {
+      segs.push({ x1: cum[i - 1] / totalDist, x2: cum[i] / totalDist, a1: alts[i - 1], a2: alts[i], color: speedColor(points[i].vel) })
+    }
+    return { segments: segs, cumDist: cum, minAlt, maxAlt, totalDist }
+  }, [points])
+
+  const altRange = (maxAlt - minAlt) || 1
+  const toY = (alt) => (height - 10) - ((alt - minAlt) / altRange) * (height - 20)
+
+  const handleMove = (clientX) => {
+    const svg = svgRef.current
+    if (!svg) return
+    const rect = svg.getBoundingClientRect()
+    const frac = Math.min(1, Math.max(0, (clientX - rect.left) / rect.width))
+    const targetDist = frac * totalDist
+    let lo = 0, hi = cumDist.length - 1
+    while (lo < hi) {
+      const mid = (lo + hi) >> 1
+      if (cumDist[mid] < targetDist) lo = mid + 1
+      else hi = mid
+    }
+    const p = points[lo]
+    setHover({ frac: cumDist[lo] / totalDist, alt: p.alt, speed: p.vel, distKm: cumDist[lo] / 1000 })
+  }
+
+  const lastSeg = segments[segments.length - 1]
+  const areaPath = lastSeg
+    ? `M0,${height} ` + segments.map(s => `L${(s.x1 * W).toFixed(1)},${toY(s.a1).toFixed(1)}`).join(' ') +
+      ` L${W},${toY(lastSeg.a2).toFixed(1)} L${W},${height} Z`
+    : ''
+
+  return (
+    <div className="run-elev-chart">
+      <svg
+        ref={svgRef}
+        viewBox={`0 0 ${W} ${height}`}
+        preserveAspectRatio="none"
+        width="100%"
+        height={height}
+        onMouseMove={(e) => handleMove(e.clientX)}
+        onMouseLeave={() => setHover(null)}
+        onTouchStart={(e) => handleMove(e.touches[0].clientX)}
+        onTouchMove={(e) => { e.preventDefault(); handleMove(e.touches[0].clientX) }}
+        onTouchEnd={() => setHover(null)}
+      >
+        <defs>
+          <linearGradient id="elev-fill" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor="rgba(96,165,250,0.28)" />
+            <stop offset="100%" stopColor="rgba(96,165,250,0)" />
+          </linearGradient>
+        </defs>
+        <path d={areaPath} fill="url(#elev-fill)" />
+        {segments.map((s, i) => (
+          <line
+            key={i}
+            x1={(s.x1 * W).toFixed(1)} y1={toY(s.a1).toFixed(1)}
+            x2={(s.x2 * W).toFixed(1)} y2={toY(s.a2).toFixed(1)}
+            stroke={s.color} strokeWidth="2.5" strokeLinecap="round"
+          />
+        ))}
+        {hover && (
+          <g>
+            <line x1={(hover.frac * W).toFixed(1)} y1="2" x2={(hover.frac * W).toFixed(1)} y2={height - 2} stroke="rgba(255,255,255,0.35)" strokeWidth="1.5" />
+            <circle cx={(hover.frac * W).toFixed(1)} cy={toY(hover.alt).toFixed(1)} r="4.5" fill="#fff" stroke={speedColor(hover.speed)} strokeWidth="2.5" />
+          </g>
+        )}
+      </svg>
+      {hover && (
+        <div className="run-elev-tooltip" style={{ left: `${Math.min(92, Math.max(8, hover.frac * 100))}%` }}>
+          <span><Gauge size={12} strokeWidth={2} /> {Math.round(hover.speed)} km/h</span>
+          <span><Mountain size={12} strokeWidth={2} /> {Math.round(hover.alt)} m</span>
+          <span><Ruler size={12} strokeWidth={2} /> {hover.distKm.toFixed(2)} km</span>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// Compass bearing (degrees, 0-360) from point 1 to point 2 — used to orient
+// the default camera "looking up the mountain towards the peak" rather than
+// an arbitrary north-up view: MapLibre's `bearing` is the compass direction
+// that renders as "up" on screen, so setting it to the base->top bearing
+// puts the summit at the far/top edge of the pitched view, exactly as if
+// standing at the bottom looking up the slope.
+function bearingDeg(lat1, lon1, lat2, lon2) {
+  const toRad = (d) => (d * Math.PI) / 180
+  const toDeg = (r) => (r * 180) / Math.PI
+  const phi1 = toRad(lat1), phi2 = toRad(lat2)
+  const dLon = toRad(lon2 - lon1)
+  const y = Math.sin(dLon) * Math.cos(phi2)
+  const x = Math.cos(phi1) * Math.sin(phi2) - Math.sin(phi1) * Math.cos(phi2) * Math.cos(dLon)
+  return (toDeg(Math.atan2(y, x)) + 360) % 360
+}
+
 // ── Detail view: the run's full line on a real 3D map ──────────────────────
 // Same terrain+hillshade+pitch style as the main resort map (initMap() in
 // whakapapa-snow-forecast.html) — this used to be a flat pitch:0 satellite-
 // only view, but "plotted on the 3D map" means matching that oblique terrain
 // look, not a top-down plan view.
-function RunDetail({ run }) {
+function RunDetail({ run, winterSnow, darkMode, isActive, hasPrev, hasNext, onPrev, onNext }) {
   const mapEl = useRef(null)
   const mapRef = useRef(null)
-  // Surfaced on screen rather than only in devtools — a real phone has no
-  // console to check, and the sandbox this was built in can't reach any of
-  // these CDN/tile hosts to reproduce failures, so a silent blank map gives
-  // no way to diagnose it remotely. 'slow' fires if 'load' hasn't happened
-  // after a few seconds (still probably just slow tiles, not broken).
-  const [mapStatus, setMapStatus] = useState('loading')
-  const [mapError, setMapError] = useState(null)
+  const snowAnimRef = useRef(null)
+  // Read inside the map's async 'load' handler so a setting toggled in the
+  // brief window between construction and the style actually finishing
+  // load still gets applied — a plain closure over the prop would only see
+  // whatever it was at mount.
+  const darkModeRef = useRef(darkMode)
+  const wantSnowRef = useRef(winterSnow && isActive)
+  useEffect(() => { darkModeRef.current = darkMode }, [darkMode])
+  useEffect(() => { wantSnowRef.current = winterSnow && isActive }, [winterSnow, isActive])
 
   useEffect(() => {
     let cancelled = false
-    const slowTimer = setTimeout(() => setMapStatus((s) => (s === 'loading' ? 'slow' : s)), 6000)
 
     loadMaplibre()
       .catch((err) => {
@@ -371,6 +640,11 @@ function RunDetail({ run }) {
       })
       .then((maplibregl) => {
         if (cancelled || !mapEl.current) return
+        // points[0] is the top of the run (see buildFakeRun) and the last
+        // point is the base — bearing FROM base TO top orients "up the
+        // slope" as "up the screen".
+        const top = run.points[0], base = run.points[run.points.length - 1]
+        const bearing = bearingDeg(base.lat, base.lon, top.lat, top.lon)
         const map = new maplibregl.Map({
           container: mapEl.current,
           style: {
@@ -403,17 +677,17 @@ function RunDetail({ run }) {
           center: [run.points[0].lon, run.points[0].lat],
           zoom: 14,
           pitch: 60,
+          bearing,
           maxPitch: 85,
           attributionControl: false,
         })
         mapRef.current = map
 
-        // Surface any style/tile error instead of leaving a silent blank
-        // canvas — this is the only way to see what's actually failing on a
-        // device with no console attached.
+        // No on-screen error surfacing — this was a debugging aid for
+        // tracking down a since-fixed load-order bug (see git history);
+        // console-only now that the map reliably renders.
         map.on('error', (e) => {
-          if (cancelled) return
-          setMapError(e?.error?.message || String(e?.error || 'Unknown map error'))
+          console.error('tracking map error:', e?.error || e)
         })
 
         // Same fix as initMap() in whakapapa-snow-forecast.html: MapLibre reads
@@ -432,7 +706,14 @@ function RunDetail({ run }) {
 
         map.on('load', () => {
           if (cancelled) return
-          setMapStatus('ready')
+          // Red lift lines — added first so the run's own coloured line and
+          // start/end markers always draw on top of them.
+          map.addSource('tracking-lifts-src', { type: 'geojson', data: TRACKING_LIFT_LINES_GEOJSON })
+          map.addLayer({
+            id: 'tracking-lifts-line', type: 'line', source: 'tracking-lifts-src',
+            layout: { 'line-cap': 'round' },
+            paint: { 'line-color': '#e60000', 'line-width': 2.8, 'line-opacity': 0.9 },
+          })
           map.addSource('run-line-src', { type: 'geojson', data: runToLineGeoJSON(run.points) })
           map.addLayer({
             id: 'run-line', type: 'line', source: 'run-line-src',
@@ -460,20 +741,42 @@ function RunDetail({ run }) {
           const lons = run.points.map(p => p.lon), lats = run.points.map(p => p.lat)
           map.fitBounds(
             [[Math.min(...lons), Math.min(...lats)], [Math.max(...lons), Math.max(...lats)]],
-            { padding: 64, pitch: 60, duration: 0 }
+            { padding: 64, pitch: 60, bearing, duration: 0 }
           )
+          // Initial apply of whatever the settings-cog toggles are already
+          // set to (covers the race where they were flipped before 'load').
+          applyDarkMode(map, darkModeRef.current)
+          applyWinterSnow(map, run, wantSnowRef.current, snowAnimRef)
         })
       })
       .catch((err) => {
-        if (!cancelled) setMapError(err?.message || String(err))
+        console.error('tracking map failed to load:', err)
       })
 
     return () => {
       cancelled = true
-      clearTimeout(slowTimer)
+      if (snowAnimRef.current) { cancelAnimationFrame(snowAnimRef.current); snowAnimRef.current = null }
       if (mapRef.current) { mapRef.current.remove(); mapRef.current = null }
     }
   }, [run])
+
+  // Live-react to the settings cog after the map's already loaded.
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map) return
+    const apply = () => applyDarkMode(map, darkMode)
+    if (map.isStyleLoaded()) apply()
+    else map.once('load', apply)
+  }, [darkMode])
+
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map) return
+    const want = winterSnow && isActive
+    const apply = () => applyWinterSnow(map, run, want, snowAnimRef)
+    if (map.isStyleLoaded()) apply()
+    else map.once('load', apply)
+  }, [winterSnow, isActive, run])
 
   const { stats } = run
   return (
@@ -494,8 +797,13 @@ function RunDetail({ run }) {
       <div className="run-detail-map-wrap">
         <div className="run-detail-map" ref={mapEl} />
       </div>
-      <div className={`run-detail-map-status${mapError ? ' run-detail-map-status--error' : ''}`}>
-        {mapError ? `Map error: ${mapError}` : `Map status: ${mapStatus}`}
+      <div className="run-detail-nav">
+        <button className="run-detail-nav-btn" onClick={onPrev} disabled={!hasPrev} aria-label="Previous run">
+          <ChevronLeft size={20} strokeWidth={2.25} />
+        </button>
+        <button className="run-detail-nav-btn" onClick={onNext} disabled={!hasNext} aria-label="Next run">
+          <ChevronRight size={20} strokeWidth={2.25} />
+        </button>
       </div>
       <div className="run-detail-panel">
         <div className="run-detail-title">
@@ -510,6 +818,7 @@ function RunDetail({ run }) {
           <div><Gauge size={15} strokeWidth={2} /><span>{Math.round(stats.avgSpeedKmh)} km/h</span><small>Avg speed</small></div>
           <div><Gauge size={15} strokeWidth={2} /><span>{Math.round(stats.maxSpeedKmh)} km/h</span><small>Max speed</small></div>
         </div>
+        <ElevationSpeedChart points={run.points} />
       </div>
     </div>
   )
@@ -524,9 +833,48 @@ function RunDetail({ run }) {
 // than virtualising by distance from the active slide — fine for now, worth
 // revisiting if the run list ever grows to the point that N live WebGL
 // contexts at once becomes a real cost.
+const TRACKING_MAP_SETTINGS_KEY = 'sc-tracking-map-settings'
+function loadTrackingMapSettings() {
+  try { return JSON.parse(localStorage.getItem(TRACKING_MAP_SETTINGS_KEY)) || {} }
+  catch (e) { return {} }
+}
+
 function RunCarousel({ runs, initialRunId, onBack, onActiveChange }) {
   const containerRef = useRef(null)
   const slideRefs = useRef({})
+  // Tracked locally (separate from the parent's openRunId) so winter-snow's
+  // animation loop can be gated to only the centred slide — every slide's
+  // map is mounted at once for the peek, and running N particle animations
+  // simultaneously would be wasted GPU/battery on the ones barely visible.
+  const [activeRunId, setActiveRunId] = useState(initialRunId)
+  const [winterSnow, setWinterSnow] = useState(false)
+  const [darkMode, setDarkMode] = useState(false)
+  const [settingsOpen, setSettingsOpen] = useState(false)
+  const settingsRef = useRef(null)
+
+  useEffect(() => {
+    const saved = loadTrackingMapSettings()
+    setWinterSnow(!!saved.winterSnow)
+    setDarkMode(!!saved.darkMode)
+  }, [])
+
+  useEffect(() => {
+    const onClickOutside = (e) => {
+      if (settingsRef.current && !settingsRef.current.contains(e.target)) setSettingsOpen(false)
+    }
+    document.addEventListener('click', onClickOutside)
+    return () => document.removeEventListener('click', onClickOutside)
+  }, [])
+
+  const saveSettings = (patch) => {
+    const next = { ...loadTrackingMapSettings(), ...patch }
+    try { localStorage.setItem(TRACKING_MAP_SETTINGS_KEY, JSON.stringify(next)) } catch (e) {}
+  }
+
+  const scrollToRun = (id) => {
+    const el = slideRefs.current[id]
+    if (el) el.scrollIntoView({ inline: 'center', block: 'nearest', behavior: 'smooth' })
+  }
 
   // Scroll to the run that was actually tapped, once, on mount — later
   // prop changes (e.g. onActiveChange firing as the user swipes) must NOT
@@ -555,7 +903,7 @@ function RunCarousel({ runs, initialRunId, onBack, onActiveChange }) {
           const dist = Math.abs((r.left + r.width / 2) - centerX)
           if (dist < closestDist) { closestDist = dist; closest = run }
         }
-        if (closest) onActiveChange(closest.id)
+        if (closest) { onActiveChange(closest.id); setActiveRunId(closest.id) }
       })
     }
     container.addEventListener('scroll', onScroll, { passive: true })
@@ -567,10 +915,50 @@ function RunCarousel({ runs, initialRunId, onBack, onActiveChange }) {
       <button className="run-detail-back" onClick={onBack} aria-label="Back to Tracking">
         <ChevronLeft size={22} strokeWidth={2.25} />
       </button>
+      <div className="run-carousel-settings" ref={settingsRef}>
+        <button className="map-settings-toggle" onClick={() => setSettingsOpen((o) => !o)} aria-label="Map settings" title="Map settings">
+          <Settings size={18} />
+        </button>
+        {settingsOpen && (
+          <div className="map-settings-dropdown">
+            <label className="map-settings-row">
+              <span>Winter snow</span>
+              <span className="map-settings-switch">
+                <input
+                  type="checkbox"
+                  checked={winterSnow}
+                  onChange={(e) => { setWinterSnow(e.target.checked); saveSettings({ winterSnow: e.target.checked }) }}
+                />
+                <span className="map-settings-switch-track"></span>
+              </span>
+            </label>
+            <label className="map-settings-row">
+              <span>Dark mode</span>
+              <span className="map-settings-switch">
+                <input
+                  type="checkbox"
+                  checked={darkMode}
+                  onChange={(e) => { setDarkMode(e.target.checked); saveSettings({ darkMode: e.target.checked }) }}
+                />
+                <span className="map-settings-switch-track"></span>
+              </span>
+            </label>
+          </div>
+        )}
+      </div>
       <div className="run-carousel" ref={containerRef}>
-        {runs.map((run) => (
+        {runs.map((run, index) => (
           <div key={run.id} className="run-slide" ref={(el) => { slideRefs.current[run.id] = el }}>
-            <RunDetail run={run} />
+            <RunDetail
+              run={run}
+              winterSnow={winterSnow}
+              darkMode={darkMode}
+              isActive={run.id === activeRunId}
+              hasPrev={index > 0}
+              hasNext={index < runs.length - 1}
+              onPrev={() => scrollToRun(runs[index - 1]?.id)}
+              onNext={() => scrollToRun(runs[index + 1]?.id)}
+            />
           </div>
         ))}
       </div>
