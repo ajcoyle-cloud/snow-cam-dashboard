@@ -56,7 +56,7 @@
   #map { width: 100%; height: 100%; }
 
   /* ── Timeline scrubber (play/pause + draggable slider) ─────────────────── */
-  #timeline, #live-timeline, #radar-timeline, #isobar-timeline {
+  #timeline, #live-timeline, #radar-timeline, #isobar-timeline, #tracking-status {
     position: absolute; left: 20px; right: 20px; bottom: 20px; z-index: 10;
     display: flex; align-items: center; gap: 14px;
     background: rgba(0,0,0,0.6);
@@ -64,7 +64,17 @@
     border-radius: 30px; padding: 10px 18px;
     box-shadow: 0 6px 26px rgba(0,0,0,0.35);
   }
-  #live-timeline, #radar-timeline, #isobar-timeline { display: none; }
+  #live-timeline, #radar-timeline, #isobar-timeline, #tracking-status { display: none; }
+  #tracking-status { color: #fff; font-size: 0.85rem; justify-content: space-between; }
+  #tracking-status .dot {
+    width: 8px; height: 8px; border-radius: 50%; background: #4ade80; flex-shrink: 0;
+    box-shadow: 0 0 0 0 rgba(74,222,128,0.6); animation: tracking-pulse 2s infinite;
+  }
+  @keyframes tracking-pulse {
+    0% { box-shadow: 0 0 0 0 rgba(74,222,128,0.55); }
+    70% { box-shadow: 0 0 0 8px rgba(74,222,128,0); }
+    100% { box-shadow: 0 0 0 0 rgba(74,222,128,0); }
+  }
   #tl-play, #ltl-play, #rtl-play, #isbtl-play {
     flex-shrink: 0; background: rgba(255,255,255,0.14); color: #fff; border: none;
     width: 38px; height: 38px; border-radius: 50%; cursor: pointer;
@@ -788,6 +798,7 @@
       <button class="pill-btn" data-mode="accumulated" onclick="setViewMode('accumulated')">Accum</button>
       <button class="pill-btn" data-mode="radar" onclick="setViewMode('radar')">Radar</button>
       <button class="pill-btn" data-mode="isobars" onclick="setViewMode('isobars')">Isobars</button>
+      <button class="pill-btn" data-mode="tracking" onclick="setViewMode('tracking')">Tracking</button>
     </div>
     <div class="pill-group" id="period-switch">
       <button class="pill-btn active" data-days="5" onclick="setPeriod(5)">5</button>
@@ -866,6 +877,10 @@
     <input type="range" id="isbtl-slider" min="0" max="0" step="1" value="0">
     <button class="tl-step" id="isbtl-next" onclick="isobarStepFrame(1)">›</button>
     <span id="isbtl-label">—</span>
+  </div>
+  <div id="tracking-status">
+    <span style="display:flex; align-items:center; gap:8px;"><span class="dot"></span><span id="tracking-count">— points</span></span>
+    <span id="tracking-updated">—</span>
   </div>
   <div id="speed-select">
     <button class="speed-btn" data-speed="1" onclick="setSpeed(1)">1×</button>
@@ -5578,6 +5593,133 @@ async function renderIsobarsView() {
   }
 }
 
+// ── OwnTracks Tracking view ──────────────────────────────────────────────
+// Draws whatever api/own/track-points.js has recorded (ingest side: api/own/
+// tracks.js + lib/ownTracksStore.js) as a line with a marker at the most
+// recent fix. Unlike every other view here there's no fixed region to frame
+// — a commute could be anywhere — so the camera fits to the actual recorded
+// points' bounds instead of a canned fly-to like Isobars' own.
+let trackingPollTimer = null;
+// Live-in-progress data worth refreshing often enough to feel live, but not
+// so often it's hammering the read endpoint for what's still a same-day
+// personal feature.
+const TRACKING_POLL_MS = 15000;
+
+// Lazily adds the trail source/layers on first use — same 'satellite' layer
+// existing check as ensureIsobarLayer for "the style has actually attached".
+function ensureTrackingLayer() {
+  if (!map || map.getSource('tracking-src')) return true;
+  if (!map.getLayer('satellite')) return false;
+  // One source holds both the LineString (the trail so far) and a Point (the
+  // most recent fix) — geometry-type filters route each into its own layer
+  // rather than needing two separate sources for what's really one dataset.
+  map.addSource('tracking-src', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+  map.addLayer({
+    id: 'tracking-line', type: 'line', source: 'tracking-src',
+    filter: ['==', ['geometry-type'], 'LineString'],
+    paint: { 'line-color': '#f472b6', 'line-width': 3 },
+    layout: { visibility: 'none', 'line-cap': 'round', 'line-join': 'round' },
+  });
+  map.addLayer({
+    id: 'tracking-point', type: 'circle', source: 'tracking-src',
+    filter: ['==', ['geometry-type'], 'Point'],
+    paint: { 'circle-radius': 7, 'circle-color': '#f472b6', 'circle-stroke-width': 2, 'circle-stroke-color': '#ffffff' },
+    layout: { visibility: 'none' },
+  });
+  return true;
+}
+function setTrackingLayerVisible(visible) {
+  if (!map) return;
+  const v = visible ? 'visible' : 'none';
+  if (map.getLayer('tracking-line')) map.setLayoutProperty('tracking-line', 'visibility', v);
+  if (map.getLayer('tracking-point')) map.setLayoutProperty('tracking-point', 'visibility', v);
+}
+
+function trackingPointsToGeoJSON(points) {
+  const features = [];
+  if (points.length >= 2) {
+    features.push({
+      type: 'Feature', properties: {},
+      geometry: { type: 'LineString', coordinates: points.map((p) => [p.lon, p.lat]) },
+    });
+  }
+  if (points.length >= 1) {
+    const last = points[points.length - 1];
+    features.push({ type: 'Feature', properties: {}, geometry: { type: 'Point', coordinates: [last.lon, last.lat] } });
+  }
+  return { type: 'FeatureCollection', features };
+}
+
+function trackingRelativeTime(tst) {
+  if (!tst) return 'just now';
+  const secs = Math.max(0, Math.round(Date.now() / 1000 - tst));
+  if (secs < 60) return `${secs}s ago`;
+  if (secs < 3600) return `${Math.round(secs / 60)}m ago`;
+  return `${Math.round(secs / 3600)}h ago`;
+}
+
+// Shared by the initial render (fits the camera) and each poll tick (doesn't
+// — re-fitting/zooming out from under someone looking at the map every 15s
+// would be a worse experience than just leaving the camera where they left it).
+async function trackingFetchAndDraw(token, fitCamera) {
+  let points = [];
+  try {
+    const res = await fetch('/api/own/track-points');
+    const json = await res.json();
+    points = Array.isArray(json.points)
+      ? json.points.filter((p) => typeof p.lat === 'number' && typeof p.lon === 'number')
+      : [];
+  } catch (e) {
+    console.warn('Tracking: failed to load track points', e);
+  }
+  if (token !== trackingRenderToken || viewMode !== 'tracking' || !map) return;
+
+  points.sort((a, b) => (a.tst || 0) - (b.tst || 0));
+  map.getSource('tracking-src').setData(trackingPointsToGeoJSON(points));
+  setTrackingLayerVisible(true);
+
+  document.getElementById('tracking-count').textContent = `${points.length} point${points.length === 1 ? '' : 's'}`;
+  const last = points[points.length - 1];
+  document.getElementById('tracking-updated').textContent = last ? `updated ${trackingRelativeTime(last.tst)}` : 'no points yet';
+
+  if (fitCamera && points.length >= 1) {
+    if (points.length === 1) {
+      map.flyTo({ center: [last.lon, last.lat], zoom: 13, pitch: 0, bearing: 0, duration: 1200, essential: true });
+    } else {
+      const lons = points.map((p) => p.lon), lats = points.map((p) => p.lat);
+      map.fitBounds(
+        [[Math.min(...lons), Math.min(...lats)], [Math.max(...lons), Math.max(...lats)]],
+        { padding: 60, pitch: 0, bearing: 0, duration: 1200, essential: true }
+      );
+    }
+  }
+}
+
+let trackingRenderToken = 0;
+async function renderTrackingView() {
+  initMap();
+  const token = ++trackingRenderToken;
+
+  // Same reasoning/pattern as renderIsobarsView's own wait-for-layer loop —
+  // poll for the style to finish attaching rather than assume it already has.
+  while (!ensureTrackingLayer()) {
+    await new Promise((resolve) => setTimeout(resolve, 80));
+    if (token !== trackingRenderToken || viewMode !== 'tracking') return;
+  }
+
+  await trackingFetchAndDraw(token, true);
+  if (token !== trackingRenderToken || viewMode !== 'tracking') return;
+  trackingStartPoll();
+}
+
+function trackingStartPoll() {
+  trackingStopPoll();
+  trackingPollTimer = setInterval(() => { trackingFetchAndDraw(trackingRenderToken, false); }, TRACKING_POLL_MS);
+}
+function trackingStopPoll() {
+  if (trackingPollTimer) { clearInterval(trackingPollTimer); trackingPollTimer = null; }
+}
+
 let viewMode = 'hourly'; // 'hourly' | 'accumulated'
 let accumDays = 5;
 
@@ -5619,7 +5761,7 @@ function setViewMode(mode) {
   // No forecast data backs the Live temperature map, the Radar map, or the
   // Isobars map (none of them have a per-model breakdown), so the model
   // switcher has nothing to do there.
-  document.getElementById('model-switch').style.display = (mode === 'live' || mode === 'radar' || mode === 'isobars') ? 'none' : 'block';
+  document.getElementById('model-switch').style.display = (mode === 'live' || mode === 'radar' || mode === 'isobars' || mode === 'tracking') ? 'none' : 'block';
   syncTopControlsLayout();
   if (mode === 'live') closeModelMenu();
   document.getElementById('timeline').style.display = mode === 'hourly' ? 'flex' : 'none';
@@ -5640,10 +5782,11 @@ function setViewMode(mode) {
   // those two modes (and for Live when there's no station data to show)
   // instead of just its (already-empty) children.
   document.getElementById('snow-info').style.display =
-    (mode === 'radar' || mode === 'isobars' || (mode === 'live' && !showLivePanel)) ? 'none' : '';
+    (mode === 'radar' || mode === 'isobars' || mode === 'tracking' || (mode === 'live' && !showLivePanel)) ? 'none' : '';
   document.getElementById('live-timeline').style.display = mode === 'live' ? 'flex' : 'none';
   document.getElementById('radar-timeline').style.display = mode === 'radar' ? 'flex' : 'none';
   document.getElementById('isobar-timeline').style.display = mode === 'isobars' ? 'flex' : 'none';
+  document.getElementById('tracking-status').style.display = mode === 'tracking' ? 'flex' : 'none';
   document.getElementById('map-screen').classList.toggle('live-mode', mode === 'live');
   document.getElementById('map-screen').classList.toggle('accum-mode', mode === 'accumulated');
   document.getElementById('map-screen').classList.toggle('radar-mode', mode === 'radar');
@@ -5667,10 +5810,13 @@ function setViewMode(mode) {
   // either re-paints the correct ramp anyway (openMapView/
   // renderAccumulatedView/renderLiveTempView all call applyRampWhenReady
   // themselves).
-  if (mode === 'radar' || mode === 'isobars') applyRampWhenReady(buildSnowRamp(null));
+  if (mode === 'radar' || mode === 'isobars' || mode === 'tracking') applyRampWhenReady(buildSnowRamp(null));
   // The isobar overlay is Isobars-only — hide it (rather than tear it down)
   // leaving every other mode, same pattern as radar-layer below.
   if (mode !== 'isobars') setIsobarLayerVisible(false);
+  // Same pattern for the OwnTracks trail — Tracking-only, hidden (not torn
+  // down) everywhere else so re-entering doesn't need to re-add the layer.
+  if (mode !== 'tracking') setTrackingLayerVisible(false);
   // orographic-snow-layer is tied to forecastHours[currentIndex] and only
   // refreshed from openMapView (the 'hourly' branch below) — hide it in
   // every other mode rather than leaving a stale hour's overlay showing;
@@ -5680,7 +5826,7 @@ function setViewMode(mode) {
     map.setLayoutProperty('orographic-snow-layer', 'visibility', 'none');
   }
   // Snowfall pin shows on hourly + accumulated; clear it in every other view.
-  if ((mode === 'live' || mode === 'radar' || mode === 'isobars') && snowfallMarker) { snowfallMarker.remove(); snowfallMarker = null; }
+  if ((mode === 'live' || mode === 'radar' || mode === 'isobars' || mode === 'tracking') && snowfallMarker) { snowfallMarker.remove(); snowfallMarker = null; }
   // The minimised-drawer summary is accumulated-only; clear it elsewhere so the
   // :empty rule keeps it hidden.
   if (mode !== 'accumulated') { const dms = document.getElementById('drawer-min-summary'); if (dms) dms.innerHTML = ''; }
@@ -5693,14 +5839,19 @@ function setViewMode(mode) {
   }
   if (mode !== 'radar') radarStopPlay();
   if (mode !== 'isobars') isobarStopPlay();
+  if (mode !== 'tracking') trackingStopPoll();
   if (map && map.getLayer('radar-layer')) map.setLayoutProperty('radar-layer', 'visibility', mode === 'radar' ? 'visible' : 'none');
   // Isobars is the one mode whose camera framing differs from every other
   // mode's shared "resort close-up" — fly out to it on entry, and fly back
   // on the way to any other mode (never on isobars->isobars re-renders,
   // e.g. a resort switch while already on this tab, which would otherwise
-  // restart the same zoom-out animation pointlessly).
+  // restart the same zoom-out animation pointlessly). Tracking doesn't fly
+  // anywhere fixed here — renderTrackingView() below fits the camera to
+  // wherever the actual recorded points are, since that's arbitrary (a
+  // commute, not a resort), but leaving Tracking still needs the same
+  // fly-back-to-resort as leaving Isobars does.
   if (mode === 'isobars' && prevMode !== 'isobars') flyToIsobarRegion();
-  else if (mode !== 'isobars' && prevMode === 'isobars') flyToResortView();
+  else if (mode !== 'isobars' && mode !== 'tracking' && (prevMode === 'isobars' || prevMode === 'tracking')) flyToResortView();
 
   if (mode === 'hourly') {
     stopPlay();
@@ -5715,6 +5866,9 @@ function setViewMode(mode) {
   } else if (mode === 'isobars') {
     stopPlay();
     renderIsobarsView();
+  } else if (mode === 'tracking') {
+    stopPlay();
+    renderTrackingView();
   } else {
     stopPlay();
     renderAccumulatedView();
