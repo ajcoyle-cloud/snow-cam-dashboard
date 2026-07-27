@@ -5605,11 +5605,54 @@ let trackingPollTimer = null;
 // personal feature.
 const TRACKING_POLL_MS = 15000;
 
+// A fix this bad is more likely a bounced signal (indoors, a train carriage,
+// between buildings) than a real position — one of these left in the line
+// geometry reads as the trail suddenly detouring hundreds of metres and back.
+// Excluded from the LINE only; still counted in the point total and still
+// shown as the current-position marker if it's the latest fix (see
+// trackingAccuracyTier) so a bad fix reads as "uncertain," not "vanished."
+const TRACKING_MAX_LINE_ACCURACY_M = 100;
+
+function trackingAccuracyTier(acc) {
+  if (typeof acc !== 'number') return 'unknown';
+  if (acc <= 20) return 'good';
+  if (acc <= 50) return 'fair';
+  return 'poor';
+}
+const TRACKING_TIER_COLOR = { good: '#4ade80', fair: '#facc15', poor: '#f87171', unknown: '#f472b6' };
+
+// Builds a true-scale (not fixed-pixel) circle polygon around a point, sized
+// in real metres — MapLibre's own 'circle-radius' paint property is always
+// screen pixels, which would grow/shrink the wrong way relative to the map
+// as you zoom. Longitude degrees are scaled by cos(latitude) since a degree
+// of longitude covers less real distance the further from the equator.
+function buildAccuracyCircleGeoJSON(lon, lat, radiusMeters, steps = 32) {
+  const metersPerDegLat = 111320;
+  const metersPerDegLon = 111320 * Math.cos(lat * Math.PI / 180);
+  const ring = [];
+  for (let i = 0; i <= steps; i++) {
+    const angle = (i / steps) * 2 * Math.PI;
+    ring.push([
+      lon + (radiusMeters * Math.cos(angle)) / metersPerDegLon,
+      lat + (radiusMeters * Math.sin(angle)) / metersPerDegLat,
+    ]);
+  }
+  return { type: 'FeatureCollection', features: [{ type: 'Feature', properties: {}, geometry: { type: 'Polygon', coordinates: [ring] } }] };
+}
+
 // Lazily adds the trail source/layers on first use — same 'satellite' layer
 // existing check as ensureIsobarLayer for "the style has actually attached".
 function ensureTrackingLayer() {
   if (!map || map.getSource('tracking-src')) return true;
   if (!map.getLayer('satellite')) return false;
+  // Accuracy ring goes in first/bottom-most, under the line and marker —
+  // context for the current-position dot, not the primary read.
+  map.addSource('tracking-accuracy-src', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+  map.addLayer({
+    id: 'tracking-accuracy-fill', type: 'fill', source: 'tracking-accuracy-src',
+    paint: { 'fill-color': '#f472b6', 'fill-opacity': 0.16 },
+    layout: { visibility: 'none' },
+  });
   // One source holds both the LineString (the trail so far) and a Point (the
   // most recent fix) — geometry-type filters route each into its own layer
   // rather than needing two separate sources for what's really one dataset.
@@ -5623,7 +5666,13 @@ function ensureTrackingLayer() {
   map.addLayer({
     id: 'tracking-point', type: 'circle', source: 'tracking-src',
     filter: ['==', ['geometry-type'], 'Point'],
-    paint: { 'circle-radius': 7, 'circle-color': '#f472b6', 'circle-stroke-width': 2, 'circle-stroke-color': '#ffffff' },
+    paint: {
+      'circle-radius': 7,
+      // Coloured by the fix's own accuracy tier — a good fix reads as
+      // confidently "here," a poor one reads as "somewhere around here."
+      'circle-color': ['match', ['get', 'tier'], 'good', TRACKING_TIER_COLOR.good, 'fair', TRACKING_TIER_COLOR.fair, 'poor', TRACKING_TIER_COLOR.poor, TRACKING_TIER_COLOR.unknown],
+      'circle-stroke-width': 2, 'circle-stroke-color': '#ffffff',
+    },
     layout: { visibility: 'none' },
   });
   return true;
@@ -5631,21 +5680,34 @@ function ensureTrackingLayer() {
 function setTrackingLayerVisible(visible) {
   if (!map) return;
   const v = visible ? 'visible' : 'none';
+  if (map.getLayer('tracking-accuracy-fill')) map.setLayoutProperty('tracking-accuracy-fill', 'visibility', v);
   if (map.getLayer('tracking-line')) map.setLayoutProperty('tracking-line', 'visibility', v);
   if (map.getLayer('tracking-point')) map.setLayoutProperty('tracking-point', 'visibility', v);
 }
 
 function trackingPointsToGeoJSON(points) {
   const features = [];
-  if (points.length >= 2) {
+  // Bad-accuracy fixes are skipped when building the LINE only — a wildly
+  // wrong point would otherwise show up as the trail detouring and snapping
+  // back. The full, unfiltered point count still reflects everything received
+  // (see trackingFetchAndDraw) — nothing is hidden, just not drawn as if it
+  // were a confident position.
+  const linePoints = points.filter((p) => typeof p.acc !== 'number' || p.acc <= TRACKING_MAX_LINE_ACCURACY_M);
+  if (linePoints.length >= 2) {
     features.push({
       type: 'Feature', properties: {},
-      geometry: { type: 'LineString', coordinates: points.map((p) => [p.lon, p.lat]) },
+      geometry: { type: 'LineString', coordinates: linePoints.map((p) => [p.lon, p.lat]) },
     });
   }
   if (points.length >= 1) {
+    // The current-position marker always reflects the true latest fix, even
+    // a poor one — tagged with its own tier so it's styled as "uncertain"
+    // rather than just disappearing, which would read as a bug, not caution.
     const last = points[points.length - 1];
-    features.push({ type: 'Feature', properties: {}, geometry: { type: 'Point', coordinates: [last.lon, last.lat] } });
+    features.push({
+      type: 'Feature', properties: { tier: trackingAccuracyTier(last.acc) },
+      geometry: { type: 'Point', coordinates: [last.lon, last.lat] },
+    });
   }
   return { type: 'FeatureCollection', features };
 }
@@ -5690,7 +5752,21 @@ async function trackingFetchAndDraw(token, forceRecentre) {
 
   document.getElementById('tracking-count').textContent = `${points.length} point${points.length === 1 ? '' : 's'}`;
   const last = points[points.length - 1];
-  document.getElementById('tracking-updated').textContent = last ? `updated ${trackingRelativeTime(last.tst)}` : 'no points yet';
+  document.getElementById('tracking-updated').textContent = last
+    ? `updated ${trackingRelativeTime(last.tst)}${typeof last.acc === 'number' ? ` · ±${Math.round(last.acc)}m` : ''}`
+    : 'no points yet';
+
+  // Accuracy ring around the current-position marker — real geographic
+  // metres (see buildAccuracyCircleGeoJSON), not a fixed pixel radius, and
+  // only drawn when the fix actually reported an accuracy figure at all.
+  const accSrc = map.getSource('tracking-accuracy-src');
+  if (accSrc) {
+    accSrc.setData(
+      last && typeof last.acc === 'number'
+        ? buildAccuracyCircleGeoJSON(last.lon, last.lat, last.acc)
+        : { type: 'FeatureCollection', features: [] }
+    );
+  }
 
   if (!last) return;
   const isNewFix = last.tst !== trackingLastTst;
