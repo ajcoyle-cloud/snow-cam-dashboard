@@ -90,22 +90,47 @@ function buildFakeRun({ id, name, startedAt, priorLift, seed, samplesPerSegment,
     points.push({ lat, lon, alt, tst: tstSec, vel })
   }
 
+  return { id, name, priorLift, startedAt, points, stats: computeRunStats(points) }
+}
+
+// Shared by fake demo runs and the real recorded commute (see
+// fetchRealCommuteRun below) so both are scored identically.
+function computeRunStats(points) {
   let distanceM = 0
   let maxSpeed = 0
   for (let i = 1; i < points.length; i++) {
     distanceM += haversineMeters(points[i - 1].lat, points[i - 1].lon, points[i].lat, points[i].lon)
-    maxSpeed = Math.max(maxSpeed, points[i].vel)
+    if (typeof points[i].vel === 'number') maxSpeed = Math.max(maxSpeed, points[i].vel)
   }
   const durationSec = points[points.length - 1].tst - points[0].tst
-  const verticalM = points[0].alt - points[points.length - 1].alt
-  const avgSpeed = (distanceM / 1000) / (durationSec / 3600)
+  const verticalM = (points[0].alt ?? 0) - (points[points.length - 1].alt ?? 0)
+  const avgSpeed = durationSec > 0 ? (distanceM / 1000) / (durationSec / 3600) : 0
+  return { durationSec, distanceKm: distanceM / 1000, verticalM, avgSpeedKmh: avgSpeed, maxSpeedKmh: maxSpeed }
+}
 
+// ── Real recorded commute (api/own/tracks.js -> lib/ownTracksStore.js) ────
+// Everything ever POSTed by OwnTracks, as one single run — there's no day/
+// run/lift-vs-descent splitting yet (separate follow-up), so this is
+// deliberately "the whole recorded trail so far," not an attempt to isolate
+// just one commute. `isReal` flags it for the small badge in the card/detail
+// views, so it's never confused with the three demo runs sitting next to it.
+async function fetchRealCommuteRun() {
+  let json
+  try {
+    const res = await fetch('/api/own/track-points')
+    json = await res.json()
+  } catch (e) {
+    return null
+  }
+  const points = Array.isArray(json?.points)
+    ? json.points.filter(p => typeof p.lat === 'number' && typeof p.lon === 'number' && typeof p.tst === 'number')
+    : []
+  if (points.length < 2) return null
+  points.sort((a, b) => a.tst - b.tst)
   return {
-    id, name, priorLift, startedAt, points,
-    stats: {
-      durationSec, distanceKm: distanceM / 1000, verticalM,
-      avgSpeedKmh: avgSpeed, maxSpeedKmh: maxSpeed,
-    },
+    id: 'real-commute', name: 'My Commute', priorLift: null, isReal: true,
+    startedAt: new Date(points[0].tst * 1000),
+    points, stats: computeRunStats(points),
   }
 }
 
@@ -205,10 +230,13 @@ function RunCard({ run, onOpen }) {
       <RouteThumbnail points={run.points} />
       <div className="run-card-body">
         <div className="run-card-head">
-          <span className="run-card-name">{run.name}</span>
+          <span className="run-card-name">
+            {run.name}
+            {run.isReal && <span className="run-real-badge">REAL</span>}
+          </span>
           <span className="run-card-time">{fmtTime(run.startedAt)}</span>
         </div>
-        <div className="run-card-lift">via {run.priorLift}</div>
+        {run.priorLift && <div className="run-card-lift">via {run.priorLift}</div>}
         <div className="run-card-stats">
           <span><Timer size={13} strokeWidth={2} /> {fmtDuration(stats.durationSec)}</span>
           <span><Ruler size={13} strokeWidth={2} /> {stats.distanceKm.toFixed(2)} km</span>
@@ -330,8 +358,11 @@ function RunDetail({ run, onBack }) {
         <ChevronLeft size={22} strokeWidth={2.25} />
       </button>
       <div className="run-detail-panel">
-        <div className="run-detail-title">{run.name}</div>
-        <div className="run-detail-sub">{fmtTime(run.startedAt)} · via {run.priorLift}</div>
+        <div className="run-detail-title">
+          {run.name}
+          {run.isReal && <span className="run-real-badge">REAL</span>}
+        </div>
+        <div className="run-detail-sub">{fmtTime(run.startedAt)}{run.priorLift ? ` · via ${run.priorLift}` : ''}</div>
         <div className="run-detail-stats">
           <div><Timer size={15} strokeWidth={2} /><span>{fmtDuration(stats.durationSec)}</span><small>Duration</small></div>
           <div><Ruler size={15} strokeWidth={2} /><span>{stats.distanceKm.toFixed(2)} km</span><small>Distance</small></div>
@@ -349,7 +380,14 @@ function RunDetail({ run, onBack }) {
 // (whakapapa-snow-forecast.html's viewMode), now a real top-level tab. ────
 export default function TrackingPage() {
   const [openRunId, setOpenRunId] = useState(null)
-  const openRun = DEMO_RUNS.find(r => r.id === openRunId) || null
+  // null while loading/unavailable — the real run only appears once (if)
+  // api/own/track-points.js actually has ≥2 points to show, same "just
+  // don't render it" degradation the old iframe view used for empty data.
+  const [realRun, setRealRun] = useState(null)
+  useEffect(() => { fetchRealCommuteRun().then(setRealRun) }, [])
+
+  const allRuns = realRun ? [realRun, ...DEMO_RUNS] : DEMO_RUNS
+  const openRun = allRuns.find(r => r.id === openRunId) || null
 
   if (openRun) return <RunDetail run={openRun} onBack={() => setOpenRunId(null)} />
 
@@ -357,10 +395,10 @@ export default function TrackingPage() {
     <div className="tracking-page">
       <div className="tracking-header">
         <h1>Tracking</h1>
-        <p>Demo data — 3 runs down Whakapapa's Sky Waka corridor.</p>
+        <p>{realRun ? 'Your recorded commute, plus 3 demo runs down' : 'Demo data — 3 runs down'} Whakapapa's Sky Waka corridor.</p>
       </div>
       <div className="run-list">
-        {DEMO_RUNS.map((run) => <RunCard key={run.id} run={run} onOpen={setOpenRunId} />)}
+        {allRuns.map((run) => <RunCard key={run.id} run={run} onOpen={setOpenRunId} />)}
       </div>
     </div>
   )
