@@ -5621,6 +5621,41 @@ function trackingAccuracyTier(acc) {
 }
 const TRACKING_TIER_COLOR = { good: '#4ade80', fair: '#facc15', poor: '#f87171', unknown: '#f472b6' };
 
+// Ground speed between two consecutive fixes, computed from distance/time
+// rather than trusting OwnTracks' own reported `vel` — that field is only
+// populated from a real Doppler-derived GPS reading and comes back empty on
+// plenty of fixes (any manual/stationary send, see the very first commute
+// test), where distance/time between two real points is available for
+// virtually every pair regardless. Same equirectangular approximation as
+// buildAccuracyCircleGeoJSON's degree-to-metre conversion — plenty accurate
+// at the scale of two GPS fixes a few seconds/metres apart.
+// Capped well above anything a walk+train commute produces so one noisy,
+// close-together-in-time pair (accuracy-related position jitter divided by a
+// small time delta) can't blow out the whole colour scale for one segment.
+const TRACKING_MAX_PLAUSIBLE_SPEED_KMH = 150;
+function trackingSegmentSpeedKmh(p1, p2) {
+  const dtSec = (p2.tst || 0) - (p1.tst || 0);
+  if (dtSec <= 0) return null;
+  const metersPerDegLat = 111320;
+  const metersPerDegLon = 111320 * Math.cos(((p1.lat + p2.lat) / 2) * Math.PI / 180);
+  const dLat = (p2.lat - p1.lat) * metersPerDegLat;
+  const dLon = (p2.lon - p1.lon) * metersPerDegLon;
+  const distMeters = Math.sqrt(dLat * dLat + dLon * dLon);
+  return Math.min((distMeters / dtSec) * 3.6, TRACKING_MAX_PLAUSIBLE_SPEED_KMH);
+}
+// Blue (stationary) through cyan (walking pace) and green/yellow (transit)
+// to red (train at speed) — a standard thermal-style speed ramp, chosen
+// deliberately distinct in feel from the accuracy dots' flat green/amber/red
+// tiers even though it reuses the same red-for-"the extreme end" instinct.
+const TRACKING_SPEED_COLOR_STOPS = [
+  0, '#3b82f6',
+  5, '#22d3ee',
+  20, '#4ade80',
+  50, '#facc15',
+  90, '#f97316',
+  130, '#ef4444',
+];
+
 // Builds a true-scale (not fixed-pixel) circle polygon around a point, sized
 // in real metres — MapLibre's own 'circle-radius' paint property is always
 // screen pixels, which would grow/shrink the wrong way relative to the map
@@ -5660,7 +5695,16 @@ function ensureTrackingLayer() {
   map.addLayer({
     id: 'tracking-line', type: 'line', source: 'tracking-src',
     filter: ['==', ['geometry-type'], 'LineString'],
-    paint: { 'line-color': '#f472b6', 'line-width': 3 },
+    paint: {
+      // Each LineString feature here is one short segment between two
+      // consecutive fixes (see trackingPointsToGeoJSON), tagged with its own
+      // 'speed' — MapLibre's line-gradient only varies colour by position
+      // along a SINGLE line's own progress, not by an arbitrary per-vertex
+      // property, so many small coloured segments is the way to get an
+      // actual speed-driven ramp rather than a generic fade.
+      'line-color': ['interpolate', ['linear'], ['get', 'speed'], ...TRACKING_SPEED_COLOR_STOPS],
+      'line-width': 4,
+    },
     layout: { visibility: 'none', 'line-cap': 'round', 'line-join': 'round' },
   });
   // One small dot per RECORDED fix (every point, not just the ones confident
@@ -5711,10 +5755,18 @@ function trackingPointsToGeoJSON(points) {
   // (see trackingFetchAndDraw) — nothing is hidden, just not drawn as if it
   // were a confident position.
   const linePoints = points.filter((p) => typeof p.acc !== 'number' || p.acc <= TRACKING_MAX_LINE_ACCURACY_M);
-  if (linePoints.length >= 2) {
+  // One short LineString per consecutive pair, each tagged with its own
+  // computed speed — see tracking-line's own paint comment for why this is
+  // many small segments rather than one continuous line. A segment whose
+  // speed can't be computed (equal/missing timestamps — shouldn't happen in
+  // practice) defaults to 0, the stationary/blue end of the ramp, rather
+  // than dropping the segment.
+  for (let i = 1; i < linePoints.length; i++) {
+    const p1 = linePoints[i - 1], p2 = linePoints[i];
     features.push({
-      type: 'Feature', properties: {},
-      geometry: { type: 'LineString', coordinates: linePoints.map((p) => [p.lon, p.lat]) },
+      type: 'Feature',
+      properties: { speed: trackingSegmentSpeedKmh(p1, p2) ?? 0 },
+      geometry: { type: 'LineString', coordinates: [[p1.lon, p1.lat], [p2.lon, p2.lat]] },
     });
   }
   // EVERY recorded fix becomes its own small Point — this is what makes ping
@@ -5771,8 +5823,13 @@ async function trackingFetchAndDraw(token, forceRecentre) {
 
   document.getElementById('tracking-count').textContent = `${points.length} point${points.length === 1 ? '' : 's'}`;
   const last = points[points.length - 1];
+  const secondLast = points[points.length - 2];
+  // Same distance/time computation the line's colour ramp uses, applied to
+  // just the final segment — "how fast right now," not the reported (often
+  // empty) vel field.
+  const currentSpeed = last && secondLast ? trackingSegmentSpeedKmh(secondLast, last) : null;
   document.getElementById('tracking-updated').textContent = last
-    ? `updated ${trackingRelativeTime(last.tst)}${typeof last.acc === 'number' ? ` · ±${Math.round(last.acc)}m` : ''}`
+    ? `updated ${trackingRelativeTime(last.tst)}${typeof last.acc === 'number' ? ` · ±${Math.round(last.acc)}m` : ''}${currentSpeed != null ? ` · ${Math.round(currentSpeed)} km/h` : ''}`
     : 'no points yet';
 
   // Accuracy ring around the current-position marker — real geographic
