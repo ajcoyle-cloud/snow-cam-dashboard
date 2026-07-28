@@ -1081,19 +1081,24 @@
   /* Resort switcher pinned to the top of the viewport rather than scrolling
      away with the camera list — on a phone the cameras are one tall column,
      so it was off-screen almost immediately and switching resorts meant
-     scrolling all the way back up. Mirrors the mobile bottom nav's
-     translucent-blur treatment (see .sidebar above) so cameras passing
-     underneath read as sliding behind it. The safe-area inset only
-     contributes when installed to the home screen; it's 0 in normal Safari. */
+     scrolling all the way back up. No background/blur bar behind it: the
+     pill floats directly over the cameras, carrying its own dark fill (see
+     .resort-button). Because the container still spans the full width, it
+     is pointer-events:none so the invisible strip either side of the pill
+     can't swallow taps meant for the camera underneath — only the selector
+     itself takes input. The safe-area inset only contributes when installed
+     to the home screen; it's 0 in normal Safari. */
   .webcam-controls {
     position: sticky;
     top: 0;
     z-index: 20;
     margin: 0;
     padding: calc(10px + env(safe-area-inset-top)) 0 10px;
-    background: rgba(18, 18, 18, 0.92);
-    backdrop-filter: blur(12px);
-    border-bottom: 1px solid #262626;
+    pointer-events: none;
+  }
+
+  .webcam-controls .resort-selector {
+    pointer-events: auto;
   }
 
   .header h1 {
