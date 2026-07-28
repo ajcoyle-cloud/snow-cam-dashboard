@@ -4074,6 +4074,24 @@ export default function App() {
     return 4
   })
 
+  // Changing resort re-sorts the camera grid so the newly selected resort's
+  // cameras lead the list (orderCamerasByResort) — but the scroll position
+  // stayed where it was, leaving you partway down someone else's cameras
+  // with the new ones off-screen above. Scroll the feed back to the top so
+  // the resort you just picked is what you're actually looking at. Webcams
+  // only: the other tabs aren't a single long resort-ordered list, so
+  // yanking them to the top on a resort change would just lose your place.
+  const mainContentRef = useRef(null)
+  useEffect(() => {
+    if (activeTab !== 'webcams') return
+    const el = mainContentRef.current
+    if (!el || el.scrollTop === 0) return
+    el.scrollTo({ top: 0, behavior: 'smooth' })
+    // activeTab deliberately absent: this should fire on a resort change,
+    // not when switching back to Webcams with the same resort already set.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [resort])
+
   useEffect(() => {
     try { localStorage.setItem('sc-active-tab', activeTab) } catch (e) {}
     try { localStorage.setItem('sc-resort', resort) } catch (e) {}
@@ -4101,7 +4119,7 @@ export default function App() {
         ))}
       </nav>
 
-      <main className={`main-content ${(activeTab === 'map' || activeTab === 'snow-test' || activeTab === 'highres') ? 'is-map' : ''}`}>
+      <main ref={mainContentRef} className={`main-content ${(activeTab === 'map' || activeTab === 'snow-test' || activeTab === 'highres') ? 'is-map' : ''}`}>
         {activeTab === 'webcams' && (
           <section className="region-section">
             <div className="webcam-controls">
