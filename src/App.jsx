@@ -3982,7 +3982,10 @@ const NAV_ITEMS = [
   { id: 'highres', label: 'High-Res', Icon: Wind, path: '/highres' },
   { id: 'reports', label: 'Snow Reports', Icon: Newspaper, path: '/reports' },
   // Own top-level tab, not a Map-tab mode toggle — see TrackingPage.jsx.
-  { id: 'tracking', label: 'Tracking', Icon: Route, path: '/tracking' },
+  // Temporarily hidden from prod nav while route playback is still being
+  // debugged; the page and its route stay in place, just unreachable from
+  // the UI (same treatment as Snow Test below). Drop `hidden` to restore.
+  { id: 'tracking', label: 'Tracking', Icon: Route, path: '/tracking', hidden: true },
   // 'Snow Test' hidden from prod nav now that its two production-ready
   // trials (slope-aware snow overlay, dark-terrain basemap+contours) have
   // shipped as the settings-cog "Winter snow"/"Elevation Contours" toggles
