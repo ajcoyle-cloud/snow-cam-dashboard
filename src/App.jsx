@@ -288,32 +288,8 @@ function usePwProfile() {
   return profile
 }
 
-function WeatherDisplay({ location, elevation }) {
+function WeatherDisplay({ location }) {
   const [weather, setWeather] = useState(null)
-  const pwProfile = usePwProfile()
-  const [reportTemp, setReportTemp] = useState(null)
-
-  // Fallback live-temp source for every resort that has neither a real
-  // weather-station API (only Whakapapa does, see the lapse-rate liveTemp
-  // below) nor an obvious one: whatever current temperature reading its own
-  // scraped snow report happens to publish (see lib/reports/*.js — a handful
-  // include one, e.g. Tukino's XML feed's <weather><temperature>). Most
-  // resorts' reports don't have one, in which case liveTemp stays null and
-  // this card just shows the meteoblue icon as before.
-  useEffect(() => {
-    const source = SNOW_REPORT_SOURCES[location]
-    if (!source) { setReportTemp(null); return }
-    let cancelled = false
-    const fetchReportTemp = () => fetch(source.endpoint)
-      .then((r) => (r.ok ? r.json() : Promise.reject()))
-      .then((data) => { if (!cancelled) setReportTemp(typeof data.liveTemp === 'number' ? data.liveTemp : null) })
-      .catch(() => { if (!cancelled) setReportTemp(null) })
-    fetchReportTemp()
-    // Reports refresh at most a couple of times a day (see each scraper's
-    // own Cache-Control) — no benefit polling as often as the 5s image tick.
-    const interval = setInterval(fetchReportTemp, 120000)
-    return () => { cancelled = true; clearInterval(interval) }
-  }, [location])
 
   useEffect(() => {
     const fetchWeather = async () => {
@@ -353,33 +329,17 @@ function WeatherDisplay({ location, elevation }) {
     return () => clearInterval(interval)
   }, [location])
 
-  // Live temp interpolated from the map's lapse-rate fit — restricted to
-  // Whakapapa cams (elevation is only meaningful/known for those) and to a
-  // profile that's actually Whakapapa's own (resort === 'ruapehu'), since
-  // pwProfile can be whichever resort's map tab was last open. Uses this
-  // camera's real elevation, not the meteoblue model temp above (which is a
-  // forecast value, not a genuine station reading).
-  const lapseRateTemp = (
-    location === 'Whakapapa' &&
-    elevation != null &&
-    pwProfile?.resort === 'ruapehu' &&
-    typeof pwProfile.a === 'number' &&
-    typeof pwProfile.b === 'number'
-  ) ? pwProfile.a + pwProfile.b * elevation : null
-  // Precise per-elevation lapse-rate figure wins when available (Whakapapa
-  // only); otherwise fall back to whatever single reading the resort's own
-  // report published, if any.
-  const liveTemp = lapseRateTemp ?? reportTemp
+  if (!weather) return null
 
-  if (!weather && liveTemp == null) return null
-
-  // The condition icon is a meteoblue model value (see comment above); the
-  // temp shown next to it, when present, is the live station-derived one —
-  // never the meteoblue temp, which isn't a genuine reading.
+  // Condition icon only. The temperature that used to sit next to it has
+  // been removed from the webcam thumbnails, along with the two sources
+  // that fed it (the Whakapapa lapse-rate fit and the per-resort snow
+  // report's published reading) — nothing here reads a temp any more. The
+  // meteoblue temp in `weather` is a model forecast, not a station
+  // reading, so it was never shown and still isn't.
   return (
     <div className="weather-display">
-      {weather && <span className="weather-icon">{weather.icon}</span>}
-      {liveTemp != null && <span className="weather-temp">{liveTemp.toFixed(1)}°</span>}
+      <span className="weather-icon">{weather.icon}</span>
     </div>
   )
 }
@@ -806,7 +766,7 @@ function CameraCard({ camera, allCameras = [] }) {
       >
         <div className="card-header">
           <h3>{camera.name}</h3>
-          <WeatherDisplay location={camera.location} elevation={camera.elevation} />
+          <WeatherDisplay location={camera.location} />
         </div>
         <div className="image-container" style={{ position: 'relative' }}>
           {isYouTube ? (
