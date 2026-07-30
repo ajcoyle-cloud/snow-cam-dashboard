@@ -59,6 +59,111 @@
   #map-screen { position: fixed; top: 0; left: 0; right: 0; height: var(--app-vh, 100vh); z-index: 500; }
   #map { width: 100%; height: 100%; }
 
+  /* ── Split-screen model comparison (desktop only) ──────────────────────
+     Two independent MapLibre instances side by side with linked cameras and
+     one shared timeline, so the same hour can be read off two models at once.
+     #map-b only exists while split mode is on (see toggleSplitMode). */
+  #map-b { display: none; }
+  #map-screen.split-mode #map { width: 50%; }
+  #map-screen.split-mode #map-b {
+    display: block; position: absolute; top: 0; right: 0;
+    width: 50%; height: 100%; z-index: 1;
+  }
+  /* The seam. Sits above both canvases, ignores pointer events so a drag
+     starting on the divider still pans whichever map is under it. */
+  #map-screen.split-mode::after {
+    content: ''; position: absolute; top: 0; bottom: 0; left: 50%;
+    width: 2px; margin-left: -1px; background: rgba(255,255,255,0.55);
+    box-shadow: 0 0 12px rgba(0,0,0,0.6); z-index: 20; pointer-events: none;
+  }
+  /* Second row, clear of the top button strip (top:20, 38px tall) on the left
+     and the centred mode pills (#top-controls, also top:20) on the right —
+     both of which stay put in split mode. */
+  .split-pane-head {
+    display: none; position: absolute; top: 72px; z-index: 46;
+    align-items: center; gap: 8px;
+  }
+  #map-screen.split-mode .split-pane-head { display: flex; }
+  .split-pane-head.left { left: 20px; }
+  .split-pane-head.right { left: calc(50% + 20px); }
+  .split-pane-swatch { width: 10px; height: 10px; border-radius: 3px; flex-shrink: 0; }
+  .split-pane-select {
+    appearance: none; -webkit-appearance: none;
+    background: rgba(54,54,62,0.9); backdrop-filter: blur(14px);
+    border: 1px solid rgba(255,255,255,0.16); border-radius: 999px;
+    color: #fff; font-family: inherit; font-size: 0.74rem; font-weight: 700;
+    padding: 7px 26px 7px 12px; cursor: pointer;
+    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'><polyline points='6 9 12 15 18 9'/></svg>");
+    background-repeat: no-repeat; background-position: right 9px center;
+  }
+  .split-pane-stats {
+    font-size: 0.7rem; font-weight: 600; color: rgba(255,255,255,0.9);
+    background: rgba(0,0,0,0.55); backdrop-filter: blur(10px);
+    border-radius: 999px; padding: 6px 11px; white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* Difference readout — the headline "how far apart are these two models"
+     panel, centred between the two pane headers. */
+  /* Centred ON the divider — it describes the seam between the two panes —
+     and below the pane headers so neither has to dodge the other. */
+  #split-delta {
+    display: none; position: absolute; top: 126px; left: 50%;
+    transform: translateX(-50%); z-index: 47;
+    background: rgba(0,0,0,0.62); backdrop-filter: blur(14px);
+    border: 1px solid rgba(255,255,255,0.14); border-radius: 12px;
+    padding: 8px 14px; text-align: center; pointer-events: none;
+  }
+  #map-screen.split-mode #split-delta { display: block; }
+  #split-delta .sd-head {
+    font-size: 0.58rem; font-weight: 800; letter-spacing: 0.12em;
+    text-transform: uppercase; color: rgba(255,255,255,0.45); margin-bottom: 4px;
+  }
+  #split-delta .sd-row { display: flex; gap: 14px; font-variant-numeric: tabular-nums; }
+  #split-delta .sd-item { display: flex; flex-direction: column; gap: 1px; }
+  #split-delta .sd-label { font-size: 0.56rem; color: rgba(255,255,255,0.5); text-transform: uppercase; letter-spacing: 0.06em; }
+  #split-delta .sd-val { font-size: 0.92rem; font-weight: 800; }
+  #split-delta .sd-agree { margin-top: 5px; font-size: 0.62rem; font-weight: 700; letter-spacing: 0.04em; }
+
+  /* Divergence strip — one bar per forecast hour across the full timeline
+     width, brightness/'height' keyed to how far apart the two models are that
+     hour, so periods of disagreement are findable at a glance. Sits directly
+     above the shared timeline and is click/scrub-able to jump to that hour. */
+  #split-diverge {
+    display: none; position: absolute; left: 20px; right: 20px; bottom: 86px;
+    height: 26px; z-index: 11; cursor: pointer;
+    background: rgba(0,0,0,0.45); backdrop-filter: blur(10px);
+    border-radius: 8px; overflow: hidden;
+  }
+  #map-screen.split-mode #split-diverge { display: block; }
+  #split-diverge svg { width: 100%; height: 100%; display: block; }
+  /* Above the strip, not inside it — sitting over the bars made both harder
+     to read. Positioned against #map-screen, matching the strip's own inset. */
+  #split-diverge-label {
+    display: none; position: absolute; left: 22px; bottom: 114px; z-index: 11;
+    font-size: 0.55rem; font-weight: 800; letter-spacing: 0.1em;
+    text-transform: uppercase; color: rgba(255,255,255,0.45); pointer-events: none;
+    text-shadow: 0 1px 4px rgba(0,0,0,0.8);
+  }
+  #map-screen.split-mode #split-diverge-label { display: block; }
+
+  /* In split mode the bottom graph becomes the two-model comparison, so give
+     it the full width and lift it clear of the divergence strip. */
+  #map-screen.split-mode #fl-overlay { bottom: 130px; height: 152px; }
+  /* The single-map model dropdown and the drawer would both fight the split
+     UI — the per-pane selectors replace the former, and the drawer's numbers
+     only ever describe one model. */
+  #map-screen.split-mode #model-switch,
+  #map-screen.split-mode #snow-info,
+  #map-screen.split-mode #drawer-launch { display: none !important; }
+  /* The left map's zoom/compass cluster is anchored to ITS top-right, which in
+     split mode is the divider — it lands straddling the seam. The right pane
+     gets its own cluster at the true screen edge instead (cameras are linked,
+     so one set drives both). */
+  #map-screen.split-mode #map .maplibregl-ctrl-top-right { display: none; }
+  /* Clear of the divergence strip, which occupies this corner in split mode. */
+  #map-screen.split-mode #speed-select { bottom: 292px; }
+
   /* ── Timeline scrubber (play/pause + draggable slider) ─────────────────── */
   #timeline, #live-timeline, #radar-timeline, #isobar-timeline {
     position: absolute; left: 20px; right: 20px; bottom: 20px; z-index: 10;
@@ -188,7 +293,7 @@
      is a genuine mid-grey (not a darkened black) with a faint light border
      so these read clearly against a pure-black dark-mode sky too, not just
      against the map imagery. .active is brighter still, as a selected cue. */
-  #map-enlarge, #map-close, #obs-toggle, #rotate-toggle, #snow-toggle, #snow-overlay-toggle, #basemap-toggle, #contour-toggle, #orographic-toggle {
+  #map-enlarge, #map-close, #obs-toggle, #rotate-toggle, #snow-toggle, #snow-overlay-toggle, #basemap-toggle, #contour-toggle, #orographic-toggle, #split-toggle {
     /* z-index above .maplibregl-marker (40) — live station pills are
        lng/lat-anchored, so at some camera angles one projects right under
        this icon row; UI chrome must always win over map content. */
@@ -233,6 +338,14 @@
      active. Only High-Res tab (?highres=1, see isHighResMode below), not
      Snow Test or the regular Map tab. See toggleOrographicSnow(). */
   #orographic-toggle { left: 328px; font-size: 0.95rem; }
+
+  /* Split-screen model comparison. Desktop only — two 3D terrain maps side by
+     side needs horizontal room a phone doesn't have, and it's hidden outright
+     below the mobile breakpoint rather than just being awkward there. */
+  #split-toggle { left: 372px; font-size: 0.95rem; }
+  #split-toggle.active { background: rgba(92,92,106,0.95); }
+  #split-toggle:hover { background: rgba(70,70,80,0.9); }
+  #split-toggle.active:hover { background: rgba(106,106,122,0.95); }
   #orographic-toggle.active { background: rgba(92,92,106,0.95); }
   #orographic-toggle:hover { background: rgba(70,70,80,0.9); }
   #orographic-toggle.active:hover { background: rgba(106,106,122,0.95); }
@@ -614,8 +727,12 @@
 
   /* ── Mobile layout ──────────────────────────────────────────────────── */
   @media (max-width: 700px) {
-    /* No zoom buttons, no on-map fullscreen button on mobile. */
+    /* No zoom buttons, no on-map fullscreen button on mobile. Split-screen is
+       desktop-only — two side-by-side 3D maps have nowhere near enough
+       horizontal room here, so the entry point is removed rather than left to
+       produce two unusable slivers. */
     .maplibregl-ctrl-top-right,
+    #split-toggle,
     #map-enlarge { display: none !important; }
     .maplibregl-ctrl-bottom-right { opacity: 0.5; transform: scale(0.85); transform-origin: bottom right; }
 
@@ -784,6 +901,39 @@
 
 <div id="map-screen">
   <div id="map"></div>
+  <!-- Right-hand comparison pane. Empty (and display:none) until split mode is
+       first switched on, which is also when its MapLibre instance is built. -->
+  <div id="map-b"></div>
+
+  <!-- Per-pane model pickers + that pane's headline numbers for the selected
+       hour. The single-map #model-switch is hidden while split mode is on. -->
+  <div class="split-pane-head left">
+    <span class="split-pane-swatch" id="split-swatch-a"></span>
+    <select class="split-pane-select" id="split-model-a" onchange="setSplitModel('a', this.value)"></select>
+    <span class="split-pane-stats" id="split-stats-a">—</span>
+  </div>
+  <div class="split-pane-head right">
+    <span class="split-pane-swatch" id="split-swatch-b"></span>
+    <select class="split-pane-select" id="split-model-b" onchange="setSplitModel('b', this.value)"></select>
+    <span class="split-pane-stats" id="split-stats-b">—</span>
+  </div>
+
+  <!-- Headline disagreement figures for the hour currently being shown. -->
+  <div id="split-delta">
+    <div class="sd-head">Model difference</div>
+    <div class="sd-row" id="sd-row"></div>
+    <div class="sd-agree" id="sd-agree"></div>
+  </div>
+
+  <!-- Where across the whole forecast the two models disagree most. -->
+  <div id="split-diverge" onclick="onDivergeClick(event)">
+    <svg id="split-diverge-svg"></svg>
+  </div>
+  <!-- Sibling, not a child: #split-diverge clips to its rounded corners, which
+       would cut off a caption placed above its own top edge. -->
+  <span id="split-diverge-label">Disagreement</span>
+
+  <button id="split-toggle" onclick="toggleSplitMode()" title="Split screen: compare two models">◫</button>
   <button id="map-enlarge" onclick="enterFullscreenView()" title="Fullscreen">
     <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></svg>
   </button>
@@ -2018,6 +2168,400 @@ window.addEventListener('resize', syncTopControlsLayout);
 function toggleModelMenu() {
   document.getElementById('model-switch').classList.toggle('open');
 }
+
+// ── Split-screen model comparison ──────────────────────────────────────────
+// Two MapLibre instances side by side, linked cameras, one timeline. Pane A is
+// the existing `map`/`selectedModel` — everything already built (timeline,
+// probe, drawer, snowfall marker) keeps running off it untouched, and pane B is
+// purely additive: a second map that renders the same style with a different
+// model's ramp. That's deliberate; making every existing global "two of
+// everything" would have meant rewriting most of this file.
+let splitMode = false;
+let mapB = null;
+let splitModelB = 'ecmwf';
+let syncingCamera = false;   // guards the two-way camera sync against feedback
+let applyRampTokenB = 0;
+
+// Models are fetched on the same Open-Meteo time grid, but buildModelHours
+// drops rows with missing fields, so the two panes' arrays can be different
+// lengths and index i is NOT guaranteed to be the same hour in both. Always
+// match on the timestamp instead. Memoised per model since the timeline scrubs
+// hundreds of times per session.
+let splitTimeIndexCache = {};
+function hoursByTime(modelKey) {
+  const hours = modelHours[modelKey];
+  if (!hours) return null;
+  const cached = splitTimeIndexCache[modelKey];
+  if (cached && cached.src === hours) return cached.map;
+  const map_ = new Map();
+  hours.forEach((h) => map_.set(h.time, h));
+  splitTimeIndexCache[modelKey] = { src: hours, map: map_ };
+  return map_;
+}
+function splitHourAt(modelKey, isoTime) {
+  const byTime = hoursByTime(modelKey);
+  return byTime ? (byTime.get(isoTime) || null) : null;
+}
+
+function initMapB() {
+  if (mapB) return;
+  mapB = new maplibregl.Map({
+    container: 'map-b',
+    zoom: map ? map.getZoom() : LOC.zoom,
+    center: map ? map.getCenter() : LOC.center,
+    pitch: map ? map.getPitch() : LOC.pitch,
+    bearing: map ? map.getBearing() : LOC.bearing,
+    maxPitch: 85,
+    attributionControl: false,
+    style: buildMapStyle()
+  });
+  // The only on-map control set while split — the left map's own cluster is
+  // hidden in CSS because its top-right corner is the divider. Linked cameras
+  // mean driving either map moves both, so one cluster is enough.
+  mapB.addControl(new maplibregl.NavigationControl({ visualizePitch: true, showZoom: true, showCompass: true }), 'top-right');
+  // Two-way camera link. Either map can be driven directly; whichever moved
+  // pushes its camera to the other. jumpTo (not easeTo) so the follower lands
+  // in the same frame — easing here reads as the panes lagging each other.
+  const link = (from, to) => from.on('move', () => {
+    if (syncingCamera || !splitMode) return;
+    syncingCamera = true;
+    to.jumpTo({
+      center: from.getCenter(), zoom: from.getZoom(),
+      pitch: from.getPitch(), bearing: from.getBearing()
+    });
+    syncingCamera = false;
+  });
+  link(map, mapB);
+  link(mapB, map);
+}
+
+// Same deferred-apply dance as applyRampWhenReady, against pane B's instance:
+// the color-relief layer isn't queryable until its style has attached.
+function applyRampToMapB(rampArray) {
+  if (!mapB) return;
+  const token = ++applyRampTokenB;
+  const tryApply = () => {
+    if (token !== applyRampTokenB) return;
+    if (mapB.getLayer('snow-relief')) mapB.setPaintProperty('snow-relief', 'color-relief-color', rampArray);
+    else setTimeout(tryApply, 80);
+  };
+  tryApply();
+}
+
+function toggleSplitMode() {
+  // The desktop-only guard gates ENTERING only. Gating both directions meant a
+  // window narrowed below the breakpoint while split was on could never be
+  // toggled back out — it just sat there with two ~190px panes.
+  if (splitMode) { exitSplitMode(); return; }
+  if (window.innerWidth <= 700) return;
+  enterSplitMode();
+}
+
+function enterSplitMode() {
+  if (viewMode !== 'hourly') setViewMode('hourly');
+  splitMode = true;
+  document.getElementById('map-screen').classList.add('split-mode');
+  document.getElementById('split-toggle').classList.add('active');
+  // Two 3D maps want every pixel of width available.
+  enterFullscreenView();
+  // Default pane B to a model that isn't pane A, so the comparison is
+  // meaningful the instant it opens rather than showing the same map twice.
+  if (splitModelB === selectedModel) {
+    splitModelB = Object.keys(MODEL_META).find(k => k !== selectedModel && modelHours[k]) || splitModelB;
+  }
+  initMapB();
+  buildSplitSelectors();
+  // The containers just changed size; MapLibre only re-reads that on resize.
+  requestAnimationFrame(() => { try { map && map.resize(); mapB && mapB.resize(); } catch (e) {} });
+  renderSplitAll();
+}
+
+function exitSplitMode() {
+  splitMode = false;
+  document.getElementById('map-screen').classList.remove('split-mode');
+  document.getElementById('split-toggle').classList.remove('active');
+  requestAnimationFrame(() => { try { map && map.resize(); mapB && mapB.resize(); } catch (e) {} });
+  // Hand the bottom graph back to the single-model sparkline.
+  pwRenderFreezingOverlay();
+}
+
+function buildSplitSelectors() {
+  const fill = (el, selected) => {
+    if (!el) return;
+    el.innerHTML = Object.keys(MODEL_META)
+      .filter(k => modelHours[k])
+      .map(k => `<option value="${k}" ${k === selected ? 'selected' : ''}>${MODEL_META[k].label}</option>`)
+      .join('');
+  };
+  fill(document.getElementById('split-model-a'), selectedModel);
+  fill(document.getElementById('split-model-b'), splitModelB);
+  const sa = document.getElementById('split-swatch-a');
+  const sb = document.getElementById('split-swatch-b');
+  if (sa) sa.style.background = MODEL_META[selectedModel]?.color || '#fff';
+  if (sb) sb.style.background = MODEL_META[splitModelB]?.color || '#fff';
+}
+
+function setSplitModel(pane, key) {
+  if (!modelHours[key]) return;
+  if (pane === 'a') {
+    // Pane A is the real selectedModel, so route through the normal path —
+    // that keeps forecastHours, the timeline length and the probe consistent.
+    selectModel(key);
+  } else {
+    splitModelB = key;
+  }
+  buildSplitSelectors();
+  renderSplitAll();
+}
+
+// Everything that has to redraw when the hour or either model changes.
+function renderSplitAll() {
+  if (!splitMode) return;
+  renderSplitPaneB();
+  renderSplitDelta();
+  renderSplitComparisonOverlay();
+  renderDivergenceStrip();
+}
+
+// Pane B's drape for whatever hour pane A is currently showing.
+function renderSplitPaneB() {
+  const aHour = forecastHours[currentIndex];
+  if (!aHour) return;
+  const bHour = splitHourAt(splitModelB, aHour.time);
+  applyRampToMapB(buildSnowRamp(bHour));
+}
+
+// One pane's headline numbers for an hour: snow line and this hour's rate.
+function splitPaneStats(hour) {
+  if (!hour) return '—';
+  const snowing = hour.snowfallMm >= SNOWFALL_THRESHOLD_MM;
+  const line = snowing
+    ? (hour.snowLineWB != null ? hour.snowLineWB : hour.freezingLevel - SNOW_OFFSET)
+    : hour.freezingLevel;
+  return `${Math.round(line)}m · ${(hour.snowfallMm / 10).toFixed(2)}cm/hr`;
+}
+
+function renderSplitDelta() {
+  const aHour = forecastHours[currentIndex];
+  if (!aHour) return;
+  const bHour = splitHourAt(splitModelB, aHour.time);
+
+  const statsA = document.getElementById('split-stats-a');
+  const statsB = document.getElementById('split-stats-b');
+  if (statsA) statsA.textContent = splitPaneStats(aHour);
+  if (statsB) statsB.textContent = splitPaneStats(bHour);
+
+  const row = document.getElementById('sd-row');
+  const agree = document.getElementById('sd-agree');
+  if (!row) return;
+  if (!bHour) {
+    row.innerHTML = '<div class="sd-item"><span class="sd-val">—</span></div>';
+    if (agree) agree.textContent = '';
+    return;
+  }
+
+  const snowLineOf = (h) => (h.snowfallMm >= SNOWFALL_THRESHOLD_MM)
+    ? (h.snowLineWB != null ? h.snowLineWB : h.freezingLevel - SNOW_OFFSET)
+    : h.freezingLevel;
+  const dFreeze = aHour.freezingLevel - bHour.freezingLevel;
+  const dSnowLine = snowLineOf(aHour) - snowLineOf(bHour);
+  const dRate = (aHour.snowfallMm - bHour.snowfallMm) / 10; // cm/hr
+
+  // Totals across the whole forecast, so a small hourly gap that persists all
+  // storm is still visible as the big number it adds up to.
+  let totalA = 0, totalB = 0;
+  forecastHours.forEach((h) => {
+    const b = splitHourAt(splitModelB, h.time);
+    if (!b) return;
+    totalA += h.snowfallMm / 10;
+    totalB += b.snowfallMm / 10;
+  });
+  const dTotal = totalA - totalB;
+
+  // Signed, and coloured by which model is higher, so the direction of the
+  // disagreement is readable without doing the subtraction yourself.
+  const sgn = (v, digits, unit) => `${v > 0 ? '+' : v < 0 ? '−' : ''}${Math.abs(v).toFixed(digits)}${unit}`;
+  const colorFor = (v) => v === 0 ? 'rgba(255,255,255,0.75)'
+    : (v > 0 ? MODEL_META[selectedModel]?.color : MODEL_META[splitModelB]?.color) || '#fff';
+  const item = (label, val, color) =>
+    `<div class="sd-item"><span class="sd-label">${label}</span><span class="sd-val" style="color:${color}">${val}</span></div>`;
+
+  row.innerHTML =
+    item('Snow line', sgn(dSnowLine, 0, 'm'), colorFor(dSnowLine)) +
+    item('Freezing', sgn(dFreeze, 0, 'm'), colorFor(dFreeze)) +
+    item('This hr', sgn(dRate, 2, 'cm'), colorFor(dRate)) +
+    item('Total', sgn(dTotal, 1, 'cm'), colorFor(dTotal));
+
+  if (agree) {
+    // A blunt but useful summary of "should I trust this forecast?": models
+    // agreeing closely on both depth and where the snow line sits is a much
+    // stronger signal than either model on its own.
+    const rateScale = Math.max(0.2, Math.max(aHour.snowfallMm, bHour.snowfallMm) / 10);
+    const score = Math.max(0, 100 - (Math.abs(dSnowLine) / 4) - (Math.abs(dRate) / rateScale) * 45);
+    const band = score >= 80 ? ['Strong agreement', '#34d399']
+      : score >= 55 ? ['Broad agreement', '#a3e635']
+      : score >= 30 ? ['Notable spread', '#fbbf24']
+      : ['Models disagree', '#f87171'];
+    agree.textContent = band[0];
+    agree.style.color = band[1];
+  }
+}
+
+// The bottom graph, in split mode: both models' freezing level as a line and
+// their snowfall as a filled area, in each model's own colour, on one shared
+// pair of scales. Overlaying them (rather than giving each pane its own graph)
+// is the whole point — the gap between the two lines IS the disagreement, and
+// it's directly readable as vertical distance.
+function renderSplitComparisonOverlay() {
+  const host = document.getElementById('fl-overlay');
+  if (!host) return;
+  const aHours = forecastHours;
+  if (!aHours || aHours.length < 2) { host.style.display = 'none'; return; }
+
+  host.style.display = 'block';
+  const W = host.clientWidth || 280, H = host.clientHeight || 150;
+  const P = { l: 12, r: 12, t: 16, b: 8 };
+  const pw = W - P.l - P.r, ph = H - P.t - P.b;
+  if (pw <= 0 || ph <= 0) { host.style.display = 'none'; return; }
+
+  // Freezing level occupies the upper 62%, snowfall the lower 38% — they're
+  // different units, so they get separate bands rather than a shared axis.
+  const flH = ph * 0.62, snowH = ph * 0.30, snowTop = P.t + ph - snowH;
+
+  const series = [
+    { key: selectedModel, hours: aHours },
+    { key: splitModelB, hours: aHours.map(h => splitHourAt(splitModelB, h.time)) }
+  ];
+
+  const flVals = [];
+  let maxSnow = 0;
+  series.forEach(s => s.hours.forEach(h => {
+    if (!h) return;
+    if (h.freezingLevel != null) flVals.push(h.freezingLevel);
+    if (h.snowfallMm != null) maxSnow = Math.max(maxSnow, h.snowfallMm);
+  }));
+  if (flVals.length < 2) { host.style.display = 'none'; return; }
+
+  let lo = Math.min(...flVals), hi = Math.max(...flVals);
+  if (hi - lo < 150) { const m = (hi + lo) / 2; lo = m - 75; hi = m + 75; }
+  const padv = (hi - lo) * 0.12; lo -= padv; hi += padv;
+  if (maxSnow <= 0) maxSnow = 1;
+
+  const X = (i) => P.l + (aHours.length === 1 ? 0 : i / (aHours.length - 1)) * pw;
+  const YF = (v) => P.t + flH - ((v - lo) / (hi - lo)) * flH;
+  const YS = (mm) => P.t + ph - (mm / maxSnow) * snowH;
+
+  let out = '';
+  series.forEach((s) => {
+    const color = MODEL_META[s.key]?.color || '#fff';
+    // Snowfall first so the freezing-level lines always sit on top of it.
+    let area = '', started = false;
+    s.hours.forEach((h, i) => {
+      if (!h || h.snowfallMm == null) return;
+      area += `${started ? 'L' : 'M'}${X(i).toFixed(1)},${YS(h.snowfallMm).toFixed(1)}`;
+      started = true;
+    });
+    if (started) {
+      const lastI = s.hours.length - 1;
+      out += `<path d="${area} L${X(lastI).toFixed(1)},${(P.t + ph).toFixed(1)} L${X(0).toFixed(1)},${(P.t + ph).toFixed(1)} Z" fill="${color}" fill-opacity="0.22"/>`;
+      out += `<path d="${area}" fill="none" stroke="${color}" stroke-width="1.4" stroke-opacity="0.85"/>`;
+    }
+    // Freezing level.
+    let d = '', begun = false;
+    s.hours.forEach((h, i) => {
+      if (!h || h.freezingLevel == null) return;
+      d += `${begun ? 'L' : 'M'}${X(i).toFixed(1)},${YF(h.freezingLevel).toFixed(1)}`;
+      begun = true;
+    });
+    if (begun) out += `<path d="${d}" fill="none" stroke="${color}" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" stroke-opacity="0.95"/>`;
+  });
+
+  // Divider between the two bands, and the current-hour cursor.
+  out += `<line x1="${P.l}" y1="${snowTop.toFixed(1)}" x2="${(P.l + pw).toFixed(1)}" y2="${snowTop.toFixed(1)}" stroke="rgba(255,255,255,0.14)" stroke-width="1"/>`;
+  const cx = X(currentIndex);
+  out += `<line x1="${cx.toFixed(1)}" y1="${P.t}" x2="${cx.toFixed(1)}" y2="${(P.t + ph).toFixed(1)}" stroke="rgba(255,255,255,0.5)" stroke-width="1.5"/>`;
+
+  const svg = host.querySelector('svg');
+  svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
+  svg.innerHTML = out;
+
+  // Caption doubles as the legend: each model named in the colour its own two
+  // curves are drawn in, so the graph needs no separate key.
+  const cap = document.getElementById('fl-caption');
+  if (cap) {
+    const chip = (k) => `<span style="color:${MODEL_META[k]?.color || '#fff'}">${MODEL_META[k]?.label || k}</span>`;
+    cap.innerHTML = `${chip(selectedModel)} <span style="opacity:0.45">vs</span> ${chip(splitModelB)} <span style="opacity:0.45">· freezing level / snowfall</span>`;
+  }
+}
+
+// Per-hour disagreement across the whole forecast, as a strip above the
+// timeline. Height and colour both key off how far apart the models are that
+// hour, so a glance finds the periods worth actually looking at — that's much
+// faster than scrubbing 384 hours hunting for where they diverge.
+let divergeBarsKey = null;
+let divergeBarsMarkup = '';
+
+function renderDivergenceStrip() {
+  const host = document.getElementById('split-diverge');
+  const svg = document.getElementById('split-diverge-svg');
+  if (!host || !svg || !forecastHours || !forecastHours.length) return;
+  const W = host.clientWidth || 400, H = host.clientHeight || 26;
+  const n = forecastHours.length;
+
+  // The bars only change when the models, the data or the width change — but
+  // the cursor moves on every timeline tick. Rebuilding ~380 rects of SVG for
+  // each tick of playback was pure waste, so cache the bar markup and redraw
+  // only the cursor line in between.
+  const key = `${selectedModel}|${splitModelB}|${n}|${Math.round(W)}|${H}`;
+  if (key === divergeBarsKey) {
+    const cx = (currentIndex + 0.5) * (W / n);
+    svg.innerHTML = divergeBarsMarkup +
+      `<line x1="${cx.toFixed(1)}" y1="0" x2="${cx.toFixed(1)}" y2="${H}" stroke="#fff" stroke-width="1.5" stroke-opacity="0.9"/>`;
+    return;
+  }
+
+  // Normalise the two disagreement axes against their own spread so the strip
+  // stays informative whether it's a big storm or a quiet week.
+  const rows = forecastHours.map((h) => {
+    const b = splitHourAt(splitModelB, h.time);
+    if (!b) return null;
+    return {
+      dRate: Math.abs(h.snowfallMm - b.snowfallMm) / 10,
+      dLine: Math.abs((h.snowLineWB ?? h.freezingLevel) - (b.snowLineWB ?? b.freezingLevel))
+    };
+  });
+  const maxRate = Math.max(0.05, ...rows.filter(Boolean).map(r => r.dRate));
+  const maxLine = Math.max(50, ...rows.filter(Boolean).map(r => r.dLine));
+
+  const bw = W / n;
+  let out = '';
+  rows.forEach((r, i) => {
+    if (!r) return;
+    // Depth disagreement dominates (it's what people care about); snow-line
+    // disagreement contributes at a third of the weight.
+    const score = Math.min(1, (r.dRate / maxRate) * 0.75 + (r.dLine / maxLine) * 0.25);
+    if (score < 0.02) return;
+    const h = Math.max(1.5, score * (H - 4));
+    const hue = 55 - score * 55; // amber -> red as they diverge
+    out += `<rect x="${(i * bw).toFixed(2)}" y="${(H - h - 2).toFixed(2)}" width="${Math.max(0.7, bw - 0.25).toFixed(2)}" height="${h.toFixed(2)}" fill="hsl(${hue.toFixed(0)},92%,58%)" fill-opacity="${(0.35 + score * 0.55).toFixed(2)}"/>`;
+  });
+  divergeBarsKey = key;
+  divergeBarsMarkup = out;
+
+  const cx = (currentIndex + 0.5) * bw;
+  svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
+  svg.innerHTML = out +
+    `<line x1="${cx.toFixed(1)}" y1="0" x2="${cx.toFixed(1)}" y2="${H}" stroke="#fff" stroke-width="1.5" stroke-opacity="0.9"/>`;
+}
+
+// Click anywhere on the strip to jump the shared timeline to that hour.
+function onDivergeClick(e) {
+  if (!splitMode || !forecastHours || !forecastHours.length) return;
+  const host = document.getElementById('split-diverge');
+  const rect = host.getBoundingClientRect();
+  const frac = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+  openMapView(Math.min(forecastHours.length - 1, Math.floor(frac * forecastHours.length)));
+}
 function closeModelMenu() {
   document.getElementById('model-switch')?.classList.remove('open');
 }
@@ -2190,17 +2734,12 @@ function maybeSignalMapReady() {
   });
 }
 
-function initMap() {
-  if (map) return;
-  map = new maplibregl.Map({
-    container: 'map',
-    zoom: LOC.zoom,
-    center: LOC.center,
-    pitch: LOC.pitch,
-    bearing: LOC.bearing,
-    maxPitch: 85,
-    attributionControl: false,
-    style: {
+// The base style, factored out of initMap so the split-screen comparison pane
+// (see initMapB) can build a second map that renders identically to the first —
+// same terrain source, same hillshade, same snow-relief drape to paint a ramp
+// into. Anything that differs between the two panes is the ramp, nothing else.
+function buildMapStyle() {
+  return {
       version: 8,
       sources: {
         terrain: { type: 'raster-dem', url: 'https://tiles.mapterhorn.com/tilejson.json', tileSize: 512 },
@@ -2251,7 +2790,20 @@ function initMap() {
         }
       ],
       terrain: { source: 'terrain', exaggeration: 1.2 }
-    }
+  };
+}
+
+function initMap() {
+  if (map) return;
+  map = new maplibregl.Map({
+    container: 'map',
+    zoom: LOC.zoom,
+    center: LOC.center,
+    pitch: LOC.pitch,
+    bearing: LOC.bearing,
+    maxPitch: 85,
+    attributionControl: false,
+    style: buildMapStyle()
   });
 
   // Keyboard shortcuts (desktop — these only fire once the map iframe has
@@ -4499,6 +5051,9 @@ function openMapView(index) {
   currentHourBandRates = hourSnowing ? computeElevationBandRates(hour.time, currentHourCm) : null;
 
   applyRampWhenReady(buildSnowRamp(hour));
+  // Split mode: pane B's drape, the difference readout and both comparison
+  // graphs all key off the hour pane A just moved to.
+  if (splitMode) renderSplitAll();
   // Regenerating orographic-snow-layer's tiles is real per-pixel DEM work,
   // unlike buildSnowRamp's cheap interpolation array — only worth doing on
   // an actual hour change (here), not on every smooth-playback animation
@@ -5815,6 +6370,11 @@ function setViewMode(mode) {
   // No NZ radar coverage for this resort (the US ones) — fall back rather
   // than entering a mode that can never load anything.
   if (mode === 'radar' && !RADAR_AVAILABLE) mode = 'hourly';
+  // Split screen only has meaning for the hourly forecast — it compares two
+  // models' hourly drapes, and none of the other modes have a per-model
+  // breakdown at all. Leave it on the way out rather than stranding a second
+  // map showing a stale hour behind the new view.
+  if (splitMode && mode !== 'hourly') exitSplitMode();
   viewMode = mode;
   pwPersist('sp-view-mode', mode);
   document.querySelectorAll('#mode-switch .pill-btn').forEach(b => b.classList.toggle('active', b.dataset.mode === mode));
@@ -6517,7 +7077,16 @@ function setPeriod(days) {
 function enterFullscreenView() {
   const el = document.getElementById('map-screen');
   const req = el.requestFullscreen || el.webkitRequestFullscreen || el.msRequestFullscreen;
-  if (req) req.call(el);
+  if (!req) return;
+  // Fullscreen needs transient user activation. Split mode calls this on the
+  // user's click so it normally succeeds, but the browser still rejects if the
+  // activation has lapsed (or the embedder disallows it) — swallow that so a
+  // refused fullscreen degrades to "split screen, not fullscreen" instead of an
+  // unhandled rejection that aborts the rest of the setup.
+  try {
+    const r = req.call(el);
+    if (r && typeof r.catch === 'function') r.catch(() => {});
+  } catch (e) {}
 }
 
 function exitFullscreenView() {
@@ -6534,6 +7103,17 @@ function updateFullscreenUI() {
 );
 // Redraw the freezing-level sparkline (sized in pixels) when the map resizes.
 window.addEventListener('resize', () => { if (typeof viewMode !== 'undefined' && viewMode === 'live') pwRenderFreezingOverlay(); });
+// Split mode's panes, comparison graph and divergence strip are all sized in
+// pixels too, and entering/leaving fullscreen fires resize — so re-measure the
+// second map and redraw both SVGs. Also drops out of split if the window is
+// narrowed to mobile width, where the feature is hidden entirely.
+window.addEventListener('resize', () => {
+  if (!splitMode) return;
+  if (window.innerWidth <= 700) { exitSplitMode(); return; }
+  try { mapB && mapB.resize(); } catch (e) {}
+  renderSplitComparisonOverlay();
+  renderDivergenceStrip();
+});
 
 // ── Timeline scrubber: drag-to-seek + play/pause autoplay ────────────────────
 document.getElementById('tl-slider').addEventListener('input', (e) => {
@@ -6615,6 +7195,13 @@ function startPlay() {
       ? fromBands.map((b, i) => ({ elev: b.elev, cm: b.cm + (toBands[i].cm - b.cm) * t }))
       : null;
     applyRampWhenReady(buildSnowRamp(blended));
+    // Pane B animates on the same blend fraction between ITS OWN two hours, so
+    // both panes stay on the same instant rather than one sliding ahead.
+    if (splitMode) {
+      const bFrom = splitHourAt(splitModelB, from.time);
+      const bTo = splitHourAt(splitModelB, to.time);
+      if (bFrom && bTo) applyRampToMapB(buildSnowRamp(blendHour(bFrom, bTo, t)));
+    }
     // Keep the tap-to-probe in sync during smooth playback too, not just at
     // each full-hour tick (openMapView) — same boundary logic as there/
     // buildSnowRamp, so a tap mid-animation still matches what's rendered.
@@ -7823,6 +8410,10 @@ function pwRenderFreezingOverlay() {
   // show. Single choke point: every call site (openMapView, resize, live
   // nowcast ticks, etc.) goes through this function.
   if (isHighResMode) { host.style.display = 'none'; return; }
+
+  // Split mode replaces the single-model sparkline with the two-model
+  // comparison graph — same host element, different renderer.
+  if (splitMode && viewMode === 'hourly') { renderSplitComparisonOverlay(); return; }
 
   // HOURLY mode: use pure forecast data - show full 16-day forecast with marker
   if (viewMode === 'hourly') {
