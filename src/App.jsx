@@ -1022,6 +1022,31 @@ function StormArrivalBanner({ resort, onOpenRadar }) {
 // exactly at it (matches the rule used by the standalone 3D snowfall map).
 const SNOW_LINE_BUFFER_M = 300
 
+// Open-Meteo's `snowfall` field intermittently reports 0 despite real
+// precipitation, because each model applies its own rain/snow split off its 2m
+// temperature at that elevation. Fill the gap from precipitation at the usual
+// ~7:1 snow-to-liquid ratio.
+//
+// The gate is this app's OWN snow line (freezing level − SNOW_LINE_BUFFER_M),
+// the same test the chart bars and the table's precip row use to decide whether
+// an hour counts as snow. It used to be `temp < 0`, which disagreed with that
+// test for any elevation sitting between the snow line and the freezing level:
+// isSnow said "snow" (so the chart plotted `snowfall`, not `precipitation`)
+// while this left snowfall at 0, and the hour rendered as neither snow nor
+// rain. Whakapapa's 1630m base hit this constantly — the freezing level runs
+// ~1800m with the base ~+1°C, so summit bars appeared and base bars vanished
+// even though the same precipitation was forecast at both.
+//
+// `temp` stays the fallback for the rare case of no freezing level at all,
+// matching how isSnow degrades in the same situation.
+function snowfallWithFallback(snowfallMm, precipMm, freezingLevel, elev, temp) {
+  if (snowfallMm > 0 || !(precipMm > 0)) return snowfallMm
+  const isSnow = freezingLevel != null
+    ? (freezingLevel - SNOW_LINE_BUFFER_M) < elev
+    : temp < 0
+  return isSnow ? precipMm * 7 : snowfallMm
+}
+
 const RESORTS = {
   ruapehu: { name: 'Whakapapa', lat: -39.28, lon: 175.57, summitElev: 2300, baseElev: 1630, timezone: 'Pacific/Auckland', metservicePath: 'mountains-and-parks/national-parks/tongariro' },
   cardrona: { name: 'Cardrona', lat: -44.76, lon: 169.0, summitElev: 1860, baseElev: 1640, timezone: 'Pacific/Auckland', metservicePath: 'mountains-and-parks/ski-fields/cardrona' },
@@ -1132,12 +1157,12 @@ function buildAltModelData(summitData, baseData, r) {
     const freezingLevel = freezingAt(summitTemp, baseTemp)
 
     const summitPrecip = summitData.hourly.precipitation?.[i] || 0
-    let summitSnowfall = (summitData.hourly.snowfall?.[i] || 0) * 10
-    if (summitTemp < 0 && summitPrecip > 0 && summitSnowfall === 0) summitSnowfall = summitPrecip * 7
+    const summitSnowfall = snowfallWithFallback(
+      (summitData.hourly.snowfall?.[i] || 0) * 10, summitPrecip, freezingLevel, r.summitElev, summitTemp)
 
     const basePrecip = baseData.hourly.precipitation?.[i] || 0
-    let baseSnowfall = (baseData.hourly.snowfall?.[i] || 0) * 10
-    if (baseTemp < 0 && basePrecip > 0 && baseSnowfall === 0) baseSnowfall = basePrecip * 7
+    const baseSnowfall = snowfallWithFallback(
+      (baseData.hourly.snowfall?.[i] || 0) * 10, basePrecip, freezingLevel, r.baseElev, baseTemp)
 
     return {
       time,
@@ -1555,21 +1580,23 @@ function SnowfallForecast({ resort, setResort, onOpenCompare }) {
             freezingLevel = 0
           }
 
+          const gfsFreezingLevel = openMeteoSummitData.hourly.freezinglevel_height?.[i] ?? null
+
+          // Gate the snow estimate on the freezing level this row actually
+          // DISPLAYS (GFS publishes a real one; the interpolated value is the
+          // fallback), so the snowfall figure can't contradict the freezing
+          // level shown in the same column. See snowfallWithFallback.
+          const flForSnow = gfsFreezingLevel ?? freezingLevel
+
           const summitPrecip = openMeteoSummitData.hourly.precipitation[i] || 0
-          let summitSnowfall = (openMeteoSummitData.hourly.snowfall[i] || 0) * 10 // Convert cm to mm
-          // Fallback: if temp < 0 and precip exists but no snowfall recorded, assume it's all snow × 7 (water equivalent)
-          if (summitTemp < 0 && summitPrecip > 0 && summitSnowfall === 0) {
-            summitSnowfall = summitPrecip * 7
-          }
+          const summitSnowfall = snowfallWithFallback(
+            (openMeteoSummitData.hourly.snowfall[i] || 0) * 10, // cm -> mm
+            summitPrecip, flForSnow, r.summitElev, summitTemp)
 
           const basePrecip = openMeteoBaseData.hourly.precipitation[i] || 0
-          let baseSnowfall = (openMeteoBaseData.hourly.snowfall[i] || 0) * 10 // Convert cm to mm
-          // Fallback: if temp < 0 and precip exists but no snowfall recorded, assume it's all snow × 7 (water equivalent)
-          if (baseTemp < 0 && basePrecip > 0 && baseSnowfall === 0) {
-            baseSnowfall = basePrecip * 7
-          }
-
-          const gfsFreezingLevel = openMeteoSummitData.hourly.freezinglevel_height?.[i] ?? null
+          const baseSnowfall = snowfallWithFallback(
+            (openMeteoBaseData.hourly.snowfall[i] || 0) * 10, // cm -> mm
+            basePrecip, flForSnow, r.baseElev, baseTemp)
 
           return {
             time,
