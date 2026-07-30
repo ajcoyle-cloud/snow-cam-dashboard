@@ -817,7 +817,7 @@
       <div class="si-row"><span class="l">Summit Temp</span><span class="v" id="si-temp">—</span></div>
       <div class="si-row"><span class="l">Freezing Level</span><span class="v" id="si-fl">—</span></div>
       <div class="si-row"><span class="l">Snow Line</span><span class="v" id="si-sl">—</span></div>
-      <div class="si-row" style="display:none"><span class="l" style="color:#a78bfa">Sleet</span><span class="v" id="si-sleet">—</span></div>
+      <div class="si-row" style="display:none"><span class="l" style="color:#a78bfa">Sleet Line</span><span class="v" id="si-sleet">—</span></div>
       <div class="si-row"><span class="l">Snowfall (1h)</span><span class="v" id="si-snow">—</span></div>
       <div class="si-row"><span class="l">Wind</span><span class="v" id="si-wind">—</span></div>
     </div>
@@ -4420,7 +4420,9 @@ function openMapView(index) {
       && hour.rainLineWB < hour.snowLineWB;
     sleetEl.parentElement.style.display = showSleet ? '' : 'none';
     if (showSleet) {
-      sleetEl.textContent = `${Math.round(hour.rainLineWB)}–${Math.round(hour.snowLineWB)} m`;
+      // The band's LOWER edge only — its top is the Snow Line already shown
+      // directly above, so a range just restated that number.
+      sleetEl.textContent = Math.round(hour.rainLineWB) + ' m';
     }
   }
   document.getElementById('si-snow').textContent = hour.snowfallMm.toFixed(1) + ' mm';
