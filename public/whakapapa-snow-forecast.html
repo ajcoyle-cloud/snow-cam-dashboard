@@ -1797,8 +1797,17 @@ function switchResort(key, notifyParent = true) {
 // a whole weather system, not to navigate between resorts. Every resort's
 // pill would otherwise light up at once and clutter a view about pressure
 // systems, not ski fields.
+//
+// The radar ACCUMULATION view is hidden for the same reason: it's a national
+// rainfall total read as a continuous field, and a dozen labelled pills with
+// leader lines sit right on top of the part of the country the total is
+// showing. The live radar loop keeps them — there you are usually watching a
+// cell approach a particular field.
 function updateResortPillVisibility() {
-  const show = viewMode !== 'isobars' && map.getZoom() <= RESORT_PILL_MAX_ZOOM;
+  if (!map) return;
+  const show = viewMode !== 'isobars'
+    && !(viewMode === 'radar' && radarAccumOn)
+    && map.getZoom() <= RESORT_PILL_MAX_ZOOM;
   for (const key in resortPillMarkers) {
     resortPillMarkers[key].getElement().style.display = show ? '' : 'none';
   }
@@ -2897,8 +2906,9 @@ function initMap() {
     // comment above initReportPill's definition); a no-op for every other
     // resort since REPORT_TEMP_ENDPOINTS has no entry for them.
     initReportPill(resortKey);
-    // Other-resort navigation pills — present in every view mode (live,
-    // hourly, accumulated), gated only by zoom level.
+    // Other-resort navigation pills. Gated by zoom level, and hidden outright
+    // in the two views they'd only clutter — Isobars and the radar
+    // accumulation drape (see updateResortPillVisibility).
     initResortPills();
     // Snow Test tab (?snow=1) turns the particle trial on automatically —
     // everyday resort/map views leave it off (see toggleSnowParticles).
@@ -6889,6 +6899,10 @@ function radarSyncAccumPanel() {
   document.getElementById('radar-timeline').classList.toggle('accum-on', radarAccumOn);
   document.getElementById('rtl-accum-slider').value = radarAccumHoursToIndex(radarAccumHours);
   document.getElementById('rtl-accum-hours').textContent = `${radarAccumHours}h`;
+  // Resort pills are hidden over the accumulation drape — this is the single
+  // choke point every accum state change goes through (toggle, view switch,
+  // restored preference), so the pills can't get out of step with it.
+  updateResortPillVisibility();
 }
 
 function radarLoadAccumPrefs() {
