@@ -2956,7 +2956,18 @@ function SnowfallForecast({ resort, setResort, onOpenCompare }) {
             const barHeight = Math.max((displayVal / maxPrecip) * snowPlotHeight, 1)
             const x = snowXScale(i) - barWidth / 2
             const y = snowPadding.top + snowPlotHeight - barHeight
-            const isCurrentHour = Math.abs(new Date() - d.datetime) < 3600000
+            // The bucket that CONTAINS now, not a ±1h window around it — that
+            // window is two hours wide, so it always lit the bars either side
+            // of the current time (at 10:30pm both 10pm and 11pm matched).
+            // Buckets are disjoint, so exactly one bar can win. End-of-bucket
+            // comes from the next point rather than a hardcoded hour so this
+            // still holds in Fit mode, where points are grouped multi-hour.
+            const bucketStart = d.datetime.getTime()
+            const bucketEnd = displayData[i + 1]
+              ? displayData[i + 1].datetime.getTime()
+              : bucketStart + 3600000
+            const nowMs = Date.now()
+            const isCurrentHour = nowMs >= bucketStart && nowMs < bucketEnd
 
             // Single blue color for snowfall bars, regardless of amount
             let barColor = '#2563eb'
