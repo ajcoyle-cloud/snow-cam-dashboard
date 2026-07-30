@@ -798,7 +798,7 @@
 
   <div id="model-switch">
     <button id="model-switch-btn" onclick="toggleModelMenu()">
-      <span id="model-switch-label">Average</span>
+      <span id="model-switch-label">GFS Model</span>
       <span class="model-switch-arrow">▼</span>
     </button>
     <div id="model-switch-list"></div>
@@ -1861,16 +1861,22 @@ async function loadForecast() {
 // 'sp-map-model' localStorage key as the regular Map tab, so switching
 // models there (e.g. to compare ECMWF) would silently carry over here too —
 // and because High-Res's wind-redistributed totals scale directly off
-// whichever model is active, that made its numbers look wildly inflated
-// against the Forecast tab's table (which defaults to Average) with no
-// visible explanation. Always starting High-Res on Average keeps it
-// consistent with the table; a user can still switch models manually within
-// this one session via the dropdown, it just won't persist as the default.
+// whichever model is active, that made its numbers look wildly inflated with
+// no visible explanation. Always starting High-Res on one fixed model keeps
+// it predictable; a user can still switch models manually within this one
+// session via the dropdown, it just won't persist as the default.
+//
+// That fixed model is now GFS rather than the blended average: average is no
+// longer offered in the dropdown, and leaving High-Res anchored on it would
+// have shown a label with no matching (or active) entry in the list.
 function restoreSelectedModel() {
-  if (isHighResMode) { selectedModel = modelHours.average ? 'average' : 'gfs'; return; }
+  if (isHighResMode) { selectedModel = 'gfs'; return; }
   let saved = null;
   try { saved = localStorage.getItem('sp-map-model'); } catch (e) {}
-  selectedModel = (saved && modelHours[saved]) ? saved : (modelHours.average ? 'average' : 'gfs');
+  // MODEL_META, not just modelHours — a previously persisted 'average' still
+  // has a built series behind it, so without this check it would keep being
+  // restored as the active model after being removed from the options.
+  selectedModel = (saved && MODEL_META[saved] && modelHours[saved]) ? saved : 'gfs';
 }
 
 function selectModel(key) {
@@ -1884,8 +1890,11 @@ function selectModel(key) {
   else if (viewMode === 'hourly') openMapView(Math.min(currentIndex, forecastHours.length - 1));
 }
 
+// Selectable models. 'average' is deliberately absent — the blended series is
+// still computed (see modelHours.average) and still serves as the fallback when
+// the chosen model has no data for a resort, it's just not offered as a choice
+// here any more.
 const MODEL_META = {
-  average: { label: 'Average', color: '#e2e8f0' },
   gfs: { label: 'GFS Model', color: '#3b82f6' },
   ecmwf: { label: 'ECMWF IFS', color: '#10b981' },
   aifs: { label: 'AIFS', color: '#f59e0b' },
@@ -1896,7 +1905,7 @@ function buildModelMenu() {
   const btn = document.getElementById('model-switch-label');
   const list = document.getElementById('model-switch-list');
   if (!btn || !list) return;
-  btn.textContent = MODEL_META[selectedModel]?.label || 'Average';
+  btn.textContent = MODEL_META[selectedModel]?.label || 'GFS Model';
   list.innerHTML = Object.keys(MODEL_META).map(key => {
     const available = !!modelHours[key];
     const active = key === selectedModel;
