@@ -6377,6 +6377,11 @@ function setViewMode(mode) {
   if (splitMode && mode !== 'hourly') exitSplitMode();
   viewMode = mode;
   pwPersist('sp-view-mode', mode);
+  // Tell the host page which layer is showing, so it can put it in the URL
+  // ("/map/<resort>/<mode>") — that's what makes layer usage visible in the
+  // per-path analytics breakdown, and what makes a layer link shareable.
+  // Harmless when this page is opened directly: postMessage to self.
+  try { window.parent.postMessage({ type: 'map-view-mode', mode }, '*'); } catch (e) {}
   document.querySelectorAll('#mode-switch .pill-btn').forEach(b => b.classList.toggle('active', b.dataset.mode === mode));
   document.getElementById('period-switch').style.display = mode === 'accumulated' ? 'flex' : 'none';
   // No forecast data backs the Live temperature map, the Radar map, or the
@@ -7290,6 +7295,11 @@ function restoreViewMode() {
     saved = localStorage.getItem('sp-view-mode');
     savedDays = parseInt(localStorage.getItem('sp-accum-days'), 10);
   } catch (e) { return; }
+  // ?view= wins over the remembered mode: it's set from the host page's URL
+  // (see buildPath in App.jsx), so following "/map/cardrona/radar" has to land
+  // on Radar even if this browser last left the map on Hourly.
+  const requestedView = new URLSearchParams(window.location.search).get('view');
+  if (['live', 'hourly', 'accumulated', 'radar', 'isobars'].includes(requestedView)) saved = requestedView;
   if (saved === 'accumulated') {
     if ([5, 10, 15].includes(savedDays)) accumDays = savedDays;
     document.querySelectorAll('#period-switch .pill-btn').forEach(b => b.classList.toggle('active', parseInt(b.dataset.days, 10) === accumDays));

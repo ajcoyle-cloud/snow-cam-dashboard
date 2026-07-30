@@ -1,5 +1,5 @@
 // Updated with Loveland ski area and forecast view switcher
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { Camera, LineChart, Map as MapIcon, Snowflake, Settings, Wind, Newspaper, Volume2, Square, Loader2, List, ArrowLeft, Video, ArrowUpToLine, ArrowDownToLine, Route } from 'lucide-react'
 import { computeStormArrival, STORM_BAND_LABELS } from './stormArrival'
 import { subscribeRuapehuProfile } from './pwObs'
@@ -3926,7 +3926,7 @@ function MapSettingsMenu({ topIframeRef }) {
   )
 }
 
-function ForecastMap3D({ resort, setResort }) {
+function ForecastMap3D({ resort, setResort, viewMode, onViewModeChange }) {
   // A single, permanent iframe/map instance — switching resorts used to
   // remount the iframe (a fresh WebGL context per resort, crossfaded in over
   // the old one), which meant the camera could never fly continuously from
@@ -3937,12 +3937,19 @@ function ForecastMap3D({ resort, setResort }) {
   // `src` once, at mount, and every later resort change is just a
   // 'switch-resort' postMessage to the iframe that's already showing.
   const initialResortRef = useRef(resort)
+  // Same one-shot treatment as the resort: the view mode goes into the iframe's
+  // initial src so a shared "/map/cardrona/radar" link opens on that layer, and
+  // every later change travels by postMessage rather than reloading the map.
+  const initialViewRef = useRef(viewMode)
   const iframeRef = useRef(null)
   // The resort value the iframe is currently showing/flying toward — kept in
   // sync from both directions (this component telling the iframe, or the
   // iframe's own resort pill telling this component) so a change originating
   // on one side never bounces an echo back to the other.
   const syncedResortRef = useRef(resort)
+  // Same guard for the view mode: the iframe's own pills post their new mode up
+  // here, which sets state, which would otherwise post it straight back down.
+  const syncedViewRef = useRef(viewMode)
 
   // Lightweight global bridge (matches the iframe's own window.__startAutoRotateRampIn
   // pattern) so things outside this component tree — e.g. the storm-arrival banner —
@@ -3965,10 +3972,16 @@ function ForecastMap3D({ resort, setResort }) {
         syncedResortRef.current = event.data.resort
         setResort(event.data.resort)
       }
+      // The iframe's own mode pills report every switch up here so the URL can
+      // follow — which is what puts each layer in the analytics path breakdown.
+      if (event.data?.type === 'map-view-mode' && event.data?.mode) {
+        syncedViewRef.current = event.data.mode
+        onViewModeChange?.(event.data.mode)
+      }
     }
     window.addEventListener('message', handleMessage)
     return () => window.removeEventListener('message', handleMessage)
-  }, [setResort])
+  }, [setResort, onViewModeChange])
 
   // The location switcher above (or anything else sharing `resort` state)
   // changed resort — tell the persistent iframe to fly itself there.
@@ -3977,6 +3990,15 @@ function ForecastMap3D({ resort, setResort }) {
     syncedResortRef.current = resort
     iframeRef.current?.contentWindow?.postMessage({ type: 'switch-resort', resort }, '*')
   }, [resort])
+
+  // The view mode changed from outside the iframe (a back/forward, or the
+  // storm banner jumping to Radar) — push it down. Skipped when the iframe is
+  // where this value came from in the first place.
+  useEffect(() => {
+    if (!viewMode || syncedViewRef.current === viewMode) return
+    syncedViewRef.current = viewMode
+    iframeRef.current?.contentWindow?.postMessage({ type: 'set-view-mode', mode: viewMode }, '*')
+  }, [viewMode])
 
   return (
     <div className="map-3d-wrap" style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
@@ -3988,7 +4010,7 @@ function ForecastMap3D({ resort, setResort }) {
         <iframe
           ref={iframeRef}
           className="map-3d-frame"
-          src={`/whakapapa-snow-forecast.html?resort=${initialResortRef.current}&v=${IFRAME_CACHE_BUST}`}
+          src={`/whakapapa-snow-forecast.html?resort=${initialResortRef.current}${initialViewRef.current ? `&view=${initialViewRef.current}` : ''}&v=${IFRAME_CACHE_BUST}`}
           style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', border: 'none', borderRadius: 0, display: 'block' }}
           allowFullScreen
         />
@@ -4124,8 +4146,18 @@ const RESORT_KEY_BY_SLUG = Object.fromEntries(Object.entries(RESORT_SLUG_BY_KEY)
 // ones that always show up explicitly). parsePath still reads a bare/legacy
 // path fine (falls back to the caller's default), it just won't ever write
 // one anymore.
+// The Map tab's view modes, carried as a THIRD path segment:
+// "/map/cardrona/radar". A path segment rather than a query string on purpose —
+// Vercel Analytics' Pages report breaks down by path, which is the same reason
+// the resort segment is always written explicitly above, and a "?view=" would
+// at best depend on how the dashboard treats query strings. Same vocabulary as
+// whakapapa-snow-forecast.html's own viewMode values, deliberately: one set of
+// names end to end beats a prettier URL plus a mapping table to keep in sync.
+const MAP_VIEW_MODES = ['live', 'hourly', 'accumulated', 'radar', 'isobars']
+const DEFAULT_MAP_VIEW = 'hourly'
+
 function parsePath(pathname) {
-  const [seg0, seg1] = pathname.split('/').filter(Boolean)
+  const [seg0, seg1, seg2] = pathname.split('/').filter(Boolean)
   let tabId = 'webcams'
   let resortSlug = seg0
   if (seg0 && TAB_SLUG_TO_ID[seg0]) {
@@ -4133,13 +4165,21 @@ function parsePath(pathname) {
     resortSlug = seg1
   }
   const resortKey = resortSlug ? (RESORT_KEY_BY_SLUG[resortSlug] || (RESORTS[resortSlug] ? resortSlug : null)) : null
-  return { tabId, resortKey }
+  // Only the Map tab has view modes; a stray third segment anywhere else is
+  // ignored rather than treated as one.
+  const viewMode = tabId === 'map' && MAP_VIEW_MODES.includes(seg2) ? seg2 : null
+  return { tabId, resortKey, viewMode }
 }
 
-function buildPath(tabId, resortKey) {
+function buildPath(tabId, resortKey, viewMode) {
   const base = TAB_PATH_BY_ID[tabId] || '/'
   const slug = RESORT_SLUG_BY_KEY[resortKey || DEFAULT_RESORT] || resortKey || DEFAULT_RESORT
-  return base === '/' ? `/${slug}` : `${base}/${slug}`
+  const path = base === '/' ? `/${slug}` : `${base}/${slug}`
+  // Written even for the default mode, for the same reason the default resort
+  // is: a view that could hide behind a bare "/map/<resort>" would undercount
+  // in analytics against the ones that always name themselves.
+  if (tabId === 'map' && MAP_VIEW_MODES.includes(viewMode)) return `${path}/${viewMode}`
+  return path
 }
 
 export default function App() {
@@ -4165,10 +4205,24 @@ export default function App() {
   // the comparison page. Reset whenever the user navigates away from
   // Forecast so returning to the tab never resurrects it unasked.
   const [forecastCompareOpen, setForecastCompareOpen] = useState(false)
+  // Which Map-tab layer is showing, mirrored into the URL. The map itself lives
+  // in an iframe and owns this state; this copy exists so the address bar (and
+  // therefore analytics, history and shared links) can follow it. Kept in sync
+  // both ways — see ForecastMap3D's onViewModeChange.
+  const [mapViewMode, setMapViewMode] = useState(() => {
+    if (initialFromUrl.viewMode) return initialFromUrl.viewMode
+    try {
+      // Same key the iframe persists to, so a URL-less load lands where the
+      // last visit left off rather than snapping back to the default.
+      const v = localStorage.getItem('sp-view-mode')
+      if (MAP_VIEW_MODES.includes(v)) return v
+    } catch (e) {}
+    return DEFAULT_MAP_VIEW
+  })
   const goToTab = (id) => {
     setActiveTab(id)
     if (id !== 'forecast') setForecastCompareOpen(false)
-    const path = buildPath(id, resort)
+    const path = buildPath(id, resort, mapViewMode)
     if (path !== window.location.pathname) window.history.pushState({}, '', path)
   }
   // Storm-arrival banner click: jump to the Map tab's Radar view. The
@@ -4180,13 +4234,20 @@ export default function App() {
   const openMtLyfordRadar = () => {
     try { localStorage.setItem('sp-view-mode', 'radar') } catch (e) {}
     if (typeof window.__mapSetViewMode === 'function') window.__mapSetViewMode('radar')
+    setMapViewMode('radar')
     goToTab('map')
   }
   useEffect(() => {
     const onPopState = () => {
-      const { tabId, resortKey } = parsePath(window.location.pathname)
+      const { tabId, resortKey, viewMode } = parsePath(window.location.pathname)
       setActiveTab(tabId)
       setResort(resortKey || DEFAULT_RESORT)
+      // Back/forward across map layers has to move the map too, not just the
+      // address bar — the iframe owns the actual view, so tell it.
+      if (viewMode) {
+        setMapViewMode(viewMode)
+        if (typeof window.__mapSetViewMode === 'function') window.__mapSetViewMode(viewMode)
+      }
     }
     window.addEventListener('popstate', onPopState)
     return () => window.removeEventListener('popstate', onPopState)
@@ -4201,6 +4262,21 @@ export default function App() {
     } catch (e) {}
     return DEFAULT_RESORT
   })
+  // The map iframe reporting which layer it switched to. The URL is written
+  // HERE rather than left to the [activeTab, resort, mapViewMode] effect below,
+  // because entering a layer is expensive — isobar contouring, the accumulation
+  // build — and it runs synchronously in the same-origin iframe, on this thread.
+  // Measured 18-24s between the message arriving and React getting a turn to run
+  // the effect. Left to the effect, a run of quick switches would collapse to
+  // whichever layer was last standing and the rest would never reach the URL at
+  // all, which is exactly the usage signal this is here to capture. The effect
+  // still runs and finds the path already correct, so there's one writer's worth
+  // of result either way.
+  const onMapViewModeChange = useCallback((mode) => {
+    setMapViewMode(mode)
+    const path = buildPath('map', resort, mode)
+    if (path !== window.location.pathname) window.history.replaceState({}, '', path)
+  }, [resort])
   const [gridCols, setGridCols] = useState(() => {
     try {
       const c = parseInt(localStorage.getItem('sc-grid-cols'), 10)
@@ -4234,9 +4310,13 @@ export default function App() {
     // other way (e.g. restored from localStorage on a bare "/" load, or the
     // resort switcher itself, which doesn't call goToTab) — replaceState so
     // it doesn't add a spurious back-button entry per resort click.
-    const path = buildPath(activeTab, resort)
+    // replaceState for the map's layer too: switching layer is a change of what
+    // you're looking at, not a navigation, and pushState per pill tap would
+    // stack up back-button entries between you and the page you came from.
+    // popstate above still restores a layer when you land on a link with one.
+    const path = buildPath(activeTab, resort, mapViewMode)
     if (path !== window.location.pathname) window.history.replaceState({}, '', path)
-  }, [activeTab, resort])
+  }, [activeTab, resort, mapViewMode])
   useEffect(() => { try { localStorage.setItem('sc-grid-cols', String(gridCols)) } catch (e) {} }, [gridCols])
 
   return (
@@ -4278,7 +4358,7 @@ export default function App() {
 
         {activeTab === 'map' && (
           <section className="map-region">
-            <ForecastMap3D resort={resort} setResort={setResort} />
+            <ForecastMap3D resort={resort} setResort={setResort} viewMode={mapViewMode} onViewModeChange={onMapViewModeChange} />
           </section>
         )}
 
