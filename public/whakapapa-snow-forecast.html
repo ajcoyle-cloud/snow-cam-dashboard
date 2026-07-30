@@ -6355,10 +6355,11 @@ document.getElementById('rtl-accum-slider').addEventListener('change', () => {
   radarEnsureAccum();
 });
 
-// Draws (or updates) the accumulation drape and refreshes the legend panel.
-function radarDrawAccum(res) {
-  if (!map) return;
-  const png = RadarAccum.colourise(res.mm, res.width, res.height);
+// Puts a colourised accumulation image on the map, creating the layer the first
+// time. Split out from radarDrawAccum so progressive partials can update the
+// drape without touching the legend panel, which describes the finished window.
+function radarDrawAccumImage(png) {
+  if (!map) return false;
   if (map.getSource(RADAR_ACCUM_SRC)) {
     map.getSource(RADAR_ACCUM_SRC).updateImage({ url: png });
   } else if (map.getLayer('satellite')) {
@@ -6374,14 +6375,23 @@ function radarDrawAccum(res) {
     // contours above whatever just took it (see radarDrawFrame).
     bringContoursAboveRadar();
   } else {
-    setTimeout(() => radarDrawAccum(res), 80);
-    return;
+    return false; // style not attached yet
   }
   // Coastline reference on top of the drape. Same anchor the accumulation layer
   // used, so it lands directly above it — and after bringContoursAboveRadar()
   // above, so dark mode's contour raster can't end up over the top of it.
   RadarAccum.ensureOutline(map, map.getLayer('resort-lifts-line') ? 'resort-lifts-line' : undefined);
   radarSyncLayerVisibility();
+  return true;
+}
+
+// Draws (or updates) the accumulation drape and refreshes the legend panel.
+function radarDrawAccum(res) {
+  if (!map) return;
+  if (!radarDrawAccumImage(RadarAccum.colourise(res.mm, res.width, res.height))) {
+    setTimeout(() => radarDrawAccum(res), 80);
+    return;
+  }
   radarRenderAccumPanel(res);
 }
 
@@ -6472,6 +6482,13 @@ async function radarEnsureAccum(force) {
         radarAccumSetStatus(phase === 'fetch'
           ? `Reading radar history ${done}/${total}…`
           : `Adding it up ${done}/${total}…`);
+      },
+      // Show the total forming rather than a blank map behind a counter. Each
+      // partial is a real accumulation of the oldest frames so far, so it grows
+      // toward the answer instead of flickering.
+      onPartial: ({ mm, width, height }) => {
+        if (token !== radarAccumToken || !map) return;
+        radarDrawAccumImage(RadarAccum.colourise(mm, width, height));
       },
     });
   } catch (e) {

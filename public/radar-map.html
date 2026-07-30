@@ -888,9 +888,11 @@ function accumSyncUi() {
   document.getElementById('accum-hours').textContent = `${accumHours}h`;
 }
 
-function accumDraw(res) {
-  if (!map) return;
-  const png = RadarAccum.colourise(res.mm, res.width, res.height);
+// Puts a colourised accumulation image on the map, creating the layer the first
+// time. Split out from accumDraw so progressive partials can update the drape
+// without touching the panel, which describes the finished window.
+function accumDrawImage(png) {
+  if (!map) return false;
   if (map.getSource(ACCUM_SRC)) {
     map.getSource(ACCUM_SRC).updateImage({ url: png });
   } else if (map.getLayer('satellite')) {
@@ -914,18 +916,26 @@ function accumDraw(res) {
     const terrain = map.getTerrain();
     if (terrain) { map.setTerrain(null); map.setTerrain(terrain); }
   } else {
-    setTimeout(() => accumDraw(res), 200);
-    return;
+    return false; // style not attached yet
   }
   // Coastline reference on top of the drape. No anchor — this page stacks the
   // accumulation above everything else already, so the outline goes on top too.
   RadarAccum.ensureOutline(map);
   accumSyncLayers();
-  accumRenderPanel(res);
   // #banner is an opaque full-screen cover until the live loop's first frames
   // land (or it fails) — with Σ Total reachable before that, the accumulation
   // would otherwise be drawn behind it. There's a real map to look at now.
   hideBanner();
+  return true;
+}
+
+function accumDraw(res) {
+  if (!map) return;
+  if (!accumDrawImage(RadarAccum.colourise(res.mm, res.width, res.height))) {
+    setTimeout(() => accumDraw(res), 200);
+    return;
+  }
+  accumRenderPanel(res);
 }
 
 function accumRenderPanel(res) {
@@ -962,6 +972,13 @@ async function accumEnsure(force) {
       onProgress: ({ done, total, phase }) => {
         if (token !== accumToken) return;
         accumSetStatus(phase === 'fetch' ? `Reading radar history ${done}/${total}…` : `Adding it up ${done}/${total}…`);
+      },
+      // Show the total forming rather than a blank map behind a counter. Each
+      // partial is a real accumulation of the oldest frames so far, so it grows
+      // toward the answer instead of flickering.
+      onPartial: ({ mm, width, height }) => {
+        if (token !== accumToken || !map) return;
+        accumDrawImage(RadarAccum.colourise(mm, width, height));
       },
     });
   } catch (e) {

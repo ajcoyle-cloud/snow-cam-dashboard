@@ -63,6 +63,72 @@ window.RadarAccum = (function () {
   }
   function frameUrl(ts) { return `/radar-feed/${ts}.gif`; }
 
+  // ── Frame cache ─────────────────────────────────────────────────────────────
+  // Fetching dominates a build — profiled at 70% of wall time on a desktop, and
+  // a larger share on a phone, because a 12h window is ~100 requests and ~9MB.
+  // But radar frames are IMMUTABLE: a timestamped file, once published, never
+  // changes. And consecutive windows overlap almost entirely (24h contains all
+  // of 12h), so most of that traffic is re-downloading bytes already in hand.
+  //
+  // The upstream bucket sends no Cache-Control, only Last-Modified/ETag, which
+  // leaves the browser's HTTP cache applying a heuristic freshness of seconds on
+  // recent frames — effectively nothing. A Cache API store, which this code
+  // controls outright, turns every overlapping refetch into a local hit.
+  // Measured over 48 frames: 1988ms cold, 14ms warm.
+  //
+  // Only 2xx responses are stored. A slot that 404s is not missing, it's just
+  // not published YET — remembering it as absent would blind later builds to it.
+  const FRAME_CACHE = 'radar-frames-v1';
+  // Comfortably past the longest window on offer, so nothing still in use is
+  // evicted, while a browser that visits daily doesn't accumulate weeks of GIFs.
+  const FRAME_CACHE_MAX_AGE_MS = 50 * 60 * 60 * 1000;
+  let frameCachePromise = null;
+
+  function openFrameCache() {
+    if (frameCachePromise) return frameCachePromise;
+    frameCachePromise = (async () => {
+      try {
+        if (typeof caches === 'undefined') return null;
+        const cache = await caches.open(FRAME_CACHE);
+        pruneFrameCache(cache); // deliberately not awaited — never blocks a build
+        return cache;
+      } catch (e) {
+        // No Cache API here (insecure context, private mode, storage denied).
+        // Everything below falls back to plain fetch; only speed is lost.
+        return null;
+      }
+    })();
+    return frameCachePromise;
+  }
+
+  async function pruneFrameCache(cache) {
+    try {
+      const cutoff = Date.now() - FRAME_CACHE_MAX_AGE_MS;
+      for (const req of await cache.keys()) {
+        const m = req.url.match(/(\d{12})\.gif/);
+        if (m && tsToDate(m[1]).getTime() < cutoff) cache.delete(req);
+      }
+    } catch (e) { /* eviction is best-effort */ }
+  }
+
+  // Blob for one frame, from the cache when it's there. null when the slot
+  // doesn't exist (or the fetch failed) — callers treat that as "no frame".
+  async function fetchFrame(ts, signal) {
+    const url = frameUrl(ts);
+    const cache = await openFrameCache();
+    if (cache) {
+      try {
+        const hit = await cache.match(url);
+        if (hit) return await hit.blob();
+      } catch (e) { /* fall through to the network */ }
+    }
+    const res = await fetch(url, signal ? { signal } : undefined);
+    if (!res.ok) return null;
+    // Clone BEFORE the body is read here — a Response body is single-use.
+    if (cache) { try { await cache.put(url, res.clone()); } catch (e) {} }
+    return await res.blob();
+  }
+
   // ── The feed's intensity scale, reverse-engineered ──────────────────────────
   // The frames carry no legend and MetService publishes no colour table, so the
   // scale was derived from the imagery itself. Six smooth colour ramps show up
@@ -421,18 +487,33 @@ window.RadarAccum = (function () {
   // across the whole hole.
   const MAX_FRAME_MINUTES = 20;
 
-  const FETCH_CONCURRENCY = 6;
+  // Measured against the live feed over 48 frames: 4 -> 6059ms, 6 -> 2559ms,
+  // 10 -> 2596ms, 16 -> 2885ms. The curve flattens right after 6, so this sits
+  // just past the knee — enough headroom for a higher-latency mobile link,
+  // without opening so many sockets that they start competing.
+  const FETCH_CONCURRENCY = 10;
+
+  // Frames between progressive redraws during the fold. ~5 updates over a 12h
+  // window: often enough to read as "filling in", rare enough that the extra
+  // colourise passes don't measurably lengthen the build.
+  const PARTIAL_EVERY = 20;
 
   // Fetches every slot in the window, decodes each one, and sums rate x dt per
   // pixel into a single mm grid.
   //
-  // opts: { lookbackHours, onProgress({ done, total, phase }), signal }
+  // opts: { lookbackHours, onProgress({ done, total, phase }),
+  //         onPartial({ mm, width, height, framesSoFar, total }), signal }
   // -> { mm, width, height, gridPng, framesUsed, framesExpected,
   //      coverageHours, firstTs, lastTs, maxMm, corners }
+  //
+  // onPartial's grid is the live accumulator, reused and mutated afterwards —
+  // read it synchronously (colourise it and hand the image to the map), don't
+  // retain it.
   async function build(opts) {
     const o = opts || {};
     const lookbackHours = o.lookbackHours || 12;
     const onProgress = o.onProgress || function () {};
+    const onPartial = o.onPartial || null;
     const signal = o.signal;
     const aborted = () => signal && signal.aborted;
 
@@ -452,48 +533,82 @@ window.RadarAccum = (function () {
     let done = 0, framesUsed = 0, coverageMinutes = 0;
     let firstTs = null, lastTs = null;
 
-    // Phase 1 — fetch every slot in parallel, holding the COMPRESSED blobs.
-    // Decoding all ~100 frames up front would be simpler but each decoded
-    // 713x866 bitmap is 2.5MB, so that peaks around a quarter of a gigabyte
-    // and gets a phone's tab killed. The GIFs are ~90KB each, so the whole
-    // window sits under 10MB while compressed, and exactly one frame at a time
-    // is ever decoded in phase 2. Each worker takes the next index off a
-    // shared cursor.
+    // Fetching and folding run CONCURRENTLY. Done in series — every request
+    // finished before the first pixel is summed — a 12h build was ~7.2s of
+    // network followed by ~2.9s of CPU, and the two never overlapped. Pipelined,
+    // the CPU rides along under the network and the wall time is roughly the
+    // longer of the two rather than their sum.
+    //
+    // What's held is the COMPRESSED blobs, not decoded bitmaps: each decoded
+    // 713x866 frame is 2.5MB, so keeping ~100 of them peaks near a quarter of a
+    // gigabyte and gets a phone's tab killed. The GIFs are ~90KB, so the whole
+    // window stays under 10MB, and exactly one frame is decoded at a time.
     const blobs = new Array(timestamps.length).fill(null);
+    // One promise per slot, resolved once that slot has been fetched (or has
+    // failed). The folder waits on these rather than on the whole run, which is
+    // what lets it start early while keeping strict oldest-first order.
+    const settle = new Array(timestamps.length);
+    const settled = timestamps.map((_, i) => new Promise((res) => { settle[i] = res; }));
     let cursor = 0;
-    async function worker() {
+    let foldStarted = false;
+    async function fetchWorker() {
       while (cursor < timestamps.length && !aborted()) {
         const idx = cursor++;
         try {
           // signal passed through so toggling the layer off (or switching
-          // window) mid-build actually cancels ~100 in-flight requests instead
-          // of leaving them to finish into a result nobody reads.
-          const res = await fetch(frameUrl(timestamps[idx]), signal ? { signal } : undefined);
-          if (res.ok) blobs[idx] = await res.blob();
+          // window) mid-build actually cancels in-flight requests instead of
+          // leaving them to finish into a result nobody reads.
+          blobs[idx] = await fetchFrame(timestamps[idx], signal);
         } catch (e) {
           // A missing or unreadable slot is normal (feed gaps, publish lag) —
           // it just contributes nothing and its time is credited to whichever
           // frame precedes it.
         }
+        settle[idx]();
         done++;
-        onProgress({ done, total: timestamps.length, phase: 'fetch' });
+        // Once folding is underway its own count is the honest measure of
+        // progress; two interleaved counters would just flicker.
+        if (!foldStarted) onProgress({ done, total: timestamps.length, phase: 'fetch' });
       }
     }
-    await Promise.all(Array.from({ length: FETCH_CONCURRENCY }, worker));
-    if (aborted()) return null;
+    const fetching = Promise.all(Array.from({ length: FETCH_CONCURRENCY }, fetchWorker))
+      .then(() => {
+        // Every index is claimed by exactly one worker, so in a normal run each
+        // slot is settled by whoever fetched it. An ABORTED run leaves the
+        // unclaimed tail unsettled, which would hang the folder — release those
+        // here, once no worker can still be working on them.
+        //
+        // This must not happen any earlier. Releasing pending slots as each
+        // worker drained (the first version of this) resolved slots that other
+        // workers still had in flight: the folder then read blobs[j] as null and
+        // silently dropped those frames, under-counting a 12h window by 7 frames
+        // and its peak by 3mm. Caught by the cell-for-cell identity check
+        // against the pre-pipeline build.
+        for (let i = 0; i < settle.length; i++) settle[i]();
+      });
 
-    // Phase 2 — fold oldest -> newest. Strict order matters because a frame's
-    // dt runs to the next slot that actually EXISTS, which isn't known until
-    // the whole run is in.
+    // Folds oldest -> newest. Strict order matters because a frame's dt runs to
+    // the next slot that actually EXISTS, so this waits for that slot to settle
+    // before folding the current one — normally the very next one, already in
+    // flight.
     const scratch = document.createElement('canvas');
     let sctx = null;
-    const presentIdx = blobs.map((v, i) => (v ? i : -1)).filter((i) => i >= 0);
-    if (presentIdx.length === 0) return null;
 
-    for (let n = 0; n < presentIdx.length; n++) {
+    for (let idx = 0; idx < timestamps.length; idx++) {
+      await settled[idx];
       if (aborted()) return null;
-      const idx = presentIdx[n];
+      if (!blobs[idx]) continue;
       const ts = timestamps[idx];
+
+      // Look ahead to the next slot that exists — that's what bounds this
+      // frame's dt. Waits only as far as it must, which is usually one slot.
+      let nextIdx = null;
+      for (let j = idx + 1; j < timestamps.length; j++) {
+        await settled[j];
+        if (blobs[j]) { nextIdx = j; break; }
+      }
+      if (aborted()) return null;
+
       let bmp = null;
       try {
         // createImageBitmap decodes off the main thread where it exists; the
@@ -506,6 +621,7 @@ window.RadarAccum = (function () {
       } catch (e) { /* undecodable frame — skip it, same as a missing one */ }
       blobs[idx] = null;
       if (!bmp) continue;
+      foldStarted = true;
 
       if (!mm) {
         width = bmp.width || bmp.naturalWidth;
@@ -519,7 +635,6 @@ window.RadarAccum = (function () {
       // How long this frame stood for: until the next frame that exists, or —
       // for the newest one — the nominal cadence. Capped so feed outages don't
       // get extrapolated.
-      const nextIdx = n + 1 < presentIdx.length ? presentIdx[n + 1] : null;
       const nominal = 60 / perHour;
       let minutes = nominal;
       if (nextIdx != null) {
@@ -538,8 +653,15 @@ window.RadarAccum = (function () {
         if (d[i + 3] < 128) continue;
         const r = d[i], g = d[i + 1], b = d[i + 2];
         // Near-white: the coastline/lake/range-ring overlay painted over the
-        // top of the mosaic. Tallied, not accumulated.
+        // top of the mosaic. Tallied, not accumulated. Checked before the grey
+        // reject below so a pure-white overlay pixel still registers as one.
         if (r > 235 && g > 235 && b > 230) { maskHits[p]++; continue; }
+        // 92% of opaque pixels are the neutral grey basemap or its black
+        // surround (measured). No colour on the intensity scale is neutral —
+        // the yellow ramp is (n,n,0) and every other ramp has a zero channel —
+        // so this is an exact reject, not an approximation, and it skips the
+        // palette lookup for nine pixels in ten.
+        if (r === g && g === b) continue;
         const rate = rateForRgb(r, g, b);
         if (rate > 0) mm[p] += rate * dtHours;
       }
@@ -549,13 +671,28 @@ window.RadarAccum = (function () {
       coverageMinutes += minutes;
       if (!firstTs) firstTs = ts;
       lastTs = ts;
-      onProgress({ done: framesUsed, total: presentIdx.length, phase: 'accumulate' });
+      // Total is the slot count, not the frame count: pipelined, how many frames
+      // actually exist isn't known until the run is over.
+      onProgress({ done: framesUsed, total: timestamps.length, phase: 'accumulate' });
+      // Hand back the partial sum every so often so the drape appears early and
+      // fills in as the window builds, instead of the map staying empty behind a
+      // counter. Frames fold oldest-first, so each partial is a real, honest
+      // accumulation — just of a shorter window than asked for. Costs one
+      // colourise per callback (~70ms), which is worth it for a wait this long.
+      if (onPartial && framesUsed % PARTIAL_EVERY === 0) {
+        onPartial({ mm, width, height, framesSoFar: framesUsed, total: timestamps.length });
+      }
       // One frame's decode + fold is tens of milliseconds of blocking work, and
       // there are ~100 of them — yield between frames so the progress readout
       // actually paints and the map stays draggable while this runs.
       await new Promise((r) => setTimeout(r, 0));
     }
 
+    // The folder only ever waits on slots it needs, so a run that ends early
+    // (aborted, or the last slots missing) can leave workers going. Join them so
+    // nothing outlives the build.
+    await fetching;
+    if (aborted()) return null;
     if (!mm) return null;
     fillStaticMask(mm, maskHits, framesUsed, width, height);
     smooth(mm, width, height);
