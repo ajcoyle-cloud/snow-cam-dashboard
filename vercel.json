@@ -13,6 +13,12 @@
       ]
     },
     {
+      "source": "/radar-accum.js",
+      "headers": [
+        { "key": "Cache-Control", "value": "no-cache, max-age=0, must-revalidate" }
+      ]
+    },
+    {
       "source": "/",
       "headers": [
         { "key": "Cache-Control", "value": "no-cache, max-age=0, must-revalidate" }
@@ -97,7 +103,7 @@
       "destination": "/api/report?resort=mtlyford"
     },
     {
-      "source": "/((?!whakapapa-snow-forecast\\.html|radar-map\\.html|radar-test|assets|api).*)",
+      "source": "/((?!whakapapa-snow-forecast\\.html|radar-map\\.html|radar-accum\\.js|radar-test|assets|api).*)",
       "destination": "/index.html"
     }
   ]

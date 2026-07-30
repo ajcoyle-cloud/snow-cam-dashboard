@@ -6,6 +6,11 @@
 // product, etc). Mirrored as public/radar-test/calibration.json so the
 // standalone (non-bundled) prototype page can load the same values without
 // a build step — keep both in sync by hand.
+//
+// The `corners` quad below is mirrored in three more non-bundled places that
+// drape this same feed: public/radar-map.html, public/whakapapa-snow-forecast.html,
+// and public/radar-accum.js (CORNERS). Change it here and in all of those, or
+// the accumulated total stops lining up with the live drape.
 
 export const RADAR_CALIBRATION = {
   // Percent to crop off each edge before isolating rain pixels, to strip

@@ -1,0 +1,701 @@
+// ── Accumulated rain radar ───────────────────────────────────────────────────
+// Turns a run of national rain-radar frames into a single "how much fell where"
+// drape: every frame's echo colours are read back as a rain rate, multiplied by
+// the time that frame stood for, and summed per pixel. Point it at a 12-hour
+// window and it answers "which ranges did the storm actually unload on
+// overnight" instead of "where is it raining right this second".
+//
+// Loaded as a plain <script> (window.RadarAccum, no build step) by BOTH static
+// map pages — public/whakapapa-snow-forecast.html (the Radar view inside the
+// app's Map tab) and public/radar-map.html (the standalone radar page). Those
+// two pages mirror the live-radar pipeline from each other by hand; this file
+// exists so the accumulation half is written once instead of a third time.
+//
+// NOT a recorder. The obvious way to build a 12-hour total is to leave a tab
+// open all night appending each new frame as it publishes, but MetService's
+// S3 bucket keeps frames for well over a month (probed back to June while
+// building this), so the whole window can be reconstructed from history on
+// demand. That means: it works the morning after with nothing left running,
+// the browser having been closed the whole time; any window length is
+// available on the spot; and there's no server, no cron, no stored state.
+window.RadarAccum = (function () {
+  'use strict';
+
+  // Same feed + geometry as the live drape — see src/radarFeed.js for the slot
+  // schedule and src/radarCalibration.js for the corner quad (and for why the
+  // eastern longitudes stay unwrapped past 180°).
+  const SLOT_MINUTES = [5, 13, 20, 28, 35, 43, 50, 58];
+  const CORNERS = [
+    [164.443359375, -32.49123028794758],   // NW
+    [181.82373046875, -32.37996146435729], // NE
+    [182.13134765625, -48.54570549184744], // SE
+    [164.2236328125, -48.60385760823253],  // SW
+  ];
+
+  const pad2 = (n) => String(n).padStart(2, '0');
+  function filenameFor(date) {
+    return '' + date.getUTCFullYear() + pad2(date.getUTCMonth() + 1) + pad2(date.getUTCDate()) +
+      pad2(date.getUTCHours()) + pad2(date.getUTCMinutes());
+  }
+  function tsToDate(ts) {
+    return new Date(Date.UTC(+ts.slice(0, 4), +ts.slice(4, 6) - 1, +ts.slice(6, 8), +ts.slice(8, 10), +ts.slice(10, 12)));
+  }
+  // Slot timestamps walking backward from `from`, newest first. Same walk as
+  // the live pages' own candidateTimestamps(); duplicated here so this file
+  // stands alone as a <script> with no load-order dependency on its hosts.
+  function candidateTimestamps(count, from) {
+    const out = [];
+    let cursor = new Date(from || new Date());
+    while (out.length < count) {
+      const hourMinutes = SLOT_MINUTES.filter((m) => m <= cursor.getUTCMinutes());
+      let slot;
+      if (hourMinutes.length > 0) {
+        slot = new Date(cursor);
+        slot.setUTCMinutes(hourMinutes[hourMinutes.length - 1], 0, 0);
+      } else {
+        slot = new Date(cursor);
+        slot.setUTCHours(slot.getUTCHours() - 1, SLOT_MINUTES[SLOT_MINUTES.length - 1], 0, 0);
+      }
+      out.push(filenameFor(slot));
+      cursor = new Date(slot.getTime() - 60000);
+    }
+    return out;
+  }
+  function frameUrl(ts) { return `/radar-feed/${ts}.gif`; }
+
+  // ── The feed's intensity scale, reverse-engineered ──────────────────────────
+  // The frames carry no legend and MetService publishes no colour table, so the
+  // scale was derived from the imagery itself. Six smooth colour ramps show up
+  // in the GIF palette (yellow, orange, blue, cyan, red, purple), and their
+  // ORDER was settled empirically two ways:
+  //
+  //  1. Nesting. Rain cells are layered — the heavier colour sits deeper inside
+  //     the echo. A distance transform over 6 sample frames (mean depth from
+  //     the nearest non-echo pixel, per colour) came out strictly monotonic:
+  //     dark yellow 1.2px, bright yellow 4.1, orange 5.4-6.4, blue 7.0-8.7,
+  //     cyan 8.5-8.7. MetService's own guidance ("areas of blue surrounded by
+  //     yellow... rain starts light, becomes heavier, then eases") describes
+  //     exactly that stacking, so blue really is the heavy core, not the fringe.
+  //  2. Rarity. Over 50 frames spanning two days, pixel counts fall away
+  //     monotonically up the same order: yellow ~22000, orange ~7000,
+  //     blue ~11000 (this was a wet spell), cyan ~2300, red ~148, purple ~21.
+  //
+  // Red and purple are too rare for the depth test to rank confidently (tens of
+  // pixels), so they're placed above cyan on the rarity trend and on the usual
+  // radar convention that reds/magentas cap the scale. They're a rounding error
+  // in any total either way.
+  //
+  // White (255,251,247) is deliberately NOT on the scale: it's the coastline
+  // reference drawn on top of the mosaic, not an echo colour. The live drape's
+  // minSaturation:45 filter already drops it, and so does the gate below.
+  //
+  // Each ramp is generated from its measured endpoints and step count rather
+  // than listed literally — the GIF's palette de-duplicates entries, so the
+  // observed colours are a subset of each ramp, not the whole thing.
+  function rampStops(from, to, steps) {
+    const out = [];
+    for (let i = 0; i < steps; i++) {
+      const t = steps === 1 ? 0 : i / (steps - 1);
+      out.push([
+        Math.round(from[0] + (to[0] - from[0]) * t),
+        Math.round(from[1] + (to[1] - from[1]) * t),
+        Math.round(from[2] + (to[2] - from[2]) * t),
+      ]);
+    }
+    return out;
+  }
+  // Lightest -> heaviest. Note the orange ramp runs "backwards" (green channel
+  // 251 down to 146): it continues upward from the yellow ramp's bright end,
+  // deepening toward orange as intensity rises.
+  const SCALE = [
+    ...rampStops([56, 56, 0], [249, 249, 0], 16),      // dark olive -> bright yellow
+    ...rampStops([255, 251, 0], [255, 146, 0], 8),     // bright yellow -> orange
+    ...rampStops([0, 51, 163], [0, 79, 252], 16),      // deep blue -> bright blue
+    ...rampStops([0, 105, 153], [0, 250, 252], 16),    // teal -> pale cyan
+    ...rampStops([105, 0, 0], [250, 0, 0], 16),        // dark red -> bright red
+    ...rampStops([91, 29, 148], [148, 49, 251], 16),   // dark violet -> bright violet
+  ];
+
+  // Rain rate at each end of the scale, mm/h. The feed is a rain-rate product
+  // with no published calibration, so this is an anchored estimate, not a
+  // measurement: 0.2 mm/h for the faintest detectable echo and 100 mm/h for the
+  // top of the violet ramp, interpolated logarithmically (rain rate is roughly
+  // log-linear in reflectivity via Marshall-Palmer Z = 200 R^1.6, and radar
+  // colour scales are built that way). It puts blue at ~1-3 mm/h and cyan at
+  // ~3-8 mm/h, which is the right order of magnitude for what those colours do
+  // to a rain gauge here. Totals from this are estimates — labelled as such in
+  // the UI — and the RELATIVE pattern (which ranges got hammered, which got
+  // grazed) is far more trustworthy than the absolute millimetres.
+  const RATE_MIN = 0.2;
+  const RATE_MAX = 100;
+  const RATES = SCALE.map((_, i) => RATE_MIN * Math.pow(RATE_MAX / RATE_MIN, i / (SCALE.length - 1)));
+
+  // Farthest a pixel may sit from its nearest scale stop (Euclidean RGB) and
+  // still be read as that stop. Generous enough to absorb resampling blends
+  // between neighbouring stops, tight enough that the grey basemap and white
+  // coastlines fall outside — and they're already excluded by the saturation
+  // gate below, which is the same one the live drape isolates rain with.
+  const MATCH_TOLERANCE = 60;
+  const MIN_SATURATION = 45; // percent, matches RADAR_CALIBRATION.isolate
+  const MIN_VALUE = 15;      // percent
+
+  // Frames carry ~110 distinct colours out of a 256-entry palette, so the
+  // nearest-stop search runs a few dozen times per session rather than 600k
+  // times per frame. Keyed on packed RGB; shared across every frame and every
+  // build for the life of the page.
+  const rateCache = new Map();
+  function rateForRgb(r, g, b) {
+    const key = (r << 16) | (g << 8) | b;
+    const hit = rateCache.get(key);
+    if (hit !== undefined) return hit;
+    let rate = 0;
+    const mx = Math.max(r, g, b), mn = Math.min(r, g, b);
+    const v = (mx / 255) * 100;
+    const s = mx === 0 ? 0 : ((mx - mn) / mx) * 100;
+    if (s >= MIN_SATURATION && v >= MIN_VALUE) {
+      let bestI = -1, bestD = Infinity;
+      for (let i = 0; i < SCALE.length; i++) {
+        const c = SCALE[i];
+        const dr = r - c[0], dg = g - c[1], db = b - c[2];
+        const d = dr * dr + dg * dg + db * db;
+        if (d < bestD) { bestD = d; bestI = i; }
+      }
+      if (bestD <= MATCH_TOLERANCE * MATCH_TOLERANCE) rate = RATES[bestI];
+      // A saturated colour with no stop near it is still an echo of some kind
+      // (an odd blend, or a scale entry that never showed up while this was
+      // being reverse-engineered) — credit it at the bottom of the scale rather
+      // than silently dropping rain on the floor.
+      else rate = RATE_MIN;
+    }
+    rateCache.set(key, rate);
+    return rate;
+  }
+
+  // ── Accumulation grid <-> PNG ───────────────────────────────────────────────
+  // The accumulated field is cached and passed around as a PNG rather than a
+  // Float32Array: it's ~600k cells, so a raw copy is 2.4MB, while the same
+  // field log-quantised into a PNG's colour channels compresses to a couple of
+  // hundred KB (it's a smooth, mostly-empty field). Cheap to stash in
+  // sessionStorage, and re-colouring for a different ramp needs no refetch.
+  const Q_MIN = 0.05;   // mm — below this reads as "nothing fell"
+  const Q_MAX = 1000;   // mm — far above any plausible 24h radar total
+  const Q_LOG_SPAN = Math.log(Q_MAX / Q_MIN);
+  function quantise(mm) {
+    if (!(mm > Q_MIN)) return 0;
+    const q = Math.round(255 * Math.log(mm / Q_MIN) / Q_LOG_SPAN);
+    return Math.max(1, Math.min(255, q));
+  }
+  function dequantise(q) {
+    if (q <= 0) return 0;
+    return Q_MIN * Math.exp((q / 255) * Q_LOG_SPAN);
+  }
+
+  function gridToPng(mm, width, height) {
+    const canvas = document.createElement('canvas');
+    canvas.width = width; canvas.height = height;
+    const ctx = canvas.getContext('2d');
+    const img = ctx.createImageData(width, height);
+    const d = img.data;
+    for (let p = 0; p < mm.length; p++) {
+      const q = quantise(mm[p]);
+      const i = p * 4;
+      // Greyscale on purpose — the raw field is legible if it's ever dumped to
+      // a tab while debugging. Alpha stays opaque so the encoder can't discard
+      // the colour of a zero cell (premultiplied-alpha round-tripping does
+      // exactly that, which would silently zero out low totals).
+      d[i] = d[i + 1] = d[i + 2] = q;
+      d[i + 3] = 255;
+    }
+    ctx.putImageData(img, 0, 0);
+    return canvas.toDataURL('image/png');
+  }
+
+  async function pngToGrid(dataUrl) {
+    const img = await loadImage(dataUrl);
+    const w = img.naturalWidth, h = img.naturalHeight;
+    const canvas = document.createElement('canvas');
+    canvas.width = w; canvas.height = h;
+    const ctx = canvas.getContext('2d');
+    ctx.drawImage(img, 0, 0);
+    const d = ctx.getImageData(0, 0, w, h).data;
+    const mm = new Float32Array(w * h);
+    for (let p = 0; p < mm.length; p++) mm[p] = dequantise(d[p * 4]);
+    return { mm, width: w, height: h };
+  }
+
+  function loadImage(src) {
+    return new Promise((resolve, reject) => {
+      const im = new Image();
+      im.onload = () => resolve(im);
+      im.onerror = () => reject(new Error('image decode failed'));
+      im.src = src;
+    });
+  }
+
+  // ── Colour ramp for the accumulated total ───────────────────────────────────
+  // Deliberately nothing like the live radar's palette: the two layers answer
+  // different questions and shouldn't be mistaken for each other at a glance.
+  // Stops are fractions of the ramp's top value (see pickRampMax) so the same
+  // ramp reads correctly over a 10mm drizzle window and a 200mm deluge, and
+  // they're bunched toward the bottom because that's where the interesting
+  // gradient is — most of a storm footprint is light, and "a bit" vs "a lot"
+  // needs to be separable down there.
+  //
+  // Low end stays translucent so terrain and coastline read through the trace
+  // amounts; the top end goes opaque and pale so the worst-hit cores stand out
+  // hard against the dark satellite basemap.
+  const RAMP = [
+    [0.00, [56, 96, 168], 0.00],
+    [0.03, [56, 96, 168], 0.42],
+    [0.08, [59, 130, 246], 0.62],
+    [0.16, [34, 211, 238], 0.72],
+    [0.26, [52, 211, 153], 0.78],
+    [0.38, [163, 230, 53], 0.84],
+    [0.52, [253, 224, 71], 0.88],
+    [0.66, [251, 146, 60], 0.92],
+    [0.80, [239, 68, 68], 0.94],
+    [0.92, [217, 70, 239], 0.96],
+    [1.00, [253, 231, 245], 0.97],
+  ];
+
+  function rampColour(frac) {
+    if (frac <= 0) return [0, 0, 0, 0];
+    const f = Math.min(1, frac);
+    for (let i = 1; i < RAMP.length; i++) {
+      if (f > RAMP[i][0] && i < RAMP.length - 1) continue;
+      const [f0, c0, a0] = RAMP[i - 1];
+      const [f1, c1, a1] = RAMP[i];
+      const t = f1 === f0 ? 0 : (f - f0) / (f1 - f0);
+      return [
+        Math.round(c0[0] + (c1[0] - c0[0]) * t),
+        Math.round(c0[1] + (c1[1] - c0[1]) * t),
+        Math.round(c0[2] + (c1[2] - c0[2]) * t),
+        Math.round(255 * (a0 + (a1 - a0) * t)),
+      ];
+    }
+    return [0, 0, 0, 0];
+  }
+
+  // Ramp tops to choose between, mm. Snapping the auto-scale to a short list of
+  // round numbers keeps the legend readable and stops the whole map's colours
+  // shifting on every refresh as the top value drifts by a millimetre.
+  const RAMP_MAX_STEPS = [10, 15, 20, 30, 40, 60, 80, 100, 150, 200, 300, 500];
+
+  // Scales the ramp to the storm actually on screen — a fixed top would render
+  // a modest night as a uniform wash of blue and a big one as a solid white
+  // blob. Floors at 10mm so a dry window doesn't get amplified into a
+  // full-spectrum rainbow of noise.
+  //
+  // The top is set from a very high percentile rather than the outright
+  // maximum, because these totals are extremely long-tailed: on a typical wet
+  // night the wettest 0.25% of cells cover the entire 20-90mm range, so
+  // scaling to the 99.5th percentile would render every genuinely-hammered
+  // range in one flat colour — exactly the distinction this layer exists to
+  // draw. Scaling to the raw peak has the opposite failure: one clutter spike
+  // drags everything else down into the blues. The 99.95th percentile, with a
+  // floor of 20 cells, needs a real storm core (not a speck) to move it.
+  function pickRampMax(mm) {
+    // Histogrammed over the same 256-bin log scale the grid PNG uses: one O(n)
+    // pass, no sort, and the bins are already spaced the way rain rates are.
+    const hist = new Int32Array(256);
+    let wet = 0;
+    for (let p = 0; p < mm.length; p++) {
+      if (!(mm[p] > 0.2)) continue;
+      hist[quantise(mm[p])]++;
+      wet++;
+    }
+    if (wet < 200) return RAMP_MAX_STEPS[0];
+    const target = Math.max(20, wet * 0.0005);
+    let seen = 0, bin = 255;
+    for (; bin > 1; bin--) { seen += hist[bin]; if (seen >= target) break; }
+    const peak = dequantise(bin);
+    for (const step of RAMP_MAX_STEPS) if (peak <= step) return step;
+    return RAMP_MAX_STEPS[RAMP_MAX_STEPS.length - 1];
+  }
+
+  // ── Cleaning up the summed field ────────────────────────────────────────────
+
+  // The mosaic draws white coastlines, lake edges and radar-range rings ON TOP
+  // of the echoes, so those pixels are masked out of every single frame in the
+  // window. Summed over 12 hours that leaves permanent hairline cracks of zero
+  // right through the middle of the wettest areas — the coastline stencilled
+  // into the accumulation. Since the overlay never moves, the cracks are
+  // identifiable (near-white in most frames) and can be filled from what's
+  // around them.
+  //
+  // The fill is a plain mean over non-crack neighbours, which lands at ~0 in
+  // dry areas and at the local total inside a wet blob, both correct.
+  function fillStaticMask(mm, maskHits, framesUsed, width, height) {
+    const isCrack = (p) => maskHits[p] >= framesUsed * 0.5;
+    const out = mm;
+    const patched = [];
+    for (let y = 0; y < height; y++) {
+      for (let x = 0; x < width; x++) {
+        const p = y * width + x;
+        if (!isCrack(p)) continue;
+        let sum = 0, n = 0;
+        for (let dy = -2; dy <= 2; dy++) {
+          const yy = y + dy;
+          if (yy < 0 || yy >= height) continue;
+          for (let dx = -2; dx <= 2; dx++) {
+            const xx = x + dx;
+            if (xx < 0 || xx >= width) continue;
+            const q = yy * width + xx;
+            if (isCrack(q)) continue;
+            sum += mm[q]; n++;
+          }
+        }
+        // Collected before writing, so a crack pixel's fill can't feed the next
+        // one's and smear values along the coastline.
+        if (n > 0) patched.push(p, sum / n);
+      }
+    }
+    for (let i = 0; i < patched.length; i += 2) out[patched[i]] = patched[i + 1];
+  }
+
+  // One mild 3x3 box pass. The summed field is speckly at single-pixel scale —
+  // partly radar noise, partly the source mosaic's own dithering — and none of
+  // that fine structure is real: over 12 hours the weather has moved tens of
+  // kilometres, so anything sharper than the ~2km cell is an artefact. Enough
+  // to read the field as areas rather than confetti, not enough to blunt the
+  // real gradient between a hammered range and the valley beside it.
+  function smooth(mm, width, height) {
+    const src = mm.slice();
+    for (let y = 0; y < height; y++) {
+      for (let x = 0; x < width; x++) {
+        let sum = 0, n = 0;
+        for (let dy = -1; dy <= 1; dy++) {
+          const yy = y + dy;
+          if (yy < 0 || yy >= height) continue;
+          for (let dx = -1; dx <= 1; dx++) {
+            const xx = x + dx;
+            if (xx < 0 || xx >= width) continue;
+            sum += src[yy * width + xx]; n++;
+          }
+        }
+        mm[y * width + x] = sum / n;
+      }
+    }
+  }
+
+  // Feathers the drape's alpha to zero at the edge of the mosaic, so panning
+  // out doesn't reveal a hard rectangular cutoff. Same fade curve and
+  // fadeStartFrac as the live layers' applyRadialFade on both host pages.
+  function radialFadeAt(x, y, w, h, fadeStartFrac) {
+    const maxR = Math.min(w, h) / 2;
+    const distFrac = Math.hypot(x - w / 2, y - h / 2) / maxR;
+    if (distFrac <= fadeStartFrac) return 1;
+    return Math.max(0, 1 - (distFrac - fadeStartFrac) / (1 - fadeStartFrac));
+  }
+
+  function colourise(mm, width, height, rampMax) {
+    const canvas = document.createElement('canvas');
+    canvas.width = width; canvas.height = height;
+    const ctx = canvas.getContext('2d');
+    const img = ctx.createImageData(width, height);
+    const d = img.data;
+    for (let y = 0; y < height; y++) {
+      for (let x = 0; x < width; x++) {
+        const p = y * width + x;
+        const v = mm[p];
+        // Hard floor rather than letting the ramp's own fade-in handle it:
+        // without this, one drizzle frame's worth of rain anywhere in the
+        // window paints a faint haze over half the country, which reads as
+        // dirty glass rather than as data.
+        if (!(v > Q_MIN) || v / rampMax < 0.015) continue;
+        const [r, g, b, a] = rampColour(v / rampMax);
+        if (a === 0) continue;
+        const i = p * 4;
+        d[i] = r; d[i + 1] = g; d[i + 2] = b;
+        d[i + 3] = Math.round(a * radialFadeAt(x, y, width, height, 0.82));
+      }
+    }
+    ctx.putImageData(img, 0, 0);
+    return canvas.toDataURL('image/png');
+  }
+
+  // Legend rows for the ramp currently in use, coarsest-first, as
+  // { label, css } — the host pages just render these.
+  function legend(rampMax) {
+    const fracs = [0.03, 0.08, 0.16, 0.26, 0.38, 0.52, 0.66, 0.80, 0.92, 1.00];
+    return fracs.map((f, i) => {
+      const [r, g, b] = rampColour(f);
+      const lo = f * rampMax;
+      const hi = i === fracs.length - 1 ? null : fracs[i + 1] * rampMax;
+      const fmt = (v) => (v < 10 ? v.toFixed(1) : String(Math.round(v)));
+      return {
+        css: `rgb(${r},${g},${b})`,
+        label: hi == null ? `${fmt(lo)}+` : `${fmt(lo)}–${fmt(hi)}`,
+      };
+    }).reverse();
+  }
+
+  // ── Building the accumulation ───────────────────────────────────────────────
+
+  // A frame stands for the time until the next one published. Derived from the
+  // real timestamps rather than assumed to be the nominal 7.5 min, so a gap in
+  // the feed is credited honestly instead of being papered over — and capped,
+  // so a multi-hour outage can't have one lone frame's rain rate extrapolated
+  // across the whole hole.
+  const MAX_FRAME_MINUTES = 20;
+
+  const FETCH_CONCURRENCY = 6;
+
+  // Fetches every slot in the window, decodes each one, and sums rate x dt per
+  // pixel into a single mm grid.
+  //
+  // opts: { lookbackHours, onProgress({ done, total, phase }), signal }
+  // -> { mm, width, height, gridPng, rampMax, framesUsed, framesExpected,
+  //      coverageHours, firstTs, lastTs, maxMm, corners }
+  async function build(opts) {
+    const o = opts || {};
+    const lookbackHours = o.lookbackHours || 12;
+    const onProgress = o.onProgress || function () {};
+    const signal = o.signal;
+    const aborted = () => signal && signal.aborted;
+
+    // Slot count for the window, plus a couple of extra to cover publish lag
+    // near "now" (the newest one or two slots usually 404 for ~10-20 min).
+    const perHour = SLOT_MINUTES.length;
+    const total = Math.ceil(lookbackHours * perHour) + 2;
+    // Oldest first, so the accumulation is built in the order it actually fell
+    // and dt can be read straight off consecutive timestamps.
+    const timestamps = candidateTimestamps(total).reverse();
+
+    let width = 0, height = 0, mm = null;
+    // Per-pixel tally of how often this cell was the mosaic's white
+    // coastline/lake/range-ring overlay rather than radar data — see
+    // fillStaticMask().
+    let maskHits = null;
+    let done = 0, framesUsed = 0, coverageMinutes = 0;
+    let firstTs = null, lastTs = null;
+
+    // Phase 1 — fetch every slot in parallel, holding the COMPRESSED blobs.
+    // Decoding all ~100 frames up front would be simpler but each decoded
+    // 713x866 bitmap is 2.5MB, so that peaks around a quarter of a gigabyte
+    // and gets a phone's tab killed. The GIFs are ~90KB each, so the whole
+    // window sits under 10MB while compressed, and exactly one frame at a time
+    // is ever decoded in phase 2. Each worker takes the next index off a
+    // shared cursor.
+    const blobs = new Array(timestamps.length).fill(null);
+    let cursor = 0;
+    async function worker() {
+      while (cursor < timestamps.length && !aborted()) {
+        const idx = cursor++;
+        try {
+          // signal passed through so toggling the layer off (or switching
+          // window) mid-build actually cancels ~100 in-flight requests instead
+          // of leaving them to finish into a result nobody reads.
+          const res = await fetch(frameUrl(timestamps[idx]), signal ? { signal } : undefined);
+          if (res.ok) blobs[idx] = await res.blob();
+        } catch (e) {
+          // A missing or unreadable slot is normal (feed gaps, publish lag) —
+          // it just contributes nothing and its time is credited to whichever
+          // frame precedes it.
+        }
+        done++;
+        onProgress({ done, total: timestamps.length, phase: 'fetch' });
+      }
+    }
+    await Promise.all(Array.from({ length: FETCH_CONCURRENCY }, worker));
+    if (aborted()) return null;
+
+    // Phase 2 — fold oldest -> newest. Strict order matters because a frame's
+    // dt runs to the next slot that actually EXISTS, which isn't known until
+    // the whole run is in.
+    const scratch = document.createElement('canvas');
+    let sctx = null;
+    const presentIdx = blobs.map((v, i) => (v ? i : -1)).filter((i) => i >= 0);
+    if (presentIdx.length === 0) return null;
+
+    for (let n = 0; n < presentIdx.length; n++) {
+      if (aborted()) return null;
+      const idx = presentIdx[n];
+      const ts = timestamps[idx];
+      let bmp = null;
+      try {
+        // createImageBitmap decodes off the main thread where it exists; the
+        // <img> path is the fallback for older Safari.
+        if (typeof createImageBitmap === 'function') bmp = await createImageBitmap(blobs[idx]);
+        else {
+          const url = URL.createObjectURL(blobs[idx]);
+          try { bmp = await loadImage(url); } finally { URL.revokeObjectURL(url); }
+        }
+      } catch (e) { /* undecodable frame — skip it, same as a missing one */ }
+      blobs[idx] = null;
+      if (!bmp) continue;
+
+      if (!mm) {
+        width = bmp.width || bmp.naturalWidth;
+        height = bmp.height || bmp.naturalHeight;
+        scratch.width = width; scratch.height = height;
+        sctx = scratch.getContext('2d', { willReadFrequently: true });
+        mm = new Float32Array(width * height);
+        maskHits = new Uint16Array(width * height);
+      }
+
+      // How long this frame stood for: until the next frame that exists, or —
+      // for the newest one — the nominal cadence. Capped so feed outages don't
+      // get extrapolated.
+      const nextIdx = n + 1 < presentIdx.length ? presentIdx[n + 1] : null;
+      const nominal = 60 / perHour;
+      let minutes = nominal;
+      if (nextIdx != null) {
+        minutes = (tsToDate(timestamps[nextIdx]) - tsToDate(ts)) / 60000;
+      }
+      minutes = Math.max(1, Math.min(MAX_FRAME_MINUTES, minutes));
+      const dtHours = minutes / 60;
+
+      sctx.clearRect(0, 0, width, height);
+      // Explicit destination size: every frame folds onto the same grid even if
+      // the feed ever changes the mosaic's pixel dimensions mid-window.
+      sctx.drawImage(bmp, 0, 0, width, height);
+      const d = sctx.getImageData(0, 0, width, height).data;
+      for (let p = 0; p < mm.length; p++) {
+        const i = p * 4;
+        if (d[i + 3] < 128) continue;
+        const r = d[i], g = d[i + 1], b = d[i + 2];
+        // Near-white: the coastline/lake/range-ring overlay painted over the
+        // top of the mosaic. Tallied, not accumulated.
+        if (r > 235 && g > 235 && b > 230) { maskHits[p]++; continue; }
+        const rate = rateForRgb(r, g, b);
+        if (rate > 0) mm[p] += rate * dtHours;
+      }
+      if (bmp.close) bmp.close();
+
+      framesUsed++;
+      coverageMinutes += minutes;
+      if (!firstTs) firstTs = ts;
+      lastTs = ts;
+      onProgress({ done: framesUsed, total: presentIdx.length, phase: 'accumulate' });
+      // One frame's decode + fold is tens of milliseconds of blocking work, and
+      // there are ~100 of them — yield between frames so the progress readout
+      // actually paints and the map stays draggable while this runs.
+      await new Promise((r) => setTimeout(r, 0));
+    }
+
+    if (!mm) return null;
+    fillStaticMask(mm, maskHits, framesUsed, width, height);
+    smooth(mm, width, height);
+
+    let maxMm = 0;
+    for (let p = 0; p < mm.length; p++) if (mm[p] > maxMm) maxMm = mm[p];
+
+    return {
+      mm, width, height,
+      gridPng: gridToPng(mm, width, height),
+      rampMax: pickRampMax(mm),
+      framesUsed,
+      framesExpected: timestamps.length,
+      coverageHours: coverageMinutes / 60,
+      firstTs, lastTs, maxMm,
+      corners: CORNERS,
+    };
+  }
+
+  // ── Reading a total back at a point ─────────────────────────────────────────
+  // Inverting the drape, lon/lat -> grid pixel, for the tap readout.
+  //
+  // Two things make this more than a linear rescale. The quad is hand-calibrated
+  // and slightly skewed, so it isn't axis-aligned; and MapLibre stretches an
+  // image source's texture across its corners in MERCATOR space, where latitude
+  // is nonlinear. Interpolating in raw degrees over this quad's 16° of latitude
+  // would put the readout tens of kilometres off the colour under your finger.
+  // So: project to Mercator first, then split the quad into two triangles and
+  // invert each with barycentric coordinates — exact on each half, and well
+  // inside the mosaic's own ~2km cell.
+  function mercX(lon) { return lon / 360 + 0.5; }
+  function mercY(lat) {
+    const s = Math.sin(Math.max(-85, Math.min(85, lat)) * Math.PI / 180);
+    return 0.5 - Math.log((1 + s) / (1 - s)) / (4 * Math.PI);
+  }
+  const MERC_CORNERS = CORNERS.map((c) => [mercX(c[0]), mercY(c[1])]);
+
+  function invBary(p, a, b, c) {
+    const v0 = [c[0] - a[0], c[1] - a[1]];
+    const v1 = [b[0] - a[0], b[1] - a[1]];
+    const v2 = [p[0] - a[0], p[1] - a[1]];
+    const d00 = v0[0] * v0[0] + v0[1] * v0[1];
+    const d01 = v0[0] * v1[0] + v0[1] * v1[1];
+    const d11 = v1[0] * v1[0] + v1[1] * v1[1];
+    const d20 = v2[0] * v0[0] + v2[1] * v0[1];
+    const d21 = v2[0] * v1[0] + v2[1] * v1[1];
+    const denom = d00 * d11 - d01 * d01;
+    if (denom === 0) return null;
+    const u = (d11 * d20 - d01 * d21) / denom;
+    const v = (d00 * d21 - d01 * d20) / denom;
+    if (u < -0.001 || v < -0.001 || u + v > 1.001) return null;
+    return [u, v];
+  }
+
+  // lon/lat -> [x, y] in grid pixels, or null if the point is outside the quad.
+  function lngLatToPixel(lng, lat, width, height) {
+    // MapLibre hands back longitudes east of the antimeridian as negative (and
+    // can hand back values past ±180 entirely once the user has panned around
+    // the globe), while the quad's eastern corners are stored unwrapped past
+    // 180°. Fold any input onto the same continuous axis the quad lives on.
+    const lon = ((lng - 164) % 360 + 360) % 360 + 164;
+    const [nw, ne, se, sw] = MERC_CORNERS;
+    const p = [mercX(lon), mercY(lat)];
+    // Corner (u,v) in normalised image space: u across (0 at west), v down.
+    let hit = invBary(p, nw, ne, sw);   // upper-left triangle: nw + u*(sw-nw) + v*(ne-nw)
+    if (hit) {
+      const [u, v] = hit; // u toward SW (down), v toward NE (across)
+      return [v * width, u * height];
+    }
+    hit = invBary(p, se, sw, ne);      // lower-right triangle
+    if (hit) {
+      const [u, v] = hit; // u toward NE (up), v toward SW (across)
+      return [(1 - v) * width, (1 - u) * height];
+    }
+    return null;
+  }
+
+  // Accumulated mm at a lon/lat, as the local maximum over a small
+  // neighbourhood. A single cell is ~2km of a coarse national mosaic and the
+  // quad's alignment is hand-fitted, so reading one exact pixel makes the
+  // number jitter between a cell and its neighbour; taking the peak nearby is
+  // both steadier and the honest answer to "how much did this area get".
+  function sampleMm(grid, lng, lat, radiusPx) {
+    if (!grid || !grid.mm) return null;
+    const px = lngLatToPixel(lng, lat, grid.width, grid.height);
+    if (!px) return null;
+    const r = radiusPx == null ? 2 : radiusPx;
+    const cx = Math.round(px[0]), cy = Math.round(px[1]);
+    let best = 0, any = false;
+    for (let y = cy - r; y <= cy + r; y++) {
+      if (y < 0 || y >= grid.height) continue;
+      for (let x = cx - r; x <= cx + r; x++) {
+        if (x < 0 || x >= grid.width) continue;
+        any = true;
+        const v = grid.mm[y * grid.width + x];
+        if (v > best) best = v;
+      }
+    }
+    return any ? best : null;
+  }
+
+  function formatWindow(firstTs, lastTs) {
+    if (!firstTs || !lastTs) return '';
+    const opts = { hour: '2-digit', minute: '2-digit' };
+    const a = tsToDate(firstTs), b = tsToDate(lastTs);
+    const day = (d) => d.toLocaleDateString('en-NZ', { weekday: 'short' });
+    const sameDay = a.toDateString() === b.toDateString();
+    const from = `${day(a)} ${a.toLocaleTimeString('en-NZ', opts)}`;
+    const to = sameDay ? b.toLocaleTimeString('en-NZ', opts) : `${day(b)} ${b.toLocaleTimeString('en-NZ', opts)}`;
+    return `${from} – ${to}`;
+  }
+
+  return {
+    CORNERS,
+    SCALE, RATES,
+    build,
+    colourise,
+    legend,
+    pickRampMax,
+    gridToPng, pngToGrid,
+    sampleMm, lngLatToPixel,
+    candidateTimestamps, tsToDate, frameUrl, formatWindow,
+    rateForRgb,
+  };
+})();

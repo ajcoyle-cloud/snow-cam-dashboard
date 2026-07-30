@@ -6,6 +6,10 @@
 <title>NZ Rain Radar — 3D</title>
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/maplibre-gl@5.23.0/dist/maplibre-gl.min.css" />
 <script src="https://cdn.jsdelivr.net/npm/maplibre-gl@5.23.0/dist/maplibre-gl.js"></script>
+<!-- Accumulated-rain-radar engine (window.RadarAccum). Shared verbatim with
+     public/whakapapa-snow-forecast.html rather than mirrored by hand like the
+     live pipeline below — see the header comment in that file. -->
+<script src="/radar-accum.js"></script>
 <style>
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
   body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif; background: #0f1c30; color: #fff; }
@@ -78,6 +82,77 @@
     background: #0f1c30; transition: opacity 0.3s ease;
   }
   #banner.hidden { opacity: 0; pointer-events: none; }
+
+  /* ── Accumulated rain radar (Σ Total): toggle + window picker + legend ──── */
+  #accum-controls {
+    position: absolute; top: 16px; right: 16px; z-index: 15;
+    display: flex; flex-direction: column; align-items: flex-end; gap: 8px;
+    opacity: 0; pointer-events: none; transition: opacity 0.3s ease;
+  }
+  #accum-controls.ready { opacity: 1; pointer-events: auto; }
+  #accum-bar {
+    display: flex; align-items: center; gap: 6px;
+    background: rgba(20,20,20,0.78); backdrop-filter: blur(14px);
+    border-radius: 9999px; padding: 5px; box-shadow: 0 4px 16px rgba(0,0,0,0.35);
+  }
+  #accum-toggle {
+    background: rgba(255,255,255,0.12); color: rgba(255,255,255,0.85); border: none;
+    height: 28px; padding: 0 13px; border-radius: 9999px;
+    font-size: 0.72rem; font-weight: 700; font-family: inherit; cursor: pointer;
+    white-space: nowrap; transition: all 0.15s;
+  }
+  #accum-toggle:hover { background: rgba(255,255,255,0.24); color: #fff; }
+  #accum-toggle.active { background: rgba(37,99,235,0.95); color: #fff; }
+  #accum-windows { display: none; gap: 2px; }
+  #accum-controls.on #accum-windows { display: flex; }
+  .accum-win {
+    background: transparent; color: rgba(255,255,255,0.6); border: none;
+    padding: 5px 8px; border-radius: 9999px; font-size: 0.7rem; font-weight: 700;
+    font-family: inherit; cursor: pointer; transition: all 0.15s;
+  }
+  .accum-win:hover { color: #fff; }
+  .accum-win.active { background: rgba(255,255,255,0.2); color: #fff; }
+
+  #accum-panel {
+    display: none; width: 208px;
+    background: rgba(10,20,36,0.82); backdrop-filter: blur(14px);
+    border-radius: 12px; padding: 13px 15px; box-shadow: 0 4px 24px rgba(0,0,0,0.35);
+  }
+  #accum-controls.on #accum-panel { display: block; }
+  #accum-panel h4 {
+    font-size: 0.6rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em;
+    color: rgba(255,255,255,0.45); margin-bottom: 7px;
+  }
+  #accum-status { font-size: 0.74rem; font-weight: 700; line-height: 1.4; margin-bottom: 3px; }
+  #accum-meta { font-size: 0.68rem; color: rgba(255,255,255,0.5); line-height: 1.45; margin-bottom: 9px; }
+  #accum-legend .row {
+    display: flex; align-items: center; gap: 8px; font-size: 0.7rem;
+    padding: 2px 0; color: rgba(255,255,255,0.75);
+  }
+  #accum-legend .sw {
+    width: 14px; height: 14px; border-radius: 4px; flex-shrink: 0;
+    border: 1px solid rgba(255,255,255,0.3);
+  }
+  #accum-note {
+    font-size: 0.63rem; color: rgba(255,255,255,0.4); line-height: 1.45;
+    margin-top: 9px; padding-top: 7px; border-top: 1px solid rgba(255,255,255,0.12);
+  }
+  /* Nothing to scrub through when a single summed image is showing. */
+  #timeline.accum-on { display: none; }
+
+  /* Tap-for-a-total popup — MapLibre's default is white-on-white chrome, which
+     reads as a browser dialog rather than part of this map. */
+  .accum-popup .maplibregl-popup-content {
+    background: rgba(10,20,36,0.92); backdrop-filter: blur(10px);
+    color: #fff; border-radius: 9px; padding: 7px 11px;
+    font-size: 0.76rem; font-weight: 600; box-shadow: 0 4px 18px rgba(0,0,0,0.45);
+  }
+  .accum-popup .maplibregl-popup-tip { border-top-color: rgba(10,20,36,0.92); }
+
+  @media (max-width: 640px) {
+    #accum-controls { top: 10px; right: 10px; left: 10px; align-items: flex-end; }
+    #accum-panel { width: 100%; max-width: 240px; }
+  }
 </style>
 </head>
 <body>
@@ -85,6 +160,25 @@
 <div id="map-screen">
   <div id="map"></div>
   <div id="banner">Loading live radar…</div>
+  <!-- Σ Total: swaps the animated loop for one summed "how much fell where"
+       image over the chosen window. -->
+  <div id="accum-controls">
+    <div id="accum-bar">
+      <button id="accum-toggle" title="Total rain accumulated over the window">Σ Total</button>
+      <div id="accum-windows">
+        <button class="accum-win" data-hours="6">6h</button>
+        <button class="accum-win active" data-hours="12">12h</button>
+        <button class="accum-win" data-hours="24">24h</button>
+      </div>
+    </div>
+    <div id="accum-panel">
+      <h4 id="accum-title">Radar Rain Total</h4>
+      <div id="accum-status">—</div>
+      <div id="accum-meta"></div>
+      <div id="accum-legend"></div>
+      <div id="accum-note"></div>
+    </div>
+  </div>
   <div id="timeline">
     <span id="tl-live-badge">● LIVE</span>
     <button id="tl-play">▶</button>
@@ -524,6 +618,10 @@ function syncRegionalToCurrentFrame() {
     const match = nearestRegionalFrame(region, current.timestamp);
     if (match) drawRegionalFrame(region, match);
   }
+  // A regional layer created just now defaults to visible — if Σ Total is
+  // showing, it would pop up over the accumulation. accumSyncLayers is defined
+  // further down the file but this only ever runs from an async callback.
+  accumSyncLayers();
 }
 
 // ---------- frames + timeline state ----------
@@ -715,7 +813,172 @@ async function pollForNewFrame() {
   }
 }
 
+// ── Accumulated rain radar (Σ Total) ────────────────────────────────────────
+// The loop above shows where rain is right now; this sums every frame in a
+// 6/12/24h window as rate x time into one still image, so after a storm you can
+// see which areas actually copped it. Engine: RadarAccum (public/radar-accum.js,
+// shared with whakapapa-snow-forecast.html), which rebuilds the window from the
+// feed's own history on demand — nothing needs to have been recording.
+const ACCUM_SRC = 'radar-accum-src';
+const ACCUM_LAYER = 'radar-accum-layer';
+const ACCUM_STALE_MS = 15 * 60 * 1000;
+
+let accumOn = false;
+let accumHours = 12;
+// The summed field, kept in memory because the tap readout samples it directly.
+let accumGrid = null;
+let accumToken = 0;
+let accumAbort = null;
+
+function accumSetStatus(text) { document.getElementById('accum-status').textContent = text; }
+
+// One place decides which drape shows. The regional overlays go with the live
+// national composite — they're the same "right now" read, at higher resolution
+// — while the accumulation is national-only (there's no cross-calibration
+// between the regional palettes and the national one, so summing them together
+// would mix two different intensity scales into one total).
+function accumSyncLayers() {
+  if (!map) return;
+  if (map.getLayer('radar-layer')) map.setLayoutProperty('radar-layer', 'visibility', accumOn ? 'none' : 'visible');
+  for (const region of REGIONAL_KEYS) {
+    const id = `radar-regional-layer-${region}`;
+    if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', accumOn ? 'none' : 'visible');
+  }
+  if (map.getLayer(ACCUM_LAYER)) map.setLayoutProperty(ACCUM_LAYER, 'visibility', accumOn ? 'visible' : 'none');
+}
+
+function accumSyncUi() {
+  document.getElementById('accum-controls').classList.toggle('on', accumOn);
+  document.getElementById('accum-toggle').classList.toggle('active', accumOn);
+  document.getElementById('timeline').classList.toggle('accum-on', accumOn);
+  document.querySelectorAll('.accum-win').forEach((b) =>
+    b.classList.toggle('active', parseInt(b.dataset.hours, 10) === accumHours));
+}
+
+function accumDraw(res) {
+  if (!map) return;
+  const png = RadarAccum.colourise(res.mm, res.width, res.height, res.rampMax);
+  if (map.getSource(ACCUM_SRC)) {
+    map.getSource(ACCUM_SRC).updateImage({ url: png });
+  } else if (map.getLayer('satellite')) {
+    // Anchored on 'satellite' ("the style has attached") rather than on
+    // 'radar-layer': this page's live loop can take a while to fetch and
+    // process its first frames, and Σ Total has no reason to wait on imagery
+    // it doesn't use. Added on top of whatever exists, which is fine because
+    // only ever one of the two drapes is visible (see accumSyncLayers) — so
+    // the relative order of the live and accumulated layers doesn't matter.
+    map.addSource(ACCUM_SRC, { type: 'image', url: png, coordinates: RadarAccum.CORNERS });
+    map.addLayer({
+      id: ACCUM_LAYER, type: 'raster', source: ACCUM_SRC,
+      paint: { 'raster-opacity': 1, 'raster-fade-duration': 0 },
+      layout: { visibility: 'none' }, // accumSyncLayers below decides
+    });
+    // This page stacks several raster layers (national + up to four regional),
+    // and a later one hasn't reliably picked up terrain compositing on its own
+    // — it renders flat instead of following the mesh. Toggling terrain off/on
+    // forces MapLibre to rebuild its drape render targets including this new
+    // layer. Same workaround, same reason, as drawRegionalFrame above.
+    const terrain = map.getTerrain();
+    if (terrain) { map.setTerrain(null); map.setTerrain(terrain); }
+  } else {
+    setTimeout(() => accumDraw(res), 200);
+    return;
+  }
+  accumSyncLayers();
+  accumRenderPanel(res);
+  // #banner is an opaque full-screen cover until the live loop's first frames
+  // land (or it fails) — with Σ Total reachable before that, the accumulation
+  // would otherwise be drawn behind it. There's a real map to look at now.
+  hideBanner();
+}
+
+function accumRenderPanel(res) {
+  document.getElementById('accum-title').textContent = `Radar Rain Total — ${accumHours}h`;
+  accumSetStatus(RadarAccum.formatWindow(res.firstTs, res.lastTs));
+  document.getElementById('accum-meta').textContent =
+    `${res.framesUsed} frames · ${res.coverageHours.toFixed(1)}h covered · peak ${Math.round(res.maxMm)}mm`;
+  document.getElementById('accum-legend').innerHTML = RadarAccum.legend(res.rampMax).map((row) => `
+    <div class="row"><div class="sw" style="background:${row.css}"></div><span>${row.label} mm</span></div>
+  `).join('');
+  document.getElementById('accum-note').textContent =
+    'Radar estimate of water equivalent, not a gauge reading. At 10:1 each mm is roughly 1cm of snow above the snow line. Tap the map for a total anywhere.';
+}
+
+async function accumEnsure(force) {
+  if (!accumOn) return;
+  if (!force && accumGrid && accumGrid.hours === accumHours && Date.now() - accumGrid.builtAt < ACCUM_STALE_MS) {
+    accumDraw(accumGrid);
+    return;
+  }
+  const token = ++accumToken;
+  if (accumAbort) accumAbort.abort();
+  const ac = new AbortController();
+  accumAbort = ac;
+  accumSetStatus(`Building ${accumHours}h total…`);
+  document.getElementById('accum-meta').textContent = '';
+  let res = null;
+  try {
+    res = await RadarAccum.build({
+      lookbackHours: accumHours,
+      signal: ac.signal,
+      onProgress: ({ done, total, phase }) => {
+        if (token !== accumToken) return;
+        accumSetStatus(phase === 'fetch' ? `Reading radar history ${done}/${total}…` : `Adding it up ${done}/${total}…`);
+      },
+    });
+  } catch (e) {
+    console.warn('Radar accumulation failed:', e);
+  }
+  if (token !== accumToken) return;
+  accumAbort = null;
+  if (!res) { accumSetStatus('Radar history unavailable'); return; }
+  accumGrid = { ...res, hours: accumHours, builtAt: Date.now() };
+  accumDraw(accumGrid);
+}
+
+document.getElementById('accum-toggle').addEventListener('click', () => {
+  accumOn = !accumOn;
+  accumSyncUi();
+  accumSyncLayers();
+  if (accumOn) { stopPlay(); accumEnsure(); }
+  else {
+    accumToken++;
+    if (accumAbort) { accumAbort.abort(); accumAbort = null; }
+  }
+});
+document.querySelectorAll('.accum-win').forEach((btn) => {
+  btn.addEventListener('click', () => {
+    const hours = parseInt(btn.dataset.hours, 10);
+    const changed = hours !== accumHours;
+    accumHours = hours;
+    accumSyncUi();
+    // Re-tapping the window already showing is a deliberate rebuild — the feed
+    // has moved on, and there's no other refresh affordance here.
+    accumEnsure(!changed);
+  });
+});
+
+// Tap anywhere for the accumulated total there, straight off the same grid the
+// colours were painted from, so the number can't disagree with the colour.
+if (map) {
+  map.on('click', (e) => {
+    if (!accumOn || !accumGrid) return;
+    const mm = RadarAccum.sampleMm(accumGrid, e.lngLat.lng, e.lngLat.lat);
+    // null means the point is outside the mosaic's quad — say nothing rather
+    // than reporting a confident 0mm for "no radar coverage here".
+    if (mm == null) return;
+    new maplibregl.Popup({ closeButton: false, closeOnClick: true, className: 'accum-popup', offset: 10 })
+      .setLngLat(e.lngLat)
+      .setHTML(`<b>${mm < 10 ? mm.toFixed(1) : Math.round(mm)} mm</b> / ${accumHours}h`)
+      .addTo(map);
+  });
+}
+
 function init() {
+  // Available from the moment the map is up — unlike #timeline, Σ Total needs
+  // nothing from the live loop (see accumDraw), and on a slow connection the
+  // accumulated total is often the thing worth reaching first.
+  document.getElementById('accum-controls').classList.add('ready');
   loadInitialFrames();
   setInterval(pollForNewFrame, REFRESH_POLL_MS);
   // Needs 'radar-layer' to already exist as a stacking anchor —
