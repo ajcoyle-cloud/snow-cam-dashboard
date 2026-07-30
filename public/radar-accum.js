@@ -235,37 +235,57 @@ window.RadarAccum = (function () {
   // ── Colour ramp for the accumulated total ───────────────────────────────────
   // Deliberately nothing like the live radar's palette: the two layers answer
   // different questions and shouldn't be mistaken for each other at a glance.
-  // Stops are fractions of the ramp's top value (see pickRampMax) so the same
-  // ramp reads correctly over a 10mm drizzle window and a 200mm deluge, and
-  // they're bunched toward the bottom because that's where the interesting
-  // gradient is — most of a storm footprint is light, and "a bit" vs "a lot"
-  // needs to be separable down there.
+  //
+  // Stops are ABSOLUTE millimetres, not fractions of the window's own peak.
+  // They used to be fractions, with the top auto-scaled to each build's 99.95th
+  // percentile, so the picture stayed well-spread whatever the storm size. That
+  // was wrong in a way that mattered: the sum is monotonic in window length (a
+  // longer window only ever adds frames, each contributing >= 0 mm), but the
+  // auto-scaled top rose with it, so any place whose total grew more slowly than
+  // the peak did slid DOWN the ramp. Stretching the window made a hammered range
+  // look like it was getting LESS rain — reported from the field, and exactly
+  // backwards. With fixed stops a given colour always means the same number of
+  // millimetres, so lengthening the window can only ever move a point up the
+  // ramp, and colours are comparable between windows, between days, and against
+  // the legend.
+  //
+  // Spacing is roughly logarithmic (each stop ~1.6-2x the last) because rainfall
+  // totals are: that keeps a 1-hour window from being a single flat blue wash
+  // and a 48-hour alpine dump from being a single flat white blob, which is what
+  // the auto-scaling was really for.
   //
   // Low end stays translucent so terrain and coastline read through the trace
   // amounts; the top end goes opaque and pale so the worst-hit cores stand out
   // hard against the dark satellite basemap.
   const RAMP = [
-    [0.00, [56, 96, 168], 0.00],
-    [0.03, [56, 96, 168], 0.42],
-    [0.08, [59, 130, 246], 0.62],
-    [0.16, [34, 211, 238], 0.72],
-    [0.26, [52, 211, 153], 0.78],
-    [0.38, [163, 230, 53], 0.84],
-    [0.52, [253, 224, 71], 0.88],
-    [0.66, [251, 146, 60], 0.92],
-    [0.80, [239, 68, 68], 0.94],
-    [0.92, [217, 70, 239], 0.96],
-    [1.00, [253, 231, 245], 0.97],
+    [0.3,   [56, 96, 168],   0.00],
+    [0.8,   [56, 96, 168],   0.42],
+    [1.6,   [59, 130, 246],  0.62],
+    [3,     [34, 211, 238],  0.72],
+    [6,     [52, 211, 153],  0.78],
+    [11,    [163, 230, 53],  0.84],
+    [20,    [253, 224, 71],  0.88],
+    [34,    [251, 146, 60],  0.92],
+    [55,    [239, 68, 68],   0.94],
+    [90,    [217, 70, 239],  0.96],
+    [150,   [253, 231, 245], 0.97],
   ];
+  const RAMP_MIN_MM = RAMP[0][0];
 
-  function rampColour(frac) {
-    if (frac <= 0) return [0, 0, 0, 0];
-    const f = Math.min(1, frac);
+  // Takes millimetres now, not a 0..1 fraction.
+  function rampColour(mm) {
+    if (!(mm > RAMP_MIN_MM)) return [0, 0, 0, 0];
+    const top = RAMP[RAMP.length - 1];
+    // Anything past the last stop pins there — "150mm+" is one band, rather
+    // than the scale quietly restretching itself around an outlier.
+    if (mm >= top[0]) return [top[1][0], top[1][1], top[1][2], Math.round(255 * top[2])];
     for (let i = 1; i < RAMP.length; i++) {
-      if (f > RAMP[i][0] && i < RAMP.length - 1) continue;
-      const [f0, c0, a0] = RAMP[i - 1];
-      const [f1, c1, a1] = RAMP[i];
-      const t = f1 === f0 ? 0 : (f - f0) / (f1 - f0);
+      if (mm > RAMP[i][0]) continue;
+      const [m0, c0, a0] = RAMP[i - 1];
+      const [m1, c1, a1] = RAMP[i];
+      // Interpolated in log space to match the stops' own spacing — linear in mm
+      // would crowd each band's colour change into its bottom third.
+      const t = (Math.log(mm) - Math.log(m0)) / (Math.log(m1) - Math.log(m0));
       return [
         Math.round(c0[0] + (c1[0] - c0[0]) * t),
         Math.round(c0[1] + (c1[1] - c0[1]) * t),
@@ -274,43 +294,6 @@ window.RadarAccum = (function () {
       ];
     }
     return [0, 0, 0, 0];
-  }
-
-  // Ramp tops to choose between, mm. Snapping the auto-scale to a short list of
-  // round numbers keeps the legend readable and stops the whole map's colours
-  // shifting on every refresh as the top value drifts by a millimetre.
-  const RAMP_MAX_STEPS = [10, 15, 20, 30, 40, 60, 80, 100, 150, 200, 300, 500];
-
-  // Scales the ramp to the storm actually on screen — a fixed top would render
-  // a modest night as a uniform wash of blue and a big one as a solid white
-  // blob. Floors at 10mm so a dry window doesn't get amplified into a
-  // full-spectrum rainbow of noise.
-  //
-  // The top is set from a very high percentile rather than the outright
-  // maximum, because these totals are extremely long-tailed: on a typical wet
-  // night the wettest 0.25% of cells cover the entire 20-90mm range, so
-  // scaling to the 99.5th percentile would render every genuinely-hammered
-  // range in one flat colour — exactly the distinction this layer exists to
-  // draw. Scaling to the raw peak has the opposite failure: one clutter spike
-  // drags everything else down into the blues. The 99.95th percentile, with a
-  // floor of 20 cells, needs a real storm core (not a speck) to move it.
-  function pickRampMax(mm) {
-    // Histogrammed over the same 256-bin log scale the grid PNG uses: one O(n)
-    // pass, no sort, and the bins are already spaced the way rain rates are.
-    const hist = new Int32Array(256);
-    let wet = 0;
-    for (let p = 0; p < mm.length; p++) {
-      if (!(mm[p] > 0.2)) continue;
-      hist[quantise(mm[p])]++;
-      wet++;
-    }
-    if (wet < 200) return RAMP_MAX_STEPS[0];
-    const target = Math.max(20, wet * 0.0005);
-    let seen = 0, bin = 255;
-    for (; bin > 1; bin--) { seen += hist[bin]; if (seen >= target) break; }
-    const peak = dequantise(bin);
-    for (const step of RAMP_MAX_STEPS) if (peak <= step) return step;
-    return RAMP_MAX_STEPS[RAMP_MAX_STEPS.length - 1];
   }
 
   // ── Cleaning up the summed field ────────────────────────────────────────────
@@ -388,7 +371,7 @@ window.RadarAccum = (function () {
     return Math.max(0, 1 - (distFrac - fadeStartFrac) / (1 - fadeStartFrac));
   }
 
-  function colourise(mm, width, height, rampMax) {
+  function colourise(mm, width, height) {
     const canvas = document.createElement('canvas');
     canvas.width = width; canvas.height = height;
     const ctx = canvas.getContext('2d');
@@ -398,12 +381,11 @@ window.RadarAccum = (function () {
       for (let x = 0; x < width; x++) {
         const p = y * width + x;
         const v = mm[p];
-        // Hard floor rather than letting the ramp's own fade-in handle it:
-        // without this, one drizzle frame's worth of rain anywhere in the
-        // window paints a faint haze over half the country, which reads as
-        // dirty glass rather than as data.
-        if (!(v > Q_MIN) || v / rampMax < 0.015) continue;
-        const [r, g, b, a] = rampColour(v / rampMax);
+        // Below the ramp's first stop nothing is drawn at all. Letting a trace
+        // of drizzle paint a faint tint over half the country reads as dirty
+        // glass rather than as data.
+        if (!(v > RAMP_MIN_MM)) continue;
+        const [r, g, b, a] = rampColour(v);
         if (a === 0) continue;
         const i = p * 4;
         d[i] = r; d[i + 1] = g; d[i + 2] = b;
@@ -414,20 +396,20 @@ window.RadarAccum = (function () {
     return canvas.toDataURL('image/png');
   }
 
-  // Legend rows for the ramp currently in use, coarsest-first, as
-  // { label, css } — the host pages just render these.
-  function legend(rampMax) {
-    const fracs = [0.03, 0.08, 0.16, 0.26, 0.38, 0.52, 0.66, 0.80, 0.92, 1.00];
-    return fracs.map((f, i) => {
-      const [r, g, b] = rampColour(f);
-      const lo = f * rampMax;
-      const hi = i === fracs.length - 1 ? null : fracs[i + 1] * rampMax;
-      const fmt = (v) => (v < 10 ? v.toFixed(1) : String(Math.round(v)));
-      return {
-        css: `rgb(${r},${g},${b})`,
-        label: hi == null ? `${fmt(lo)}+` : `${fmt(lo)}–${fmt(hi)}`,
-      };
-    }).reverse();
+  // Legend rows, heaviest first, as { label, css } — the host pages just render
+  // these. Fixed, since the scale is: the same colour means the same millimetres
+  // in every window, which is the whole point of the absolute ramp above and
+  // makes the key worth learning rather than re-reading every time.
+  function legend() {
+    const fmt = (v) => (v < 10 ? v.toFixed(1) : String(Math.round(v)));
+    const rows = [];
+    for (let i = 1; i < RAMP.length; i++) {
+      const [r, g, b] = rampColour(RAMP[i][0]);
+      const lo = RAMP[i][0];
+      const hi = i === RAMP.length - 1 ? null : RAMP[i + 1][0];
+      rows.push({ css: `rgb(${r},${g},${b})`, label: hi == null ? `${fmt(lo)}+` : `${fmt(lo)}–${fmt(hi)}` });
+    }
+    return rows.reverse();
   }
 
   // ── Building the accumulation ───────────────────────────────────────────────
@@ -445,7 +427,7 @@ window.RadarAccum = (function () {
   // pixel into a single mm grid.
   //
   // opts: { lookbackHours, onProgress({ done, total, phase }), signal }
-  // -> { mm, width, height, gridPng, rampMax, framesUsed, framesExpected,
+  // -> { mm, width, height, gridPng, framesUsed, framesExpected,
   //      coverageHours, firstTs, lastTs, maxMm, corners }
   async function build(opts) {
     const o = opts || {};
@@ -584,7 +566,6 @@ window.RadarAccum = (function () {
     return {
       mm, width, height,
       gridPng: gridToPng(mm, width, height),
-      rampMax: pickRampMax(mm),
       framesUsed,
       framesExpected: timestamps.length,
       coverageHours: coverageMinutes / 60,
@@ -771,7 +752,6 @@ window.RadarAccum = (function () {
     build,
     colourise,
     legend,
-    pickRampMax,
     gridToPng, pngToGrid,
     sampleMm, lngLatToPixel,
     ensureOutline, setOutlineVisible,

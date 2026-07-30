@@ -6358,7 +6358,7 @@ document.getElementById('rtl-accum-slider').addEventListener('change', () => {
 // Draws (or updates) the accumulation drape and refreshes the legend panel.
 function radarDrawAccum(res) {
   if (!map) return;
-  const png = RadarAccum.colourise(res.mm, res.width, res.height, res.rampMax);
+  const png = RadarAccum.colourise(res.mm, res.width, res.height);
   if (map.getSource(RADAR_ACCUM_SRC)) {
     map.getSource(RADAR_ACCUM_SRC).updateImage({ url: png });
   } else if (map.getLayer('satellite')) {
@@ -6398,7 +6398,7 @@ function radarRenderAccumPanel(res) {
   document.getElementById('radar-accum-sub').innerHTML =
     `at ${label}<br>${RadarAccum.formatWindow(res.firstTs, res.lastTs)}` +
     `<br>${res.framesUsed} frames · ${hrs}h covered`;
-  document.getElementById('radar-accum-legend').innerHTML = RadarAccum.legend(res.rampMax).map((row) => `
+  document.getElementById('radar-accum-legend').innerHTML = RadarAccum.legend().map((row) => `
     <div class="legend-row">
       <div class="legend-swatch" style="background:${row.css}"></div>
       <span>${row.label} mm</span>
@@ -6417,7 +6417,7 @@ function radarSaveAccumCache(res) {
   try {
     sessionStorage.setItem(RADAR_ACCUM_CACHE_KEY, JSON.stringify({
       hours: radarAccumHours, builtAt: Date.now(), gridPng: res.gridPng,
-      rampMax: res.rampMax, framesUsed: res.framesUsed, coverageHours: res.coverageHours,
+      framesUsed: res.framesUsed, coverageHours: res.coverageHours,
       firstTs: res.firstTs, lastTs: res.lastTs, maxMm: res.maxMm,
     }));
   } catch (e) { /* quota or private mode — the in-memory copy still works */ }

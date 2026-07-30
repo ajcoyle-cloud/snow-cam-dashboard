@@ -890,7 +890,7 @@ function accumSyncUi() {
 
 function accumDraw(res) {
   if (!map) return;
-  const png = RadarAccum.colourise(res.mm, res.width, res.height, res.rampMax);
+  const png = RadarAccum.colourise(res.mm, res.width, res.height);
   if (map.getSource(ACCUM_SRC)) {
     map.getSource(ACCUM_SRC).updateImage({ url: png });
   } else if (map.getLayer('satellite')) {
@@ -935,7 +935,7 @@ function accumRenderPanel(res) {
   accumSetStatus(RadarAccum.formatWindow(res.firstTs, res.lastTs));
   document.getElementById('accum-meta').textContent =
     `${res.framesUsed} frames · ${res.coverageHours.toFixed(1)}h covered · peak ${Math.round(res.maxMm)}mm`;
-  document.getElementById('accum-legend').innerHTML = RadarAccum.legend(res.rampMax).map((row) => `
+  document.getElementById('accum-legend').innerHTML = RadarAccum.legend().map((row) => `
     <div class="row"><div class="sw" style="background:${row.css}"></div><span>${row.label} mm</span></div>
   `).join('');
   document.getElementById('accum-note').textContent =
