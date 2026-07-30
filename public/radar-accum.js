@@ -732,13 +732,17 @@ window.RadarAccum = (function () {
     const anchor = beforeId && map.getLayer(beforeId) ? beforeId : undefined;
     // Halo first so the light line, added second at the same anchor, sits on it.
     if (!map.getLayer(OUTLINE_HALO_LAYER)) {
+      // Halo scaled down with the line it backs, keeping their original ratio.
+      // Left at its old strength it would be as opaque as the white line now is,
+      // and the pair would read as a dark-edged grey smudge rather than as a
+      // quiet white coast.
       map.addLayer(outlineSpec(OUTLINE_HALO_LAYER, {
-        'line-color': '#04070c', 'line-width': 3, 'line-opacity': zoomFade(0.5),
+        'line-color': '#04070c', 'line-width': 3, 'line-opacity': zoomFade(0.28),
       }), anchor);
     }
     if (!map.getLayer(OUTLINE_LAYER)) {
       map.addLayer(outlineSpec(OUTLINE_LAYER, {
-        'line-color': '#ffffff', 'line-width': 1.1, 'line-opacity': zoomFade(0.9),
+        'line-color': '#ffffff', 'line-width': 1.1, 'line-opacity': zoomFade(0.5),
       }), anchor);
     }
   }
