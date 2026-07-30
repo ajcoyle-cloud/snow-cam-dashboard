@@ -2412,12 +2412,22 @@ function initMap() {
     // popup never shows an impossible elevation.
     const elev = Math.min(rawElev, TOP_ELEV);
     const depthCm = getDepthAtElevation(elev);
+    // The drape starts painting at the RAIN line (the violet sleet band) but
+    // getDepthAtElevation only counts SNOW, from the snow line up — so a tap
+    // anywhere in the sleet band is tinted yet legitimately 0cm of snow.
+    // Reporting a bare "0.0cm" over obviously-coloured terrain reads as a bug;
+    // name the phase instead so the tint and the number agree.
+    const hr = forecastHours[currentIndex];
+    const inSleetBand = viewMode === 'hourly' && hr
+      && hr.rainLineWB != null && hr.snowLineWB != null
+      && elev >= hr.rainLineWB && elev < hr.snowLineWB;
+    const label = inSleetBand && depthCm < 0.05 ? 'sleet' : `${depthCm.toFixed(1)}cm`;
     if (viewMode === 'accumulated') {
       // Move the black snowfall pill to the tapped point (depth there) and
       // restart its 4s fade — the pill is the readout on the accumulated map.
       flashSnowfallMarker(e.lngLat, `❄ ${depthCm.toFixed(1)} cm`);
     } else {
-      showClickPopup(e.point.x, e.point.y, `${depthCm.toFixed(1)}cm`);
+      showClickPopup(e.point.x, e.point.y, label);
     }
   });
 
@@ -6169,9 +6179,18 @@ const BASE_INTERVAL_MS = 700;
 // (built from whichever blended values come out) animates as a continuous
 // fade between hours instead of jumping in discrete steps during playback.
 function blendHour(a, b, t) {
+  // Carry the wet-bulb snow/rain lines through the blend. Without them
+  // buildSnowRamp saw them as absent for every animation frame and silently
+  // fell back to the freezing-level-minus-300m line — so hitting play dropped
+  // the sleet band entirely and jumped the snow line (~70m at Whakapapa),
+  // then openMapView put both back at each full-hour tick. Null-safe on both
+  // sides so a model without wet-bulb still blends to null rather than NaN.
+  const lerp = (x, y) => (x == null || y == null) ? null : x + (y - x) * t;
   return {
     freezingLevel: a.freezingLevel + (b.freezingLevel - a.freezingLevel) * t,
-    snowfallMm: a.snowfallMm + (b.snowfallMm - a.snowfallMm) * t
+    snowfallMm: a.snowfallMm + (b.snowfallMm - a.snowfallMm) * t,
+    snowLineWB: lerp(a.snowLineWB, b.snowLineWB),
+    rainLineWB: lerp(a.rainLineWB, b.rainLineWB)
   };
 }
 
@@ -6230,7 +6249,9 @@ function startPlay() {
     // each full-hour tick (openMapView) — same boundary logic as there/
     // buildSnowRamp, so a tap mid-animation still matches what's rendered.
     const blendedSnowing = blended.snowfallMm >= SNOWFALL_THRESHOLD_MM;
-    currentSnowLine = blendedSnowing ? blended.freezingLevel - SNOW_OFFSET : blended.freezingLevel;
+    currentSnowLine = blendedSnowing
+      ? (blended.snowLineWB != null ? blended.snowLineWB : blended.freezingLevel - SNOW_OFFSET)
+      : blended.freezingLevel;
     currentHourCm = blendedSnowing ? blended.snowfallMm / 10 : 0;
     showSnowfallMarker(blendedSnowing ? `❄ ${(blended.snowfallMm / 10).toFixed(2)} cm/hr` : '');
 
