@@ -817,6 +817,7 @@
       <div class="si-row"><span class="l">Summit Temp</span><span class="v" id="si-temp">—</span></div>
       <div class="si-row"><span class="l">Freezing Level</span><span class="v" id="si-fl">—</span></div>
       <div class="si-row"><span class="l">Snow Line</span><span class="v" id="si-sl">—</span></div>
+      <div class="si-row" style="display:none"><span class="l" style="color:#a78bfa">Sleet</span><span class="v" id="si-sleet">—</span></div>
       <div class="si-row"><span class="l">Snowfall (1h)</span><span class="v" id="si-snow">—</span></div>
       <div class="si-row"><span class="l">Wind</span><span class="v" id="si-wind">—</span></div>
     </div>
@@ -1178,6 +1179,18 @@ const RAINBOW_LIFTS = {"type":"FeatureCollection","features":[{"type":"Feature",
 const MTHUTT_LIFTS ={"type":"FeatureCollection","features":[{"type":"Feature","geometry":{"type":"LineString","coordinates":[[171.5394971,-43.4948342],[171.5393494,-43.4946439],[171.5393015,-43.4945773],[171.5389854,-43.4941379],[171.5385077,-43.4934666],[171.5379537,-43.492684],[171.53792,-43.4926357],[171.5370519,-43.4914293],[171.5368856,-43.4911923],[171.5365549,-43.4907344],[171.5362987,-43.4903725],[171.5356871,-43.4895173],[171.5348638,-43.4883641],[171.5343164,-43.4876],[171.5337699,-43.4868372],[171.5333637,-43.4862707],[171.5331671,-43.4860007],[171.5324916,-43.4850514],[171.5323371,-43.4848318],[171.5323128,-43.484791],[171.5322839,-43.4847472],[171.5321455,-43.4845617]]},"properties":{"aerialway":"chair_lift","aerialway:bubble":"no","aerialway:heating":"no","aerialway:occupancy":"6","name":"Summit Six Chair","oneway":"no"}},{"type":"Feature","geometry":{"type":"LineString","coordinates":[[171.5387458,-43.4947771],[171.5370823,-43.4949567]]},"properties":{"aerialway":"magic_carpet","name":"Magic Carpet"}},{"type":"Feature","geometry":{"type":"LineString","coordinates":[[171.5369939,-43.4992739],[171.5368617,-43.4989018],[171.5367107,-43.4983405],[171.5365725,-43.4978904],[171.5363174,-43.4970495],[171.5362371,-43.4967943],[171.5359708,-43.4959199],[171.5359646,-43.4958995],[171.5359153,-43.4957176],[171.5359015,-43.4956733],[171.5358775,-43.4956048],[171.5356573,-43.4948525],[171.5356515,-43.4948337],[171.5355555,-43.4945373],[171.5352458,-43.4935066],[171.5350076,-43.4927297],[171.5348857,-43.492318],[171.5346861,-43.4916587],[171.534355,-43.4905631],[171.5341643,-43.4899163],[171.5338679,-43.4889506],[171.5338303,-43.4888241],[171.5337985,-43.4887203]]},"properties":{"aerialway":"chair_lift","aerialway:occupancy":"3","name":"Towers Triple Chair"}},{"type":"Feature","geometry":{"type":"LineString","coordinates":[[171.5401309,-43.4951497],[171.5400033,-43.4949055],[171.5399855,-43.4948712],[171.5398149,-43.4945447],[171.5395626,-43.4940823],[171.5389883,-43.4930297],[171.5385483,-43.4922233],[171.5381263,-43.4914497],[171.5376112,-43.4905055],[171.537478,-43.4902614],[171.5373478,-43.49001]]},"properties":{"aerialway":"chair_lift","aerialway:bubble":"no","aerialway:capacity":"3000","aerialway:duration":"2","aerialway:heating":"no","aerialway:occupancy":"8","name":"Norwest Express","oneway":"yes"}},{"type":"Feature","geometry":{"type":"LineString","coordinates":[[171.5364813,-43.495414],[171.5370208,-43.4951519]]},"properties":{"aerialway":"magic_carpet","aerialway:duration":"2","name":"Sunkid Carpet"}}]};
 let TOP_ELEV = LOC.topElev;
 const SNOW_OFFSET = 300; // snow falls to 300m below the freezing level
+
+// Wet-bulb thresholds for the precipitation phase, matching the main dashboard
+// (see precipPhase in src/App.jsx). Snow at or below WET_BULB_SNOW_MAX_C, all
+// rain at or above WET_BULB_RAIN_MIN_C, sleet in between. Wet-bulb is what
+// actually decides the phase — falling precipitation evaporatively cools the
+// air toward it, so snow survives a dry above-freezing layer that the dry-bulb
+// says should melt it.
+const WET_BULB_SNOW_MAX_C = 0.5;
+const WET_BULB_RAIN_MIN_C = 1.5;
+
+// Violet sleet band, matching PHASE_COLOR.sleet on the Forecast tab.
+const SLEET_RGB = '167,139,250';
 
 document.title = `${LOC.name} — Snowfall Elevation Forecast`;
 document.getElementById('map-title').textContent = LOC.shortName || LOC.name;
@@ -1626,10 +1639,35 @@ function buildModelHours(summit, base, gfs, gfsBaseHourly) {
     if (summitT < 0 && summitPrecip > 0 && snowMm === 0) {
       snowMm = Math.min(summitPrecip * 7, MAX_HOURLY_SNOWFALL_MM);
     }
+
+    // Wet-bulb snow/sleet boundaries. Open-Meteo downscales wet-bulb to each
+    // elevation we request, so a summit and a base reading give a wet-bulb
+    // lapse we can solve for the two elevations that matter: where wet-bulb
+    // crosses WET_BULB_SNOW_MAX_C (snow above it) and where it crosses
+    // WET_BULB_RAIN_MIN_C (rain below it). Between them is sleet.
+    //
+    // This replaces the flat freezing-level-minus-300m snow line for the
+    // drape: 300m was a fixed stand-in for exactly this crossing, and it's
+    // only right for one particular humidity. Both stay null when the model
+    // has no wet-bulb or the profile is degenerate, and every consumer falls
+    // back to the old SNOW_OFFSET rule in that case.
+    const summitWB = summit.wet_bulb_temperature_2m?.[i] ?? null;
+    const baseWB = base?.wet_bulb_temperature_2m?.[i] ?? null;
+    const wbElevAt = (target) => {
+      if (summitWB == null || baseWB == null || summitWB === baseWB) return null;
+      return LOC.baseElev + (target - baseWB) * (LOC.summitElev - LOC.baseElev) / (summitWB - baseWB);
+    };
+    const snowLineWB = wbElevAt(WET_BULB_SNOW_MAX_C);
+    const rainLineWB = wbElevAt(WET_BULB_RAIN_MIN_C);
+
     return {
       time: t,
       temp: summitT,
       baseTemp: baseT,
+      summitWetBulb: summitWB,
+      baseWetBulb: baseWB,
+      snowLineWB,
+      rainLineWB,
       precip: gfs?.precipitation?.[i] ?? null,
       snowfallMm: snowMm,
       freezingLevel: fl,
@@ -1670,10 +1708,23 @@ function buildAverageHours(sources) {
       return vals.length % 2 !== 0 ? vals[mid] : (vals[mid - 1] + vals[mid]) / 2;
     };
     const first = rows[0];
+    // Average the wet-bulb readings, then re-solve the snow/rain crossings from
+    // those — averaging the crossing ELEVATIONS directly would let one model
+    // with a degenerate (null) profile silently drop out of the mean at a
+    // different set of hours than the wet-bulb it came from.
+    const summitWB = avg(r => r.summitWetBulb);
+    const baseWB = avg(r => r.baseWetBulb);
+    const wbElevAt = (target) => (summitWB == null || baseWB == null || summitWB === baseWB)
+      ? null
+      : LOC.baseElev + (target - baseWB) * (LOC.summitElev - LOC.baseElev) / (summitWB - baseWB);
     return {
       time: first.time,
       temp: avg(r => r.temp),
       baseTemp: avg(r => r.baseTemp),
+      summitWetBulb: summitWB,
+      baseWetBulb: baseWB,
+      snowLineWB: wbElevAt(WET_BULB_SNOW_MAX_C),
+      rainLineWB: wbElevAt(WET_BULB_RAIN_MIN_C),
       precip: first.precip,
       snowfallMm: median(r => r.snowfallMm),
       freezingLevel: avg(r => r.freezingLevel),
@@ -1692,18 +1743,18 @@ function buildAverageHours(sources) {
 function forecastUrlsFor(r) {
   const base = `https://api.open-meteo.com/v1/forecast?latitude=${r.lat}&longitude=${r.lon}&temperature_unit=celsius&timezone=${r.timezone}&forecast_days=16`;
   return {
-    gfsSummitUrl: `${base}&wind_speed_unit=kmh&elevation=${r.summitElev}&hourly=temperature_2m,precipitation,snowfall,freezinglevel_height,windspeed_700hPa,winddirection_700hPa&models=gfs_global`,
+    gfsSummitUrl: `${base}&wind_speed_unit=kmh&elevation=${r.summitElev}&hourly=temperature_2m,wet_bulb_temperature_2m,precipitation,snowfall,freezinglevel_height,windspeed_700hPa,winddirection_700hPa&models=gfs_global`,
     // windspeed_850hPa/winddirection_850hPa (~1500m, roughly base-elevation)
     // feeds the orographic overlay's base-to-summit wind interpolation (see
     // buildModelHours/orographicsnow:// protocol) — same field the Forecast
     // tab's own separate fetch already uses for its base-level wind.
-    gfsBaseUrl: `${base}&wind_speed_unit=kmh&elevation=${r.baseElev}&hourly=temperature_2m,windspeed_850hPa,winddirection_850hPa&models=gfs_global`,
-    ecmwfSummitUrl: `${base}&elevation=${r.summitElev}&hourly=temperature_2m,precipitation,snowfall&models=ecmwf_ifs025`,
-    ecmwfBaseUrl: `${base}&elevation=${r.baseElev}&hourly=temperature_2m&models=ecmwf_ifs025`,
-    aifsSummitUrl: `${base}&elevation=${r.summitElev}&hourly=temperature_2m,precipitation,snowfall&models=ecmwf_aifs025_single`,
-    aifsBaseUrl: `${base}&elevation=${r.baseElev}&hourly=temperature_2m&models=ecmwf_aifs025_single`,
-    ukmoSummitUrl: `${base}&elevation=${r.summitElev}&hourly=temperature_2m,precipitation,snowfall&models=ukmo_seamless`,
-    ukmoBaseUrl: `${base}&elevation=${r.baseElev}&hourly=temperature_2m&models=ukmo_seamless`,
+    gfsBaseUrl: `${base}&wind_speed_unit=kmh&elevation=${r.baseElev}&hourly=temperature_2m,wet_bulb_temperature_2m,windspeed_850hPa,winddirection_850hPa&models=gfs_global`,
+    ecmwfSummitUrl: `${base}&elevation=${r.summitElev}&hourly=temperature_2m,wet_bulb_temperature_2m,precipitation,snowfall&models=ecmwf_ifs025`,
+    ecmwfBaseUrl: `${base}&elevation=${r.baseElev}&hourly=temperature_2m,wet_bulb_temperature_2m&models=ecmwf_ifs025`,
+    aifsSummitUrl: `${base}&elevation=${r.summitElev}&hourly=temperature_2m,wet_bulb_temperature_2m,precipitation,snowfall&models=ecmwf_aifs025_single`,
+    aifsBaseUrl: `${base}&elevation=${r.baseElev}&hourly=temperature_2m,wet_bulb_temperature_2m&models=ecmwf_aifs025_single`,
+    ukmoSummitUrl: `${base}&elevation=${r.summitElev}&hourly=temperature_2m,wet_bulb_temperature_2m,precipitation,snowfall&models=ukmo_seamless`,
+    ukmoBaseUrl: `${base}&elevation=${r.baseElev}&hourly=temperature_2m,wet_bulb_temperature_2m&models=ukmo_seamless`,
   };
 }
 
@@ -4129,9 +4180,13 @@ function buildSnowRamp(hour) {
   //    the air is above freezing, so nothing should be tinted. (Previous bug: this
   //    used freezing − 300m, so the blue drape spilled ~300m below the freezing
   //    level — e.g. covering a +1.8°C base that sits below the freezing level.)
-  //  • Active snowfall → the SNOW LINE (freezing − 300m): falling snow survives
-  //    ~300m into the above-freezing layer before melting, so it lies that low.
-  const boundary = snowing ? hour.freezingLevel - SNOW_OFFSET : hour.freezingLevel;
+  //  • Active snowfall → the SNOW LINE. Wet-bulb gives the real crossing when
+  //    the model has it (hour.snowLineWB); freezing − 300m is the fallback,
+  //    which is the same crossing assumed at one fixed humidity.
+  const snowLine = (snowing && hour.snowLineWB != null)
+    ? hour.snowLineWB
+    : hour.freezingLevel - SNOW_OFFSET;
+  const boundary = snowing ? snowLine : hour.freezingLevel;
 
   // Nothing to draw when the boundary is above the entire displayed terrain —
   // e.g. an off-season resort with the freezing level kilometres above the peak.
@@ -4194,7 +4249,30 @@ function buildSnowRamp(hour) {
   const alphaAt = (elev) => Math.max(0.65, Math.min(1, rateAt(elev) / 14)).toFixed(2);
 
   const SNOW_RAMP_SAMPLE_STEP_M = 80;
-  const stops = ['interpolate', ['linear'], ['elevation'], line - 1, `rgba(${c0},0)`];
+
+  // Sleet band — the slice between the rain line and the snow line, where
+  // wet-bulb sits in the mixed range. Violet, and deliberately flatter/more
+  // transparent than the snow above it so it reads as "marginal, not banked
+  // snow". Only drawn when wet-bulb actually gave us both crossings AND they
+  // leave a real gap below the snow line; otherwise the ramp starts at the
+  // snow line exactly as before.
+  const rainLine = hour.rainLineWB;
+  const hasSleetBand = hour.snowLineWB != null && rainLine != null
+    && rainLine < line && line - rainLine > 20;
+  const sleetFloor = hasSleetBand ? Math.max(0, rainLine) : null;
+
+  const stops = hasSleetBand
+    ? [
+        'interpolate', ['linear'], ['elevation'],
+        sleetFloor - 1, `rgba(${SLEET_RGB},0)`,
+        sleetFloor, `rgba(${SLEET_RGB},0.45)`,
+        // Hold the violet up to just under the snow line, then hand over to
+        // the snow hue so the two zones meet at a visible edge rather than
+        // cross-fading into an ambiguous mush.
+        line - 1, `rgba(${SLEET_RGB},0.55)`
+      ]
+    : ['interpolate', ['linear'], ['elevation'], line - 1, `rgba(${c0},0)`];
+
   for (let elev = line; elev < TOP_ELEV; elev += SNOW_RAMP_SAMPLE_STEP_M) {
     stops.push(elev, `rgba(${hueAt(elev)},${alphaAt(elev)})`);
   }
@@ -4301,7 +4379,9 @@ function openMapView(index) {
   // where the map actually stops tinting, letting a tap in that gap report
   // non-zero snowfall for an area showing no shading at all.
   const hourSnowing = hour.snowfallMm >= SNOWFALL_THRESHOLD_MM;
-  currentSnowLine = hourSnowing ? hour.freezingLevel - SNOW_OFFSET : hour.freezingLevel;
+  currentSnowLine = hourSnowing
+    ? (hour.snowLineWB != null ? hour.snowLineWB : hour.freezingLevel - SNOW_OFFSET)
+    : hour.freezingLevel;
   currentHourCm = hourSnowing ? hour.snowfallMm / 10 : 0;
   // Real per-elevation rate for this exact hour (see computeElevationBandRates)
   // — assigned before buildSnowRamp runs, since it now reads this to vary
@@ -4320,7 +4400,20 @@ function openMapView(index) {
   document.getElementById('si-time').textContent = fmtTime(hour.time);
   document.getElementById('si-temp').textContent = hour.temp.toFixed(1) + '°C';
   document.getElementById('si-fl').textContent = Math.round(hour.freezingLevel) + ' m';
-  document.getElementById('si-sl').textContent = Math.round(hour.freezingLevel - SNOW_OFFSET) + ' m';
+  // Wet-bulb snow line where available, with the sleet band's lower edge shown
+  // alongside it so the violet zone on the map has a number attached.
+  document.getElementById('si-sl').textContent = hour.snowLineWB != null
+    ? Math.round(hour.snowLineWB) + ' m'
+    : Math.round(hour.freezingLevel - SNOW_OFFSET) + ' m';
+  const sleetEl = document.getElementById('si-sleet');
+  if (sleetEl) {
+    const showSleet = hour.snowLineWB != null && hour.rainLineWB != null
+      && hour.rainLineWB < hour.snowLineWB;
+    sleetEl.parentElement.style.display = showSleet ? '' : 'none';
+    if (showSleet) {
+      sleetEl.textContent = `${Math.round(hour.rainLineWB)}–${Math.round(hour.snowLineWB)} m`;
+    }
+  }
   document.getElementById('si-snow').textContent = hour.snowfallMm.toFixed(1) + ' mm';
   document.getElementById('si-wind').textContent = hour.windSpeedKmh != null
     ? `${Math.round(hour.windSpeedKmh)} km/h ${degToCompass(hour.windDirDeg)}`

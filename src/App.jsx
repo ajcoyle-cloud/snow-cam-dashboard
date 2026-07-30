@@ -63,13 +63,17 @@ const getWeatherConditionIcon = (wmoCode) => {
   if (wmoCode <= 49) return '🌫️' // fog, haze, dust, mist variants
   if (wmoCode <= 59) return '🌧️' // drizzle
   if (wmoCode <= 67) return '🌧️' // rain (incl. freezing rain 66-67)
+  // 🌨️ is reserved for MIXED rain/snow (sleet) so it stays meaningful next to
+  // the wet-bulb sleet override in the condition row — anything that falls as
+  // pure frozen precipitation gets ❄ instead, which it arguably always should
+  // have. See PHASE_ICON.
   if (wmoCode <= 69) return '🌨️' // freezing drizzle heavy / sleet
   if (wmoCode <= 77) return '❄' // snow, ice crystals, ice pellets (no VS16 — this codepoint's default presentation is text/monochrome; forcing emoji presentation renders as a blank tofu box on systems whose emoji font lacks this specific glyph)
-  if (wmoCode <= 79) return '🌨️' // ice pellets / snow grains
+  if (wmoCode <= 79) return '❄' // ice pellets / snow grains
   if (wmoCode <= 82) return '🌧️' // rain showers
-  if (wmoCode <= 84) return '🌨️' // rain and snow showers
-  if (wmoCode <= 86) return '🌨️' // snow showers
-  if (wmoCode <= 94) return '🌨️' // snow/ice pellet showers
+  if (wmoCode <= 84) return '🌨️' // rain and snow showers — genuinely mixed
+  if (wmoCode <= 86) return '❄' // snow showers
+  if (wmoCode <= 94) return '❄' // snow/ice pellet showers
   if (wmoCode <= 99) return '⛈️' // thunderstorm
   return '—'
 }
@@ -1022,29 +1026,77 @@ function StormArrivalBanner({ resort, onOpenRadar }) {
 // exactly at it (matches the rule used by the standalone 3D snowfall map).
 const SNOW_LINE_BUFFER_M = 300
 
-// Open-Meteo's `snowfall` field intermittently reports 0 despite real
-// precipitation, because each model applies its own rain/snow split off its 2m
-// temperature at that elevation. Fill the gap from precipitation at the usual
-// ~7:1 snow-to-liquid ratio.
+// ── Precipitation phase ────────────────────────────────────────────────────
+// Wet-bulb temperature, not dry-bulb, decides whether precipitation reaches the
+// ground as snow: falling precipitation evaporatively cools the air around it
+// toward the wet-bulb, so snow routinely survives a dry above-freezing layer
+// that a dry-bulb reading says should melt it. These are the usual operational
+// thresholds — snow below ~0.5°C wet-bulb, all rain above ~1.5°C, a mixed
+// sleet/wet-snow band between.
 //
-// The gate is this app's OWN snow line (freezing level − SNOW_LINE_BUFFER_M),
-// the same test the chart bars and the table's precip row use to decide whether
-// an hour counts as snow. It used to be `temp < 0`, which disagreed with that
-// test for any elevation sitting between the snow line and the freezing level:
-// isSnow said "snow" (so the chart plotted `snowfall`, not `precipitation`)
-// while this left snowfall at 0, and the hour rendered as neither snow nor
-// rain. Whakapapa's 1630m base hit this constantly — the freezing level runs
-// ~1800m with the base ~+1°C, so summit bars appeared and base bars vanished
-// even though the same precipitation was forecast at both.
-//
-// `temp` stays the fallback for the rare case of no freezing level at all,
-// matching how isSnow degrades in the same situation.
-function snowfallWithFallback(snowfallMm, precipMm, freezingLevel, elev, temp) {
-  if (snowfallMm > 0 || !(precipMm > 0)) return snowfallMm
+// Crucially, Open-Meteo downscales wet_bulb_temperature_2m to the elevation we
+// request, so unlike its `snowfall` field (which is passed through unchanged
+// from the model's own terrain height, and is byte-identical at 1630m and
+// 2300m) this actually distinguishes summit from base.
+const WET_BULB_SNOW_MAX_C = 0.5
+const WET_BULB_RAIN_MIN_C = 1.5
+
+// Violet for sleet reads as "between" snow and rain without colliding with any
+// model's line colour (blue/green/amber/pink) or the faded-blue rain bar.
+const PHASE_COLOR = { snow: '#2563eb', sleet: '#a78bfa', rain: '#2563eb' }
+const PHASE_ICON = { snow: '❄️', sleet: '🌨️', rain: '🌧️' }
+const PHASE_LABEL = { snow: 'Snow', sleet: 'Sleet', rain: 'Rain' }
+
+// 'snow' | 'sleet' | 'rain'. Falls back to the freezing-level snow line when a
+// model has no wet-bulb for that hour, and to dry-bulb when there's no freezing
+// level either — the same degradation order the display code uses.
+function precipPhase(wetBulb, freezingLevel, elev, temp) {
+  if (wetBulb != null) {
+    if (wetBulb <= WET_BULB_SNOW_MAX_C) return 'snow'
+    return wetBulb >= WET_BULB_RAIN_MIN_C ? 'rain' : 'sleet'
+  }
   const isSnow = freezingLevel != null
     ? (freezingLevel - SNOW_LINE_BUFFER_M) < elev
     : temp < 0
-  return isSnow ? precipMm * 7 : snowfallMm
+  return isSnow ? 'snow' : 'rain'
+}
+
+// Snow-to-liquid ratio. A flat 7:1 was badly wrong at both ends: wet snow near
+// 0°C packs closer to 5:1, while cold dry snow in the dendritic growth zone
+// (~−15°C) fluffs out past 20:1, and colder still it tightens up again as
+// crystal growth slows. Piecewise-linear through those anchors, keyed on
+// wet-bulb so it agrees with the phase call above.
+const SLR_CURVE = [
+  [WET_BULB_RAIN_MIN_C, 3],  // sleet — wet, dense, accumulates poorly
+  [WET_BULB_SNOW_MAX_C, 5],  // wet snow
+  [-1, 8],
+  [-3, 11],
+  [-8, 15],
+  [-15, 20],                 // dendritic growth zone — fluffiest
+  [-25, 12]
+]
+
+function snowToLiquidRatio(wetBulb) {
+  if (wetBulb == null) return 7 // previous flat default
+  if (wetBulb >= SLR_CURVE[0][0]) return SLR_CURVE[0][1]
+  for (let i = 1; i < SLR_CURVE.length; i++) {
+    const [tHi, rHi] = SLR_CURVE[i - 1]
+    const [tLo, rLo] = SLR_CURVE[i]
+    if (wetBulb >= tLo) return rHi + (rLo - rHi) * ((tHi - wetBulb) / (tHi - tLo))
+  }
+  return SLR_CURVE[SLR_CURVE.length - 1][1]
+}
+
+// Open-Meteo's `snowfall` intermittently reports 0 despite real precipitation
+// (see above — it's not computed at the elevation we asked for). Fill the gap
+// from precipitation, converted at the wet-bulb-dependent ratio. Sleet still
+// accumulates, just densely, so it gets the low end of the curve rather than
+// being discarded.
+function snowfallWithFallback(snowfallMm, precipMm, freezingLevel, elev, temp, wetBulb) {
+  if (snowfallMm > 0 || !(precipMm > 0)) return snowfallMm
+  const phase = precipPhase(wetBulb, freezingLevel, elev, temp)
+  if (phase === 'rain') return snowfallMm
+  return precipMm * snowToLiquidRatio(wetBulb)
 }
 
 const RESORTS = {
@@ -1156,13 +1208,16 @@ function buildAltModelData(summitData, baseData, r) {
     const baseTemp = baseData.hourly.temperature_2m[i]
     const freezingLevel = freezingAt(summitTemp, baseTemp)
 
+    const summitWetBulb = summitData.hourly.wet_bulb_temperature_2m?.[i] ?? null
+    const baseWetBulb = baseData.hourly.wet_bulb_temperature_2m?.[i] ?? null
+
     const summitPrecip = summitData.hourly.precipitation?.[i] || 0
     const summitSnowfall = snowfallWithFallback(
-      (summitData.hourly.snowfall?.[i] || 0) * 10, summitPrecip, freezingLevel, r.summitElev, summitTemp)
+      (summitData.hourly.snowfall?.[i] || 0) * 10, summitPrecip, freezingLevel, r.summitElev, summitTemp, summitWetBulb)
 
     const basePrecip = baseData.hourly.precipitation?.[i] || 0
     const baseSnowfall = snowfallWithFallback(
-      (baseData.hourly.snowfall?.[i] || 0) * 10, basePrecip, freezingLevel, r.baseElev, baseTemp)
+      (baseData.hourly.snowfall?.[i] || 0) * 10, basePrecip, freezingLevel, r.baseElev, baseTemp, baseWetBulb)
 
     return {
       time,
@@ -1170,6 +1225,8 @@ function buildAltModelData(summitData, baseData, r) {
       freezingLevel: freezingLevel !== null ? Math.round(freezingLevel / 100) * 100 : null,
       summit: {
         temp: summitTemp,
+        wetBulb: summitWetBulb,
+        phase: precipPhase(summitWetBulb, freezingLevel, r.summitElev, summitTemp),
         precipitation: summitPrecip,
         precipProbability: summitData.hourly.precipitation_probability?.[i] ?? null,
         snowfall: summitSnowfall,
@@ -1180,6 +1237,8 @@ function buildAltModelData(summitData, baseData, r) {
       },
       base: {
         temp: baseTemp,
+        wetBulb: baseWetBulb,
+        phase: precipPhase(baseWetBulb, freezingLevel, r.baseElev, baseTemp),
         precipitation: basePrecip,
         precipProbability: baseData.hourly.precipitation_probability?.[i] ?? null,
         snowfall: baseSnowfall,
@@ -1198,7 +1257,7 @@ function buildAltModelData(summitData, baseData, r) {
 // for the table's "Average" pill. Only genuinely numeric fields are averaged —
 // a weather-code or compass bearing has no meaningful mean, so those come from
 // whichever source loaded first instead.
-function buildAverageForecastData(sources) {
+function buildAverageForecastData(sources, r) {
   const loaded = sources.filter(Boolean)
   if (loaded.length === 0) return null
   const base = loaded[0]
@@ -1228,12 +1287,20 @@ function buildAverageForecastData(sources) {
   return base.map((_, i) => {
     const rows = loaded.map(s => s[i]).filter(Boolean)
     const first = rows[0]
+    // Phase is re-derived from the AVERAGED wet-bulb rather than averaged
+    // itself — 'snow'/'sleet'/'rain' has no meaningful mean, and re-deriving
+    // keeps the average row's phase consistent with the wet-bulb it reports.
+    const summitWetBulb = avg(rows, (d) => d.summit.wetBulb)
+    const baseWetBulb = avg(rows, (d) => d.base.wetBulb)
+    const freezingLevel = avgFreezing(rows, (d) => d.freezingLevelGFS ?? d.freezingLevel)
     return {
       time: first.time,
       datetime: first.datetime,
-      freezingLevel: avgFreezing(rows, (d) => d.freezingLevelGFS ?? d.freezingLevel),
+      freezingLevel,
       summit: {
         temp: avg(rows, (d) => d.summit.temp),
+        wetBulb: summitWetBulb,
+        phase: precipPhase(summitWetBulb, freezingLevel, r.summitElev, avg(rows, (d) => d.summit.temp)),
         precipitation: median(rows, (d) => d.summit.precipitation) ?? 0,
         precipProbability: avg(rows, (d) => d.summit.precipProbability),
         snowfall: median(rows, (d) => d.summit.snowfall) ?? 0,
@@ -1243,6 +1310,8 @@ function buildAverageForecastData(sources) {
       },
       base: {
         temp: avg(rows, (d) => d.base.temp),
+        wetBulb: baseWetBulb,
+        phase: precipPhase(baseWetBulb, freezingLevel, r.baseElev, avg(rows, (d) => d.base.temp)),
         precipitation: median(rows, (d) => d.base.precipitation) ?? 0,
         precipProbability: avg(rows, (d) => d.base.precipProbability),
         snowfall: median(rows, (d) => d.base.snowfall) ?? 0,
@@ -1519,18 +1588,18 @@ function SnowfallForecast({ resort, setResort, onOpenCompare }) {
       try {
         // Fetch Open-Meteo GFS model (includes direct freezinglevel_height)
         // windspeed_700hPa ≈ 3000m (summit), windspeed_850hPa ≈ 1500m (base) — more accurate than surface wind
-        const summitUrl = `https://api.open-meteo.com/v1/forecast?latitude=${r.lat}&longitude=${r.lon}&elevation=${r.summitElev}&hourly=temperature_2m,precipitation,precipitation_probability,snowfall,weather_code,windspeed_700hPa,winddirection_700hPa,windspeed_850hPa,winddirection_850hPa,freezinglevel_height&models=gfs_global&temperature_unit=celsius&wind_speed_unit=kmh&timezone=${r.timezone}&forecast_days=16`
-        const baseUrl = `https://api.open-meteo.com/v1/forecast?latitude=${r.lat}&longitude=${r.lon}&elevation=${r.baseElev}&hourly=temperature_2m,precipitation,precipitation_probability,snowfall,weather_code&models=gfs_global&temperature_unit=celsius&timezone=${r.timezone}&forecast_days=16`
-        const ecmwfSummitUrl = `https://api.open-meteo.com/v1/forecast?latitude=${r.lat}&longitude=${r.lon}&elevation=${r.summitElev}&hourly=temperature_2m,precipitation,precipitation_probability,snowfall,weather_code,windspeed_700hPa,winddirection_700hPa,windspeed_850hPa,winddirection_850hPa&models=ecmwf_ifs025&temperature_unit=celsius&wind_speed_unit=kmh&timezone=${r.timezone}&forecast_days=16`
-        const ecmwfBaseUrl = `https://api.open-meteo.com/v1/forecast?latitude=${r.lat}&longitude=${r.lon}&elevation=${r.baseElev}&hourly=temperature_2m,precipitation,precipitation_probability,snowfall,weather_code&models=ecmwf_ifs025&temperature_unit=celsius&timezone=${r.timezone}&forecast_days=16`
+        const summitUrl = `https://api.open-meteo.com/v1/forecast?latitude=${r.lat}&longitude=${r.lon}&elevation=${r.summitElev}&hourly=temperature_2m,wet_bulb_temperature_2m,precipitation,precipitation_probability,snowfall,weather_code,windspeed_700hPa,winddirection_700hPa,windspeed_850hPa,winddirection_850hPa,freezinglevel_height&models=gfs_global&temperature_unit=celsius&wind_speed_unit=kmh&timezone=${r.timezone}&forecast_days=16`
+        const baseUrl = `https://api.open-meteo.com/v1/forecast?latitude=${r.lat}&longitude=${r.lon}&elevation=${r.baseElev}&hourly=temperature_2m,wet_bulb_temperature_2m,precipitation,precipitation_probability,snowfall,weather_code&models=gfs_global&temperature_unit=celsius&timezone=${r.timezone}&forecast_days=16`
+        const ecmwfSummitUrl = `https://api.open-meteo.com/v1/forecast?latitude=${r.lat}&longitude=${r.lon}&elevation=${r.summitElev}&hourly=temperature_2m,wet_bulb_temperature_2m,precipitation,precipitation_probability,snowfall,weather_code,windspeed_700hPa,winddirection_700hPa,windspeed_850hPa,winddirection_850hPa&models=ecmwf_ifs025&temperature_unit=celsius&wind_speed_unit=kmh&timezone=${r.timezone}&forecast_days=16`
+        const ecmwfBaseUrl = `https://api.open-meteo.com/v1/forecast?latitude=${r.lat}&longitude=${r.lon}&elevation=${r.baseElev}&hourly=temperature_2m,wet_bulb_temperature_2m,precipitation,precipitation_probability,snowfall,weather_code&models=ecmwf_ifs025&temperature_unit=celsius&timezone=${r.timezone}&forecast_days=16`
         // ECMWF's AI-based AIFS model — 0.25° global, 6-hourly steps (Open-Meteo interpolates to hourly).
         // Unlike IFS, AIFS doesn't produce pressure-level wind (open-meteo/open-meteo#697), so
         // requesting windspeed_700hPa/850hPa here fails the whole call and silently drops AIFS entirely.
-        const aifsSummitUrl = `https://api.open-meteo.com/v1/forecast?latitude=${r.lat}&longitude=${r.lon}&elevation=${r.summitElev}&hourly=temperature_2m,precipitation,precipitation_probability,snowfall,weather_code&models=ecmwf_aifs025_single&temperature_unit=celsius&wind_speed_unit=kmh&timezone=${r.timezone}&forecast_days=16`
-        const aifsBaseUrl = `https://api.open-meteo.com/v1/forecast?latitude=${r.lat}&longitude=${r.lon}&elevation=${r.baseElev}&hourly=temperature_2m,precipitation,precipitation_probability,snowfall,weather_code&models=ecmwf_aifs025_single&temperature_unit=celsius&timezone=${r.timezone}&forecast_days=16`
+        const aifsSummitUrl = `https://api.open-meteo.com/v1/forecast?latitude=${r.lat}&longitude=${r.lon}&elevation=${r.summitElev}&hourly=temperature_2m,wet_bulb_temperature_2m,precipitation,precipitation_probability,snowfall,weather_code&models=ecmwf_aifs025_single&temperature_unit=celsius&wind_speed_unit=kmh&timezone=${r.timezone}&forecast_days=16`
+        const aifsBaseUrl = `https://api.open-meteo.com/v1/forecast?latitude=${r.lat}&longitude=${r.lon}&elevation=${r.baseElev}&hourly=temperature_2m,wet_bulb_temperature_2m,precipitation,precipitation_probability,snowfall,weather_code&models=ecmwf_aifs025_single&temperature_unit=celsius&timezone=${r.timezone}&forecast_days=16`
         // UK Met Office seamless (global 10km, falls back from the UK-only 2km model outside Britain) — only a 7-day horizon.
-        const ukmoSummitUrl = `https://api.open-meteo.com/v1/forecast?latitude=${r.lat}&longitude=${r.lon}&elevation=${r.summitElev}&hourly=temperature_2m,precipitation,precipitation_probability,snowfall,weather_code,windspeed_700hPa,winddirection_700hPa,windspeed_850hPa,winddirection_850hPa&models=ukmo_seamless&temperature_unit=celsius&wind_speed_unit=kmh&timezone=${r.timezone}&forecast_days=16`
-        const ukmoBaseUrl = `https://api.open-meteo.com/v1/forecast?latitude=${r.lat}&longitude=${r.lon}&elevation=${r.baseElev}&hourly=temperature_2m,precipitation,precipitation_probability,snowfall,weather_code&models=ukmo_seamless&temperature_unit=celsius&timezone=${r.timezone}&forecast_days=16`
+        const ukmoSummitUrl = `https://api.open-meteo.com/v1/forecast?latitude=${r.lat}&longitude=${r.lon}&elevation=${r.summitElev}&hourly=temperature_2m,wet_bulb_temperature_2m,precipitation,precipitation_probability,snowfall,weather_code,windspeed_700hPa,winddirection_700hPa,windspeed_850hPa,winddirection_850hPa&models=ukmo_seamless&temperature_unit=celsius&wind_speed_unit=kmh&timezone=${r.timezone}&forecast_days=16`
+        const ukmoBaseUrl = `https://api.open-meteo.com/v1/forecast?latitude=${r.lat}&longitude=${r.lon}&elevation=${r.baseElev}&hourly=temperature_2m,wet_bulb_temperature_2m,precipitation,precipitation_probability,snowfall,weather_code&models=ukmo_seamless&temperature_unit=celsius&timezone=${r.timezone}&forecast_days=16`
 
         // ECMWF/AIFS/UKMO are optional extras — a failure on any of them (transient
         // or not, network-level or a bad status) must never take down the primary
@@ -1588,15 +1657,18 @@ function SnowfallForecast({ resort, setResort, onOpenCompare }) {
           // level shown in the same column. See snowfallWithFallback.
           const flForSnow = gfsFreezingLevel ?? freezingLevel
 
+          const summitWetBulb = openMeteoSummitData.hourly.wet_bulb_temperature_2m?.[i] ?? null
+          const baseWetBulb = openMeteoBaseData.hourly.wet_bulb_temperature_2m?.[i] ?? null
+
           const summitPrecip = openMeteoSummitData.hourly.precipitation[i] || 0
           const summitSnowfall = snowfallWithFallback(
             (openMeteoSummitData.hourly.snowfall[i] || 0) * 10, // cm -> mm
-            summitPrecip, flForSnow, r.summitElev, summitTemp)
+            summitPrecip, flForSnow, r.summitElev, summitTemp, summitWetBulb)
 
           const basePrecip = openMeteoBaseData.hourly.precipitation[i] || 0
           const baseSnowfall = snowfallWithFallback(
             (openMeteoBaseData.hourly.snowfall[i] || 0) * 10, // cm -> mm
-            basePrecip, flForSnow, r.baseElev, baseTemp)
+            basePrecip, flForSnow, r.baseElev, baseTemp, baseWetBulb)
 
           return {
             time,
@@ -1605,6 +1677,8 @@ function SnowfallForecast({ resort, setResort, onOpenCompare }) {
             freezingLevelGFS: gfsFreezingLevel !== null ? Math.round(gfsFreezingLevel / 100) * 100 : null,
             summit: {
               temp: summitTemp,
+              wetBulb: summitWetBulb,
+              phase: precipPhase(summitWetBulb, flForSnow, r.summitElev, summitTemp),
               precipitation: summitPrecip,
               precipProbability: openMeteoSummitData.hourly.precipitation_probability?.[i] ?? null,
               snowfall: summitSnowfall,
@@ -1616,6 +1690,8 @@ function SnowfallForecast({ resort, setResort, onOpenCompare }) {
             },
             base: {
               temp: baseTemp,
+              wetBulb: baseWetBulb,
+              phase: precipPhase(baseWetBulb, flForSnow, r.baseElev, baseTemp),
               precipitation: basePrecip,
               precipProbability: openMeteoBaseData.hourly.precipitation_probability?.[i] ?? null,
               snowfall: baseSnowfall,
@@ -2308,7 +2384,7 @@ function SnowfallForecast({ resort, setResort, onOpenCompare }) {
   const ecmwfTableData = buildAltTableData(ecmwfForecastData)
   const aifsTableData = buildAltTableData(aifsForecastData)
   const ukmoTableData = buildAltTableData(ukmoForecastData)
-  const averageForecastDataRaw = buildAverageForecastData([forecastData, ecmwfForecastData, aifsForecastData, ukmoForecastData])
+  const averageForecastDataRaw = buildAverageForecastData([forecastData, ecmwfForecastData, aifsForecastData, ukmoForecastData], RESORTS[resort])
   const averageTableData = buildAltTableData(averageForecastDataRaw)
 
   // Every model that can populate a full table row (temp/precip/snow/wind/freezing),
@@ -2945,10 +3021,13 @@ function SnowfallForecast({ resort, setResort, onOpenCompare }) {
             const snowfallVal = barData.snowfall
             const elev = elevation === 'summit' ? RESORTS[resort].summitElev : RESORTS[resort].baseElev
             const freezingLevel = averageFreezingData[i]
-            const isSnow = freezingLevel != null ? (freezingLevel - SNOW_LINE_BUFFER_M) < elev : temp < 0
+            // Wet-bulb phase where the model gave us one; the freezing-level
+            // snow line is the fallback (precipPhase handles the degradation).
+            const phase = barData.phase || precipPhase(barData.wetBulb ?? null, freezingLevel, elev, temp)
 
-            // Use snowfall amount if snow, otherwise precipitation
-            const displayVal = isSnow ? snowfallVal : precipVal
+            // Snow AND sleet accumulate, so both plot the snow depth (sleet
+            // just converts at a much lower ratio); only rain plots liquid mm.
+            const displayVal = phase === 'rain' ? precipVal : snowfallVal
 
             // Draw bars for any precipitation > 0
             if (displayVal <= 0) return null
@@ -2969,15 +3048,13 @@ function SnowfallForecast({ resort, setResort, onOpenCompare }) {
             const nowMs = Date.now()
             const isCurrentHour = nowMs >= bucketStart && nowMs < bucketEnd
 
-            // Single blue color for snowfall bars, regardless of amount
-            let barColor = '#2563eb'
-            let barOpacity = 0.5
+            // Solid blue for snow, violet for the sleet/mixed band, faded blue
+            // for rain. Amount is carried by bar height, never by colour.
+            let barColor = PHASE_COLOR[phase]
+            let barOpacity = phase === 'rain' ? 0.5 : 1
 
             if (isCurrentHour) {
               barColor = '#ffffff'
-              barOpacity = 1
-            } else if (isSnow) {
-              barColor = '#2563eb' // Consistent blue for all snowfall amounts
               barOpacity = 1
             }
 
@@ -3148,7 +3225,7 @@ function SnowfallForecast({ resort, setResort, onOpenCompare }) {
           const windDir = data.windDir
           const tooltipElev = elevation === 'summit' ? RESORTS[resort].summitElev : RESORTS[resort].baseElev
           const tooltipFreezingLevel = averageFreezingData[hoveredIndex]
-          const isSnow = tooltipFreezingLevel != null ? (tooltipFreezingLevel - SNOW_LINE_BUFFER_M) < tooltipElev : temp < 0
+          const phase = data.phase || precipPhase(data.wetBulb ?? null, tooltipFreezingLevel, tooltipElev, temp)
           const precipDisplay = precip.toFixed(1)
           const snowDisplay = snowfall.toFixed(1)
 
@@ -3175,10 +3252,18 @@ function SnowfallForecast({ resort, setResort, onOpenCompare }) {
               <div style={{ fontWeight: 'bold', marginBottom: '6px', color: '#888' }}>
                 {d.datetime.toLocaleTimeString('en-NZ', { hour: '2-digit', minute: '2-digit', hour12: false })}
               </div>
-              <div style={{ color: '#fff', marginBottom: '6px' }}>
-                {isSnow ? `Snow: ${(snowfall / 10).toFixed(1)}cm ❄️` : `Rain: ${precipDisplay}mm`}
+              <div style={{ color: phase === 'sleet' ? PHASE_COLOR.sleet : '#fff', marginBottom: '6px' }}>
+                {phase === 'rain'
+                  ? `Rain: ${precipDisplay}mm`
+                  : `${PHASE_LABEL[phase]}: ${(snowfall / 10).toFixed(1)}cm ${PHASE_ICON[phase]}`}
               </div>
               <div style={{ marginBottom: '6px' }}>Temp: {temp.toFixed(1)}°C</div>
+              {/* Wet-bulb is what actually made the snow/sleet/rain call, so
+                  show it next to the dry-bulb rather than leaving the verdict
+                  looking arbitrary on marginal days. */}
+              {data.wetBulb != null && (
+                <div style={{ marginBottom: '6px', color: '#888' }}>Wet-bulb: {data.wetBulb.toFixed(1)}°C</div>
+              )}
               <div style={{ marginBottom: '6px' }}>Wind: {wind.toFixed(1)} km/h {arrow}</div>
               {showFreezing.gfs && d.freezingLevelGFS !== null && (
                 <div style={{ color: '#3b82f6', marginTop: '4px' }}>
@@ -3322,9 +3407,16 @@ function SnowfallForecast({ resort, setResort, onOpenCompare }) {
                 {labelCell('condition', rows, idx, 'Condition')}
                 {m.data.map((d, i) => {
                   const data = elevation === 'summit' ? d.summit : d.base
-                  const icon = data.weatherCode != null
-                    ? getWeatherConditionIcon(data.weatherCode)
-                    : getWeatherIcon(data.pictocode)
+                  // Sleet has no weather code of its own here — the models
+                  // report it as rain or snow depending on their own split — so
+                  // the wet-bulb phase overrides the icon for the mixed band.
+                  // Snow/rain hours keep the model's richer code-based icon.
+                  const isSleet = data.phase === 'sleet' && data.precipitation > 0.1
+                  const icon = isSleet
+                    ? PHASE_ICON.sleet
+                    : data.weatherCode != null
+                      ? getWeatherConditionIcon(data.weatherCode)
+                      : getWeatherIcon(data.pictocode)
                   return (
                     <td key={i}
                       onClick={viewMode === 'fit' ? () => handleDayTap(i) : undefined}
@@ -3347,7 +3439,12 @@ function SnowfallForecast({ resort, setResort, onOpenCompare }) {
                   const prob = data.precipProbability
                   const elev = elevation === 'summit' ? RESORTS[resort].summitElev : RESORTS[resort].baseElev
                   const freezingLevel = m.getPrecipFreezing(d)
-                  const isSnow = (freezingLevel - SNOW_LINE_BUFFER_M) < elev && snowfall > 0.1
+                  // Sleet accumulates too, so it's reported by the Snowfall row
+                  // like snow is — blank the liquid figure here for both, and
+                  // only show mm when the hour is genuinely rain.
+                  const isSnow = (data.phase
+                    ? data.phase !== 'rain'
+                    : (freezingLevel - SNOW_LINE_BUFFER_M) < elev) && snowfall > 0.1
                   const mainVal = isSnow ? '' : (precip < 0.1 ? '' : precip.toFixed(1))
                   return (
                     <td key={i}
