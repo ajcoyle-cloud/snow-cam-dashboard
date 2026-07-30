@@ -103,15 +103,25 @@
   }
   #accum-toggle:hover { background: rgba(255,255,255,0.24); color: #fff; }
   #accum-toggle.active { background: rgba(37,99,235,0.95); color: #fff; }
-  #accum-windows { display: none; gap: 2px; }
+  #accum-windows { display: none; align-items: center; gap: 9px; padding-right: 6px; }
   #accum-controls.on #accum-windows { display: flex; }
-  .accum-win {
-    background: transparent; color: rgba(255,255,255,0.6); border: none;
-    padding: 5px 8px; border-radius: 9999px; font-size: 0.7rem; font-weight: 700;
-    font-family: inherit; cursor: pointer; transition: all 0.15s;
+  #accum-slider {
+    -webkit-appearance: none; appearance: none; width: 120px;
+    height: 5px; border-radius: 3px; background: rgba(255,255,255,0.25);
+    cursor: pointer; outline: none;
   }
-  .accum-win:hover { color: #fff; }
-  .accum-win.active { background: rgba(255,255,255,0.2); color: #fff; }
+  #accum-slider::-webkit-slider-thumb {
+    -webkit-appearance: none; width: 15px; height: 15px; border-radius: 50%;
+    background: #fff; box-shadow: 0 2px 6px rgba(0,0,0,0.4); cursor: pointer; border: 3px solid #2563eb;
+  }
+  #accum-slider::-moz-range-thumb {
+    width: 15px; height: 15px; border-radius: 50%; background: #fff;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.4); cursor: pointer; border: 3px solid #2563eb;
+  }
+  #accum-hours {
+    color: #fff; font-size: 0.74rem; font-weight: 700;
+    min-width: 30px; font-variant-numeric: tabular-nums;
+  }
 
   #accum-panel {
     display: none; width: 208px;
@@ -165,10 +175,12 @@
   <div id="accum-controls">
     <div id="accum-bar">
       <button id="accum-toggle" title="Total rain accumulated over the window">Σ Total</button>
+      <!-- How far back to sum. Indexes ACCUM_HOUR_STEPS rather than being a raw
+           hour count — see that array for why the stops aren't evenly spaced. -->
       <div id="accum-windows">
-        <button class="accum-win" data-hours="6">6h</button>
-        <button class="accum-win active" data-hours="12">12h</button>
-        <button class="accum-win" data-hours="24">24h</button>
+        <input type="range" id="accum-slider" min="0" max="15" step="1" value="7"
+               title="How far back to accumulate" aria-label="Accumulation window (hours)">
+        <span id="accum-hours">12h</span>
       </div>
     </div>
     <div id="accum-panel">
@@ -823,6 +835,24 @@ const ACCUM_SRC = 'radar-accum-src';
 const ACCUM_LAYER = 'radar-accum-layer';
 const ACCUM_STALE_MS = 15 * 60 * 1000;
 
+// The window slider's stops. Deliberately NOT a linear 1..48 range: at the
+// short end an hour either way changes the picture, while at the long end it's
+// noise, and a linear range would also cram 48 positions into ~120px — about
+// 2.5px per stop, which is not a thumb target on a phone. Sixteen stops keeps
+// every one comfortably tappable and still spans 1h to 2 days.
+//
+// The upper bound is a cost decision, not a data limit: the feed's history goes
+// back over a month, but 48h is ~390 frames (~35MB, well over half a minute of
+// fetching), and beyond that the wait stops being worth it.
+const ACCUM_HOUR_STEPS = [1, 2, 3, 4, 6, 8, 10, 12, 15, 18, 21, 24, 30, 36, 42, 48];
+const accumHoursToIndex = (h) => {
+  let best = 0;
+  for (let i = 0; i < ACCUM_HOUR_STEPS.length; i++) {
+    if (Math.abs(ACCUM_HOUR_STEPS[i] - h) < Math.abs(ACCUM_HOUR_STEPS[best] - h)) best = i;
+  }
+  return best;
+};
+
 let accumOn = false;
 let accumHours = 12;
 // The summed field, kept in memory because the tap readout samples it directly.
@@ -851,8 +881,8 @@ function accumSyncUi() {
   document.getElementById('accum-controls').classList.toggle('on', accumOn);
   document.getElementById('accum-toggle').classList.toggle('active', accumOn);
   document.getElementById('timeline').classList.toggle('accum-on', accumOn);
-  document.querySelectorAll('.accum-win').forEach((b) =>
-    b.classList.toggle('active', parseInt(b.dataset.hours, 10) === accumHours));
+  document.getElementById('accum-slider').value = accumHoursToIndex(accumHours);
+  document.getElementById('accum-hours').textContent = `${accumHours}h`;
 }
 
 function accumDraw(res) {
@@ -893,7 +923,9 @@ function accumDraw(res) {
 }
 
 function accumRenderPanel(res) {
-  document.getElementById('accum-title').textContent = `Radar Rain Total — ${accumHours}h`;
+  // res.hours, not accumHours: mid-drag the slider is already showing the window
+  // you're about to build, while this panel describes the one on screen.
+  document.getElementById('accum-title').textContent = `Radar Rain Total — ${res.hours || accumHours}h`;
   accumSetStatus(RadarAccum.formatWindow(res.firstTs, res.lastTs));
   document.getElementById('accum-meta').textContent =
     `${res.framesUsed} frames · ${res.coverageHours.toFixed(1)}h covered · peak ${Math.round(res.maxMm)}mm`;
@@ -946,16 +978,17 @@ document.getElementById('accum-toggle').addEventListener('click', () => {
     if (accumAbort) { accumAbort.abort(); accumAbort = null; }
   }
 });
-document.querySelectorAll('.accum-win').forEach((btn) => {
-  btn.addEventListener('click', () => {
-    const hours = parseInt(btn.dataset.hours, 10);
-    const changed = hours !== accumHours;
-    accumHours = hours;
-    accumSyncUi();
-    // Re-tapping the window already showing is a deliberate rebuild — the feed
-    // has moved on, and there's no other refresh affordance here.
-    accumEnsure(!changed);
-  });
+// Dragging the slider only moves the number — the rebuild waits for release.
+// Each window is ~100 fetches and several seconds of summing, so rebuilding per
+// input event would fire a dozen of them on one drag.
+document.getElementById('accum-slider').addEventListener('input', (e) => {
+  accumHours = ACCUM_HOUR_STEPS[parseInt(e.target.value, 10)];
+  document.getElementById('accum-hours').textContent = `${accumHours}h`;
+});
+document.getElementById('accum-slider').addEventListener('change', () => {
+  // Not forced: if the drag ended back on the window already built, this hits
+  // the cache and redraws instantly instead of refetching it all.
+  accumEnsure();
 });
 
 // Tap anywhere for the accumulated total there, straight off the same grid the

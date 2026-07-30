@@ -117,17 +117,27 @@
   }
   #rtl-accum:hover { background: rgba(255,255,255,0.22); color: #fff; }
   #rtl-accum.active { background: rgba(37,99,235,0.95); border-color: #7dd3fc; color: #fff; }
-  #rtl-accum-window { display: none; gap: 2px; flex-shrink: 0; }
-  .rtl-win-btn {
-    background: transparent; color: rgba(255,255,255,0.6); border: none;
-    padding: 5px 8px; border-radius: 999px; font-size: 0.7rem; font-weight: 700;
-    font-family: inherit; cursor: pointer; transition: all 0.15s;
+  #rtl-accum-window { display: none; align-items: center; gap: 9px; flex-shrink: 0; }
+  #rtl-accum-slider {
+    -webkit-appearance: none; appearance: none; width: 132px;
+    height: 5px; border-radius: 3px; background: rgba(255,255,255,0.25);
+    cursor: pointer; outline: none;
   }
-  .rtl-win-btn:hover { color: #fff; }
-  .rtl-win-btn.active { background: rgba(255,255,255,0.2); color: #fff; }
+  #rtl-accum-slider::-webkit-slider-thumb {
+    -webkit-appearance: none; width: 15px; height: 15px; border-radius: 50%;
+    background: #fff; box-shadow: 0 2px 6px rgba(0,0,0,0.4); cursor: pointer; border: 3px solid #2563eb;
+  }
+  #rtl-accum-slider::-moz-range-thumb {
+    width: 15px; height: 15px; border-radius: 50%; background: #fff;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.4); cursor: pointer; border: 3px solid #2563eb;
+  }
+  #rtl-accum-hours {
+    color: #fff; font-size: 0.74rem; font-weight: 700;
+    min-width: 30px; font-variant-numeric: tabular-nums;
+  }
   /* Accumulation is a single still image, so the scrubber has nothing to
-     scrub — swap it for the window picker and let the label take the slack
-     (without flex:1 the bar would collapse to the width of its buttons). */
+     scrub — swap it for the window slider and let the label take the slack
+     (without flex:1 the bar would collapse to the width of its controls). */
   #radar-timeline.accum-on #rtl-accum-window { display: flex; }
   #radar-timeline.accum-on #rtl-play,
   #radar-timeline.accum-on #rtl-prev,
@@ -914,10 +924,12 @@
     <!-- Switches the radar drape between the live loop and a single summed
          "how much fell where" image over the chosen window. -->
     <button id="rtl-accum" onclick="radarToggleAccum()" title="Total rain accumulated over the window">Σ Total</button>
+    <!-- How far back to sum. Indexes RADAR_ACCUM_HOUR_STEPS rather than being a
+         raw hour count — see that array for why the stops aren't evenly spaced. -->
     <div id="rtl-accum-window">
-      <button class="rtl-win-btn" data-hours="6" onclick="radarSetAccumWindow(6)">6h</button>
-      <button class="rtl-win-btn active" data-hours="12" onclick="radarSetAccumWindow(12)">12h</button>
-      <button class="rtl-win-btn" data-hours="24" onclick="radarSetAccumWindow(24)">24h</button>
+      <input type="range" id="rtl-accum-slider" min="0" max="15" step="1" value="7"
+             title="How far back to accumulate" aria-label="Accumulation window (hours)">
+      <span id="rtl-accum-hours">12h</span>
     </div>
     <button id="rtl-play" onclick="radarTogglePlay()">▶</button>
     <button class="tl-step" id="rtl-prev" onclick="radarStepFrame(-1)">‹</button>
@@ -6244,6 +6256,24 @@ const RADAR_ACCUM_LAYER = 'radar-accum-layer';
 const RADAR_ACCUM_STALE_MS = 15 * 60 * 1000;
 const RADAR_ACCUM_CACHE_KEY = 'sp-radar-accum-cache';
 
+// The window slider's stops. Deliberately NOT a linear 1..48 range: at the
+// short end an hour either way changes the picture, while at the long end it's
+// noise, and a linear range would also cram 48 positions into ~130px — about
+// 2.5px per stop, which is not a thumb target on a phone. Sixteen stops keeps
+// every one comfortably tappable and still spans 1h to 2 days.
+//
+// The upper bound is a cost decision, not a data limit: the feed's history goes
+// back over a month, but 48h is ~390 frames (~35MB, well over half a minute of
+// fetching), and beyond that the wait stops being worth it.
+const RADAR_ACCUM_HOUR_STEPS = [1, 2, 3, 4, 6, 8, 10, 12, 15, 18, 21, 24, 30, 36, 42, 48];
+const radarAccumHoursToIndex = (h) => {
+  let best = 0;
+  for (let i = 0; i < RADAR_ACCUM_HOUR_STEPS.length; i++) {
+    if (Math.abs(RADAR_ACCUM_HOUR_STEPS[i] - h) < Math.abs(RADAR_ACCUM_HOUR_STEPS[best] - h)) best = i;
+  }
+  return best;
+};
+
 let radarAccumOn = false;
 let radarAccumHours = 12;
 // The summed field itself ({ mm, width, height }) — kept in memory because the
@@ -6277,8 +6307,8 @@ function radarSyncAccumPanel() {
   if (viewMode === 'radar') document.getElementById('snow-info').style.display = on ? '' : 'none';
   document.getElementById('rtl-accum').classList.toggle('active', radarAccumOn);
   document.getElementById('radar-timeline').classList.toggle('accum-on', radarAccumOn);
-  document.querySelectorAll('#rtl-accum-window .rtl-win-btn').forEach((b) =>
-    b.classList.toggle('active', parseInt(b.dataset.hours, 10) === radarAccumHours));
+  document.getElementById('rtl-accum-slider').value = radarAccumHoursToIndex(radarAccumHours);
+  document.getElementById('rtl-accum-hours').textContent = `${radarAccumHours}h`;
 }
 
 function radarLoadAccumPrefs() {
@@ -6286,7 +6316,7 @@ function radarLoadAccumPrefs() {
   radarAccumPrefsLoaded = true;
   try {
     const h = parseInt(localStorage.getItem('sp-radar-accum-hours'), 10);
-    if ([6, 12, 24].includes(h)) radarAccumHours = h;
+    if (RADAR_ACCUM_HOUR_STEPS.includes(h)) radarAccumHours = h;
     if (localStorage.getItem('sp-radar-accum') === '1') radarAccumOn = true;
   } catch (e) {}
 }
@@ -6308,15 +6338,19 @@ function radarToggleAccum() {
   }
 }
 
-function radarSetAccumWindow(hours) {
-  const changed = hours !== radarAccumHours;
-  radarAccumHours = hours;
-  pwPersist('sp-radar-accum-hours', String(hours));
-  radarSyncAccumPanel();
-  // Tapping the window already showing is a deliberate "rebuild it" — the feed
-  // has moved on since, and there's no other refresh affordance here.
-  radarEnsureAccum(!changed);
-}
+// Dragging the slider only moves the number — the rebuild waits for release.
+// Each window is ~100 fetches and several seconds of summing, so rebuilding per
+// input event would fire a dozen of them on one drag.
+document.getElementById('rtl-accum-slider').addEventListener('input', (e) => {
+  radarAccumHours = RADAR_ACCUM_HOUR_STEPS[parseInt(e.target.value, 10)];
+  document.getElementById('rtl-accum-hours').textContent = `${radarAccumHours}h`;
+});
+document.getElementById('rtl-accum-slider').addEventListener('change', () => {
+  pwPersist('sp-radar-accum-hours', String(radarAccumHours));
+  // Not forced: if the drag ended back on the window already built, this hits
+  // the cache and redraws instantly instead of refetching it all.
+  radarEnsureAccum();
+});
 
 // Draws (or updates) the accumulation drape and refreshes the legend panel.
 function radarDrawAccum(res) {
@@ -6347,7 +6381,10 @@ function radarDrawAccum(res) {
 function radarRenderAccumPanel(res) {
   const here = RadarAccum.sampleMm(res, LOC.center[0], LOC.center[1]);
   const label = LOC.shortName || LOC.name;
-  document.getElementById('radar-accum-title').textContent = `Radar Rain Total — ${radarAccumHours}h`;
+  // res.hours, not radarAccumHours: mid-drag the slider is already showing the
+  // window you're about to build, while this panel describes the one on screen.
+  const shownHours = res.hours || radarAccumHours;
+  document.getElementById('radar-accum-title').textContent = `Radar Rain Total — ${shownHours}h`;
   document.getElementById('radar-accum-total').textContent =
     here == null ? '—' : `${here < 10 ? here.toFixed(1) : Math.round(here)} mm`;
   const hrs = res.coverageHours.toFixed(1);
@@ -6362,7 +6399,7 @@ function radarRenderAccumPanel(res) {
   `).join('');
   document.getElementById('radar-accum-note').textContent =
     'Radar estimate of water equivalent, not a gauge reading. At 10:1 each mm is roughly 1cm of snow above the snow line. Tap the map for a total anywhere.';
-  radarAccumSetStatus(`Σ ${radarAccumHours}h to ${radarFormatTs(res.lastTs)}`);
+  radarAccumSetStatus(`Σ ${shownHours}h to ${radarFormatTs(res.lastTs)}`);
 }
 
 // sessionStorage so a page reload (or a fresh iframe when the Map tab is
