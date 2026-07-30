@@ -875,6 +875,9 @@ function accumSyncLayers() {
     if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', accumOn ? 'none' : 'visible');
   }
   if (map.getLayer(ACCUM_LAYER)) map.setLayoutProperty(ACCUM_LAYER, 'visibility', accumOn ? 'visible' : 'none');
+  // The coastline reference belongs to the accumulated drape only — the live
+  // loop is animated and reads fine against the basemap it doesn't hide.
+  RadarAccum.setOutlineVisible(map, accumOn);
 }
 
 function accumSyncUi() {
@@ -914,6 +917,9 @@ function accumDraw(res) {
     setTimeout(() => accumDraw(res), 200);
     return;
   }
+  // Coastline reference on top of the drape. No anchor — this page stacks the
+  // accumulation above everything else already, so the outline goes on top too.
+  RadarAccum.ensureOutline(map);
   accumSyncLayers();
   accumRenderPanel(res);
   // #banner is an opaque full-screen cover until the live loop's first frames

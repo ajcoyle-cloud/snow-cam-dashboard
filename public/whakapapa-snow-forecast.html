@@ -6297,6 +6297,9 @@ function radarSyncLayerVisibility() {
   const accum = viewMode === 'radar' && radarAccumOn;
   if (map.getLayer('radar-layer')) map.setLayoutProperty('radar-layer', 'visibility', live ? 'visible' : 'none');
   if (map.getLayer(RADAR_ACCUM_LAYER)) map.setLayoutProperty(RADAR_ACCUM_LAYER, 'visibility', accum ? 'visible' : 'none');
+  // The coastline reference belongs to the accumulated drape only — the live
+  // loop is animated and reads fine against the basemap it doesn't hide.
+  RadarAccum.setOutlineVisible(map, accum);
 }
 
 // Radar normally hides the drawer entirely (it has no info panel of its own),
@@ -6374,6 +6377,10 @@ function radarDrawAccum(res) {
     setTimeout(() => radarDrawAccum(res), 80);
     return;
   }
+  // Coastline reference on top of the drape. Same anchor the accumulation layer
+  // used, so it lands directly above it — and after bringContoursAboveRadar()
+  // above, so dark mode's contour raster can't end up over the top of it.
+  RadarAccum.ensureOutline(map, map.getLayer('resort-lifts-line') ? 'resort-lifts-line' : undefined);
   radarSyncLayerVisibility();
   radarRenderAccumPanel(res);
 }

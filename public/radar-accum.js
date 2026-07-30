@@ -675,6 +675,81 @@ window.RadarAccum = (function () {
     return any ? best : null;
   }
 
+  // ── NZ outline over the accumulation ────────────────────────────────────────
+  // The accumulated drape is a field of colour with no landmarks in it, and it
+  // hides the basemap underneath wherever it actually rained — which is exactly
+  // where you're trying to read it. Without a coastline "is that core sitting on
+  // the Main Divide or out in the Tasman?" is genuinely hard to answer.
+  //
+  // Two lines, not one: a wide dark stroke under a narrow light one. A single
+  // stroke has to stay legible against both near-black ocean and the ramp's pale
+  // 30mm+ cores, and no single colour manages both.
+  //
+  // Source is MapLibre's own free, no-key demo vector tiles (Natural Earth
+  // country polygons), which the forecast page's dark mode already uses for the
+  // same "where is the coast" job — see setDarkMode there, including its note
+  // that ADM0_A3 is the field this source is filterable by, confirmed against
+  // MapLibre's demo style rather than guessed. Same source id as that layer, so
+  // whichever page/mode gets there first adds it and the other reuses it.
+  //
+  // It's an external host: if it can't be reached the outline simply doesn't
+  // draw, and the accumulation underneath is unaffected.
+  const OUTLINE_SOURCE = 'country-boundaries';
+  const OUTLINE_HALO_LAYER = 'radar-accum-outline-halo';
+  const OUTLINE_LAYER = 'radar-accum-outline';
+
+  // Faded out by the time you're zoomed in past a regional view. That source is
+  // a low-zoom demo tileset of country polygons, so close in it's overzoomed
+  // z5-ish geometry — a coarse, visibly-wrong coast sitting next to the real one
+  // in the satellite basemap, which reads as a bug rather than a reference. Out
+  // wide it's the only coastline available and it's exactly what's needed;
+  // close in the basemap already shows the real thing. Interpolated rather than
+  // a hard maxzoom so it dissolves instead of popping.
+  const zoomFade = (peak) => ['interpolate', ['linear'], ['zoom'], 8, peak, 11, 0];
+
+  // Fresh object per call — MapLibre keeps a reference to the layout/paint it's
+  // handed, so the two layers must not share one.
+  function outlineSpec(id, paint) {
+    return {
+      id, type: 'line', source: OUTLINE_SOURCE, 'source-layer': 'countries',
+      // Always NZL, whatever resort the rest of the page is pointed at: this
+      // drape is the NZ national composite and covers nothing else.
+      filter: ['==', ['get', 'ADM0_A3'], 'NZL'],
+      layout: { visibility: 'none', 'line-join': 'round', 'line-cap': 'round' },
+      paint,
+    };
+  }
+
+  // Idempotent. beforeId is the layer to insert under (pass the same one the
+  // accumulation layer was inserted before, so the outline lands directly above
+  // the drape and below whatever that anchor is); omit for "on top of
+  // everything". Call AFTER the accumulation layer exists.
+  function ensureOutline(map, beforeId) {
+    if (!map) return;
+    if (!map.getSource(OUTLINE_SOURCE)) {
+      map.addSource(OUTLINE_SOURCE, { type: 'vector', url: 'https://demotiles.maplibre.org/tiles/tiles.json' });
+    }
+    const anchor = beforeId && map.getLayer(beforeId) ? beforeId : undefined;
+    // Halo first so the light line, added second at the same anchor, sits on it.
+    if (!map.getLayer(OUTLINE_HALO_LAYER)) {
+      map.addLayer(outlineSpec(OUTLINE_HALO_LAYER, {
+        'line-color': '#04070c', 'line-width': 3, 'line-opacity': zoomFade(0.5),
+      }), anchor);
+    }
+    if (!map.getLayer(OUTLINE_LAYER)) {
+      map.addLayer(outlineSpec(OUTLINE_LAYER, {
+        'line-color': '#ffffff', 'line-width': 1.1, 'line-opacity': zoomFade(0.9),
+      }), anchor);
+    }
+  }
+
+  function setOutlineVisible(map, on) {
+    if (!map) return;
+    for (const id of [OUTLINE_HALO_LAYER, OUTLINE_LAYER]) {
+      if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', on ? 'visible' : 'none');
+    }
+  }
+
   function formatWindow(firstTs, lastTs) {
     if (!firstTs || !lastTs) return '';
     const opts = { hour: '2-digit', minute: '2-digit' };
@@ -695,6 +770,7 @@ window.RadarAccum = (function () {
     pickRampMax,
     gridToPng, pngToGrid,
     sampleMm, lngLatToPixel,
+    ensureOutline, setOutlineVisible,
     candidateTimestamps, tsToDate, frameUrl, formatWindow,
     rateForRgb,
   };
