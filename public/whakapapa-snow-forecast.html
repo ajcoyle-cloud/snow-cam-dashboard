@@ -7388,6 +7388,31 @@ function pwRenderFreezingOverlay() {
     const X = (idx) => P.l + (t1 === t0 ? 0 : (idx - t0) / (t1 - t0)) * pw;
     const Y = (v) => P.t + ph - ((v - lo) / (hi - lo)) * ph;
 
+    // Snowfall bands — one translucent white block per contiguous run of hours
+    // forecast to snow, drawn behind everything else so the sparkline doubles
+    // as a "when is it snowing?" strip you can read at a glance. Uses the same
+    // SNOWFALL_THRESHOLD_MM the terrain drape switches on (see buildSnowRamp),
+    // so a band is present exactly when scrubbing to that hour would tint the
+    // mountain as snowing.
+    const isSnowingHour = (h) => h != null && h.snowfallMm != null && h.snowfallMm >= SNOWFALL_THRESHOLD_MM;
+    const plotRight = P.l + pw;
+    let bands = '';
+    for (let i = 0; i < forecastHours.length; i++) {
+      if (!isSnowingHour(forecastHours[i])) continue;
+      let j = i;
+      while (j + 1 < forecastHours.length && isSnowingHour(forecastHours[j + 1])) j++;
+      // A snowy hour owns the span up to the NEXT hour's tick, so an isolated
+      // snowing hour still gets a full hour-wide block instead of a zero-width
+      // sliver. Clamped because X() extrapolates outside the plotted range
+      // (flData can start after index 0, and j+1 runs past the last hour).
+      const x1 = Math.max(P.l, X(i));
+      const x2 = Math.min(plotRight, X(j + 1));
+      if (x2 > x1) {
+        bands += `<rect x="${x1.toFixed(1)}" y="${P.t}" width="${(x2 - x1).toFixed(1)}" height="${ph.toFixed(1)}" fill="#fff" fill-opacity="0.5"/>`;
+      }
+      i = j;
+    }
+
     // Build path through all data points
     const pathPts = flData.map((p, i) => `${i ? 'L' : 'M'}${X(p.ts).toFixed(1)},${Y(p.fl).toFixed(1)}`).join(' ');
 
@@ -7424,7 +7449,8 @@ function pwRenderFreezingOverlay() {
     const svg = host.querySelector('svg');
     svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
     svg.innerHTML =
-      `<path d="${pathPts}" fill="none" stroke="#7dd3fc" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" stroke-opacity="0.8"/>
+      `${bands}
+       <path d="${pathPts}" fill="none" stroke="#7dd3fc" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" stroke-opacity="0.8"/>
        <line x1="${markX.toFixed(1)}" y1="${P.t}" x2="${markX.toFixed(1)}" y2="${(P.t + ph).toFixed(1)}" stroke="rgba(255,255,255,0.4)" stroke-width="2"/>
        <circle cx="${markX.toFixed(1)}" cy="${markY.toFixed(1)}" r="4" fill="#fff" opacity="0.9" stroke="#7dd3fc" stroke-width="2"/>
        <text x="${markX.toFixed(1)}" y="${(markY - 10).toFixed(1)}" text-anchor="middle" font-size="13" font-weight="700" fill="#fff" opacity="1">${Math.round(flValue)} m</text>`;
