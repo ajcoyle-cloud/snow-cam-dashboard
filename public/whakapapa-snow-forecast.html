@@ -250,16 +250,28 @@
   #radar-timeline.accum-on #rtl-slider { display: none; }
   #radar-timeline.accum-on #rtl-label { flex: 1; min-width: 0; }
 
-  /* Radar-accumulation legend — shares the drawer chrome and .legend-row
-     language with the forecast Accum view's depth legend. */
-  #info-radar-accum { display: none; }
-  #radar-accum-total { font-size: 1.6rem; font-weight: 800; margin: 2px 0 2px; }
-  #radar-accum-sub { font-size: 0.72rem; color: rgba(255,255,255,0.5); line-height: 1.45; margin-bottom: 10px; }
-  #radar-accum-legend .legend-row { padding: 2px 0; font-size: 0.74rem; }
-  #radar-accum-legend .legend-swatch { width: 14px; height: 14px; }
+  /* Radar-accumulation panel. Deliberately NOT the forecast Accum view's
+     one-row-per-band depth legend: this scale has eleven bands, and stacked
+     that way the panel swallowed most of the map. A horizontal ramp with a few
+     labelled stops says the same thing in one line. */
+  /* Capped here rather than on #snow-info: the drawer shrink-wraps its visible
+     child, so constraining this panel constrains the drawer, without needing a
+     state class on the screen just for the radar view. */
+  #info-radar-accum { display: none; max-width: 268px; }
+  #radar-accum-total { font-size: 1.35rem; font-weight: 800; margin: 1px 0 1px; }
+  #radar-accum-sub { font-size: 0.66rem; color: rgba(255,255,255,0.5); line-height: 1.35; margin-bottom: 8px; }
+  #radar-accum-legend .ral-bar {
+    display: flex; height: 9px; border-radius: 5px; overflow: hidden;
+    margin: 0 0 3px; box-shadow: inset 0 0 0 1px rgba(255,255,255,0.12);
+  }
+  #radar-accum-legend .ral-bar i { flex: 1 1 0; }
+  #radar-accum-legend .ral-ticks {
+    display: flex; justify-content: space-between;
+    font-size: 0.58rem; color: rgba(255,255,255,0.5); font-variant-numeric: tabular-nums;
+  }
   #radar-accum-note {
-    font-size: 0.66rem; color: rgba(255,255,255,0.4); line-height: 1.45;
-    margin-top: 10px; padding-top: 8px; border-top: 1px solid rgba(255,255,255,0.12);
+    font-size: 0.6rem; color: rgba(255,255,255,0.38); line-height: 1.4;
+    margin-top: 7px; padding-top: 6px; border-top: 1px solid rgba(255,255,255,0.12);
   }
 
   #snow-info {
@@ -6973,14 +6985,19 @@ function radarRenderAccumPanel(res) {
   document.getElementById('radar-accum-sub').innerHTML =
     `at ${label}<br>${RadarAccum.formatWindow(res.firstTs, res.lastTs)}` +
     `<br>${res.framesUsed} frames · ${hrs}h covered`;
-  document.getElementById('radar-accum-legend').innerHTML = RadarAccum.legend().map((row) => `
-    <div class="legend-row">
-      <div class="legend-swatch" style="background:${row.css}"></div>
-      <span>${row.label} mm</span>
-    </div>
-  `).join('');
+  // legend() returns bands high->low for a stacked list; the ramp reads
+  // low->high left to right, so flip it. Only every other boundary gets a label
+  // — eleven numbers across ~260px is unreadable, and the ramp's shape carries
+  // the rest.
+  const bands = RadarAccum.legend().slice().reverse();
+  const lowEdge = (row) => row.label.split('–')[0];
+  document.getElementById('radar-accum-legend').innerHTML =
+    `<div class="ral-bar">${bands.map((b) => `<i style="background:${b.css}"></i>`).join('')}</div>` +
+    `<div class="ral-ticks">${bands
+      .filter((_, i) => i % 2 === 0 || i === bands.length - 1)
+      .map((b) => `<span>${lowEdge(b)}</span>`).join('')}<span>mm</span></div>`;
   document.getElementById('radar-accum-note').textContent =
-    'Radar estimate of water equivalent, not a gauge reading. At 10:1 each mm is roughly 1cm of snow above the snow line. Tap the map for a total anywhere.';
+    'Radar water-equivalent estimate, not a gauge. ~1mm ≈ 1cm snow above the snow line. Tap anywhere for a total.';
   radarAccumSetStatus(`Σ ${shownHours}h to ${radarFormatTs(res.lastTs)}`);
 }
 

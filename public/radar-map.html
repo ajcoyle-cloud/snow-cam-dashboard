@@ -135,17 +135,20 @@
   }
   #accum-status { font-size: 0.74rem; font-weight: 700; line-height: 1.4; margin-bottom: 3px; }
   #accum-meta { font-size: 0.68rem; color: rgba(255,255,255,0.5); line-height: 1.45; margin-bottom: 9px; }
-  #accum-legend .row {
-    display: flex; align-items: center; gap: 8px; font-size: 0.7rem;
-    padding: 2px 0; color: rgba(255,255,255,0.75);
+  /* Horizontal ramp rather than one row per band — this scale has eleven of
+     them, and stacked they made the panel swallow most of the map. */
+  #accum-legend .ral-bar {
+    display: flex; height: 9px; border-radius: 5px; overflow: hidden;
+    margin: 0 0 3px; box-shadow: inset 0 0 0 1px rgba(255,255,255,0.12);
   }
-  #accum-legend .sw {
-    width: 14px; height: 14px; border-radius: 4px; flex-shrink: 0;
-    border: 1px solid rgba(255,255,255,0.3);
+  #accum-legend .ral-bar i { flex: 1 1 0; }
+  #accum-legend .ral-ticks {
+    display: flex; justify-content: space-between;
+    font-size: 0.58rem; color: rgba(255,255,255,0.5); font-variant-numeric: tabular-nums;
   }
   #accum-note {
-    font-size: 0.63rem; color: rgba(255,255,255,0.4); line-height: 1.45;
-    margin-top: 9px; padding-top: 7px; border-top: 1px solid rgba(255,255,255,0.12);
+    font-size: 0.6rem; color: rgba(255,255,255,0.38); line-height: 1.4;
+    margin-top: 7px; padding-top: 6px; border-top: 1px solid rgba(255,255,255,0.12);
   }
   /* Nothing to scrub through when a single summed image is showing. */
   #timeline.accum-on { display: none; }
@@ -945,11 +948,18 @@ function accumRenderPanel(res) {
   accumSetStatus(RadarAccum.formatWindow(res.firstTs, res.lastTs));
   document.getElementById('accum-meta').textContent =
     `${res.framesUsed} frames · ${res.coverageHours.toFixed(1)}h covered · peak ${Math.round(res.maxMm)}mm`;
-  document.getElementById('accum-legend').innerHTML = RadarAccum.legend().map((row) => `
-    <div class="row"><div class="sw" style="background:${row.css}"></div><span>${row.label} mm</span></div>
-  `).join('');
+  // legend() returns bands high->low for a stacked list; the ramp reads
+  // low->high left to right, so flip it. Only every other boundary is labelled
+  // — eleven numbers across this width is unreadable, and the ramp carries the
+  // rest.
+  const bands = RadarAccum.legend().slice().reverse();
+  document.getElementById('accum-legend').innerHTML =
+    `<div class="ral-bar">${bands.map((b) => `<i style="background:${b.css}"></i>`).join('')}</div>` +
+    `<div class="ral-ticks">${bands
+      .filter((_, i) => i % 2 === 0 || i === bands.length - 1)
+      .map((b) => `<span>${b.label.split('–')[0]}</span>`).join('')}<span>mm</span></div>`;
   document.getElementById('accum-note').textContent =
-    'Radar estimate of water equivalent, not a gauge reading. At 10:1 each mm is roughly 1cm of snow above the snow line. Tap the map for a total anywhere.';
+    'Radar water-equivalent estimate, not a gauge. ~1mm ≈ 1cm snow above the snow line. Tap anywhere for a total.';
 }
 
 async function accumEnsure(force) {
