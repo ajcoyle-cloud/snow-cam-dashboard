@@ -363,7 +363,7 @@
      parent's centred resort-switcher pill (.map-resort-switch) overlays that
      region, which left the button invisible and unclickable in prod even
      though it rendered fine on the standalone page. Keep it left of ~190px. */
-  #split-toggle { left: 152px; font-size: 0.95rem; }
+  #split-toggle { left: 152px; }
   #split-toggle.active { background: rgba(92,92,106,0.95); }
   #split-toggle:hover { background: rgba(70,70,80,0.9); }
   #split-toggle.active:hover { background: rgba(106,106,122,0.95); }
@@ -954,7 +954,14 @@
        would cut off a caption placed above its own top edge. -->
   <span id="split-diverge-label">Disagreement</span>
 
-  <button id="split-toggle" onclick="toggleSplitMode()" title="Split screen: compare two models">◫</button>
+  <!-- Lucide square-split-horizontal, inlined at the same 18px/stroke-2 as the
+       obs/rotate icons beside it (this page is plain script-tag HTML with no
+       build step, so it can't import lucide-react the way App.jsx does).
+       Replaces the ◫ glyph, which rendered at whatever weight the platform
+       font felt like next to real stroked icons. -->
+  <button id="split-toggle" onclick="toggleSplitMode()" title="Split screen: compare two models">
+    <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 19H5c-1 0-2-1-2-2V7c0-1 1-2 2-2h3"/><path d="M16 5h3c1 0 2 1 2 2v10c0 1-1 2-2 2h-3"/><line x1="12" x2="12" y1="4" y2="20"/></svg>
+  </button>
   <button id="map-enlarge" onclick="enterFullscreenView()" title="Fullscreen">
     <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></svg>
   </button>
@@ -2758,8 +2765,7 @@ function waitForTerrainStable(cb, prev, stableCount, attempt, loc) {
   prev = (prev === undefined) ? null : prev;
   stableCount = stableCount || 0;
   attempt = attempt || 0;
-  let elev = null;
-  try { elev = map.queryTerrainElevation(loc.center, { exaggerated: false }); } catch (e) {}
+  const elev = demElevationAt(loc.center);
   const plausible = elev != null && elev > loc.baseElev * 0.5;
   const steady = plausible && prev != null && Math.abs(elev - prev) < 1;
   const nextStable = steady ? stableCount + 1 : 0;
@@ -3081,8 +3087,10 @@ function initMap() {
       const cosAvgLatRad = Math.cos(((lat1 + lat2) / 2) * Math.PI / 180);
       lengthM += approxDistanceKm(lat1, lon1, lat2, lon2, cosAvgLatRad) * 1000;
     }
+    // Real metres (see demElevationAt) — the exaggerated read had every lift's
+    // quoted rise 20% high, e.g. a 300m chair advertised as ↑360m.
     const elevations = coordinates
-      .map((c) => { try { return map.queryTerrainElevation(c, { exaggerated: false }); } catch (e) { return null; } })
+      .map((c) => demElevationAt(c))
       .filter((v) => v != null);
     const riseM = elevations.length >= 2 ? Math.max(...elevations) - Math.min(...elevations) : null;
     return { lengthM, riseM };
@@ -3154,10 +3162,11 @@ function initMap() {
     if (viewMode === 'live' || viewMode === 'isobars') return;
     const rawElev = sampleElevationMedian(e.lngLat);
     if (rawElev == null) return;
-    // The DEM tileset occasionally returns a spurious spike well above the
-    // real summit (e.g. 3241m read back for Ruapehu, whose true summit is
-    // ~2797m) — clamp to this resort's configured upper bound so the probe
-    // popup never shows an impossible elevation.
+    // Belt-and-braces clamp to this resort's configured upper bound, so the
+    // probe can never answer for terrain above the top of the ramp. The
+    // impossible readings this was originally added for (a "3241m" sample for
+    // a ~2797m summit) weren't the tileset spiking at all — they were the
+    // exaggerated-elevation bug demElevationAt now corrects.
     const elev = Math.min(rawElev, TOP_ELEV);
     const depthCm = getDepthAtElevation(elev);
     // The drape starts painting at the RAIN line (the violet sleet band) but
@@ -3953,7 +3962,10 @@ function orographicSampleGradient(lngLat, offsetM = 5) {
   const latRad = (lngLat.lat * Math.PI) / 180;
   const dLat = offsetM / 111320;
   const dLng = offsetM / (111320 * Math.cos(latRad));
-  const q = (lng, lat) => map.queryTerrainElevation({ lng, lat }, { exaggerated: false });
+  // Real metres, not the exaggerated read — see demElevationAt. Both samples
+  // scaling by 1.2 made every gradient here read 20% steeper than the terrain
+  // actually is, which feeds straight into the orographic multiplier.
+  const q = (lng, lat) => demElevationAt({ lng, lat });
   const elevE = q(lngLat.lng + dLng, lngLat.lat);
   const elevW = q(lngLat.lng - dLng, lngLat.lat);
   const elevN = q(lngLat.lng, lngLat.lat + dLat);
@@ -3965,23 +3977,45 @@ function orographicSampleGradient(lngLat, offsetM = 5) {
   };
 }
 
-// A single map.queryTerrainElevation() read can disagree with what the
-// colour-relief layer actually painted at that same spot — the TOP_ELEV
-// clamp a few lines up from the generic click handler exists because the DEM
-// tileset is already known to occasionally return a spurious spike (e.g.
-// 3241m read back for a ~2797m summit). That same noise can just as easily
-// land the OTHER way at a lower elevation: a stray high reading right above
-// the snow line reports a real-looking cm figure in the pill for a pixel the
-// drape left transparent, because the drape's colour and the pill's number
-// both come from getDepthAtElevation but were fed two different elevations
-// for the same tap. Median of a small local cluster (same 5m real-world
-// offset orographicSampleGradient already uses to smooth DEM noise) throws
-// out one outlier sample instead of trusting it outright.
+// Terrain elevation in REAL metres at a point.
+//
+// map.queryTerrainElevation() returns the EXAGGERATED elevation — in MapLibre
+// 5.23 (the version this page pins) the { exaggerated: false } option every
+// caller here used to pass is accepted and silently ignored; all three of
+// queryTerrainElevation(ll), (ll, {exaggerated:false}) and (ll, {exaggerated:
+// true}) return the identical number. Verified against the DEM tile itself:
+// where the terrain-rgb texel decodes to 1981.8m, the query returns 2376.2m —
+// exactly this map's own 1.2x terrain exaggeration.
+//
+// Everything else on this page works in real metres: the colour-relief drape
+// colours by the RAW DEM value, and the forecast's snow/rain/freezing lines
+// are real elevations. So a 20%-inflated read put the tap probe a whole phase
+// band away from the colour under the finger — tapping violet terrain at a
+// true 960m reported 1152m, i.e. above the snow line, so the pill answered
+// with a snow depth for a pixel the drape had painted as sleet. It's also
+// where the "spurious DEM spike" this file blames the tileset for came from:
+// a 3241m read for a ~2797m summit is just 2701m x 1.2.
+function demElevationAt(lngLatLike) {
+  let e = null;
+  try { e = map.queryTerrainElevation(lngLatLike); } catch (err) { return null; }
+  if (e == null || isNaN(e)) return null;
+  const terrain = map.getTerrain();
+  return e / ((terrain && terrain.exaggeration) || 1);
+}
+
+// A single elevation read can still disagree with what the colour-relief layer
+// painted at that same spot: the DEM carries real single-pixel noise, and a
+// stray high sample right above the snow line reports a real-looking cm figure
+// in the pill for a pixel the drape left transparent — the drape's colour and
+// the pill's number both come from getDepthAtElevation, so they must be fed
+// the same elevation for the same tap. Median of a small local cluster (same
+// 5m real-world offset orographicSampleGradient already uses to smooth DEM
+// noise) throws out one outlier sample instead of trusting it outright.
 function sampleElevationMedian(lngLat, offsetM = 5) {
   const latRad = (lngLat.lat * Math.PI) / 180;
   const dLat = offsetM / 111320;
   const dLng = offsetM / (111320 * Math.cos(latRad));
-  const q = (lng, lat) => map.queryTerrainElevation({ lng, lat }, { exaggerated: false });
+  const q = (lng, lat) => demElevationAt({ lng, lat });
   const samples = [
     q(lngLat.lng, lngLat.lat),
     q(lngLat.lng + dLng, lngLat.lat),
