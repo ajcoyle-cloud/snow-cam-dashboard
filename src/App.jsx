@@ -4,6 +4,7 @@ import { Camera, LineChart, Map as MapIcon, Snowflake, Settings, Wind, Newspaper
 import { computeStormArrival, STORM_BAND_LABELS } from './stormArrival'
 import { subscribeRuapehuProfile } from './pwObs'
 import TrackingPage from './TrackingPage'
+import { HAS_WEBCAMS, HAS_SNOW_REPORTS } from './edition'
 import './App.css'
 
 const METEOBLUE_API_KEY = import.meta.env.VITE_METEOBLUE_API_KEY || 'DEMO'
@@ -4149,13 +4150,18 @@ function HighResSnowPage({ resort, setResort }) {
 }
 
 const NAV_ITEMS = [
-  { id: 'webcams', label: 'Webcams', Icon: Camera, path: '/' },
+  // Webcams and Snow Reports are the two features the public edition doesn't
+  // carry (see src/edition.js). Hiding them here is the whole switch: the nav
+  // button goes, TAB_SLUG_TO_ID below stops resolving their URLs so a shared
+  // "/reports" link lands on the default tab instead, and the guards on their
+  // sections in App() let the bundler drop the code entirely.
+  { id: 'webcams', label: 'Webcams', Icon: Camera, path: '/', hidden: !HAS_WEBCAMS },
   { id: 'forecast', label: 'Forecast', Icon: LineChart, path: '/forecast' },
   { id: 'map', label: 'Map', Icon: MapIcon, path: '/map' },
   // Own tab, deliberately not integrated into the Map tab or Snow Test —
   // see HighResSnowPage above.
   { id: 'highres', label: 'High-Res', Icon: Wind, path: '/highres' },
-  { id: 'reports', label: 'Snow Reports', Icon: Newspaper, path: '/reports' },
+  { id: 'reports', label: 'Snow Reports', Icon: Newspaper, path: '/reports', hidden: !HAS_SNOW_REPORTS },
   // Own top-level tab, not a Map-tab mode toggle — see TrackingPage.jsx.
   // Temporarily hidden from prod nav while route playback is still being
   // debugged; the page and its route stay in place, just unreachable from
@@ -4174,6 +4180,12 @@ const NAV_ITEMS = [
 ]
 const VISIBLE_NAV_ITEMS = NAV_ITEMS.filter(n => !n.hidden)
 const TAB_PATH_BY_ID = Object.fromEntries(NAV_ITEMS.map(n => [n.id, n.path]))
+// The tab a bare "/" (or an unrecognised path, or a stale localStorage entry)
+// lands on: the first one in the nav, so it's Webcams in the full edition and
+// Forecast in the public one, without either being named here. Note the public
+// edition therefore has no tab at "/" — landing there rewrites the address bar
+// to "/forecast/<resort>", which is what every other tab already does.
+const DEFAULT_TAB = VISIBLE_NAV_ITEMS[0]?.id || 'forecast'
 // slug -> tabId for every *visible* tab's path, e.g. 'forecast' -> 'forecast'
 // (root '/' has no slug, it's the bare-path case handled separately below).
 // Built from VISIBLE_NAV_ITEMS only, same as the old tabForPath, so a direct
@@ -4216,7 +4228,7 @@ const DEFAULT_MAP_VIEW = 'hourly'
 
 function parsePath(pathname) {
   const [seg0, seg1, seg2] = pathname.split('/').filter(Boolean)
-  let tabId = 'webcams'
+  let tabId = DEFAULT_TAB
   let resortSlug = seg0
   if (seg0 && TAB_SLUG_TO_ID[seg0]) {
     tabId = TAB_SLUG_TO_ID[seg0]
@@ -4255,7 +4267,7 @@ export default function App() {
       const t = localStorage.getItem('sc-active-tab')
       if (t && VISIBLE_NAV_ITEMS.some(n => n.id === t)) return t
     } catch (e) {}
-    return 'webcams'
+    return DEFAULT_TAB
   })
   // "Compare all resorts" full-page view within the Forecast tab (see
   // ResortComparisonPage) — swaps out SnowfallForecast entirely rather than
@@ -4393,7 +4405,7 @@ export default function App() {
       </nav>
 
       <main ref={mainContentRef} className={`main-content ${(activeTab === 'map' || activeTab === 'snow-test' || activeTab === 'highres') ? 'is-map' : ''}`}>
-        {activeTab === 'webcams' && (
+        {HAS_WEBCAMS && activeTab === 'webcams' && (
           <section className="region-section">
             <div className="webcam-controls">
               <ResortSelector resort={resort} setResort={setResort} />
@@ -4432,7 +4444,7 @@ export default function App() {
           </section>
         )}
 
-        {activeTab === 'reports' && (
+        {HAS_SNOW_REPORTS && activeTab === 'reports' && (
           <SnowReportsPage resort={resort} setResort={setResort} />
         )}
 
