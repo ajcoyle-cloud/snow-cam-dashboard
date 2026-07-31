@@ -29,7 +29,9 @@ const WEATHER_LOCATIONS = {
   Turoa: { lat: -39.2, lon: 175.5, elevation: 2300 },
   Ruapehu: { lat: -39.2, lon: 175.5, elevation: 2797 },
   'Mt Hutt': { lat: -43.2, lon: 171.5, elevation: 2100 },
-  Cardrona: { lat: -44.5, lon: 169.0, elevation: 1860 },
+  // Was -44.5/169.0 (~30km north of the field, near Luggate) — corrected to
+  // the real base area, same coordinates as RESORTS.cardrona below.
+  Cardrona: { lat: -44.872168, lon: 168.948496, elevation: 1860 },
   'Treble Cone': { lat: -44.4, lon: 169.2, elevation: 2088 },
   // Was -44.4/168.7 (~65km off, an old placeholder) — corrected to the real
   // ski field base area coordinates when 'remarkables' was added to RESORTS.
@@ -1117,7 +1119,11 @@ function snowfallWithFallback(snowfallMm, precipMm, freezingLevel, elev, temp, w
 
 const RESORTS = {
   ruapehu: { name: 'Whakapapa', lat: -39.28, lon: 175.57, summitElev: 2300, baseElev: 1630, timezone: 'Pacific/Auckland', metservicePath: 'mountains-and-parks/national-parks/tongariro' },
-  cardrona: { name: 'Cardrona', lat: -44.76, lon: 169.0, summitElev: 1860, baseElev: 1640, timezone: 'Pacific/Auckland', metservicePath: 'mountains-and-parks/ski-fields/cardrona' },
+  // lat/lon is the ski field's base area (car park end of McDougall's
+  // Chondola, from OSM aerialway data), not the rounded -44.76/169.0 that
+  // was here — that sat ~12km NNE out on the Criffel Range, so every forecast
+  // for Cardrona was sampled off the field.
+  cardrona: { name: 'Cardrona', lat: -44.872168, lon: 168.948496, summitElev: 1860, baseElev: 1640, timezone: 'Pacific/Auckland', metservicePath: 'mountains-and-parks/ski-fields/cardrona' },
   loveland: { name: 'Loveland', lat: 39.65, lon: -105.49, summitElev: 3500, baseElev: 3100, timezone: 'America/Denver' },
   mtlyford: { name: 'Mt Lyford', lat: -42.446503, lon: 173.143418, summitElev: 1800, baseElev: 1340, timezone: 'Pacific/Auckland', metservicePath: 'mountains-and-parks/ski-fields/mount-lyford' },
   roundhill: { name: 'Roundhill', lat: -43.825421, lon: 170.656220, summitElev: 2170, baseElev: 1800, timezone: 'Pacific/Auckland', metservicePath: 'mountains-and-parks/ski-fields/roundhill', pwObsStations: ['tekapo-balmoral', 'clayton', 'burkes-pass'] },

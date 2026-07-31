@@ -1159,7 +1159,14 @@ const RESORT_CONFIG = {
   },
   cardrona: {
     name: 'Cardrona Alpine Resort',
-    lat: -44.76, lon: 169.0, summitElev: 1860, baseElev: 1640, timezone: 'Pacific/Auckland',
+    // Base area (McDougall's Chondola bottom terminal, from the same OSM
+    // aerialway data CARDRONA_LIFTS is drawn from), i.e. the car park end of
+    // the field — the convention mthutt/remarkables already use. Was
+    // -44.76/169.0, a rounded placeholder ~12km NNE of the field out on the
+    // Criffel Range: it put the resort pill on the wrong mountain (the pill
+    // sits at lat/lon, not at `center`, which is why the framing looked right
+    // and the flag didn't) and sampled Open-Meteo 12km off the field too.
+    lat: -44.872168, lon: 168.948496, summitElev: 1860, baseElev: 1640, timezone: 'Pacific/Auckland',
     topElev: 1950, // approx summit ridge for the colour ramp's upper bound
     // Hand-picked framing captured via the 'c' camera helper.
     center: [168.95754, -44.86984], zoom: 13.18, pitch: 69, bearing: -53.6
