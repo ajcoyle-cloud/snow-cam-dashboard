@@ -1816,16 +1816,33 @@ function switchResort(key, notifyParent = true) {
   map.flyTo({ center: newLoc.center, zoom: settleZoom, pitch: newLoc.pitch, bearing: newLoc.bearing, duration: 2500, essential: true });
   map.once('moveend', () => {
     if (resortSwitchPending !== key) return; // superseded by a later switch mid-flight
-    waitForTerrainStable(() => {
-      if (resortSwitchPending !== key) return; // superseded while settling
-      map.flyTo({ center: newLoc.center, zoom: newLoc.zoom, pitch: newLoc.pitch, bearing: newLoc.bearing, duration: 700, essential: true });
-      map.once('moveend', () => {
-        if (resortSwitchPending !== key) return;
-        resortSwitchPending = null;
-        finishResortSwitch(key, newLoc);
-        if (typeof window.__startAutoRotateRampIn === 'function') window.__startAutoRotateRampIn();
-      });
-    }, null, 0, 0, newLoc);
+    // Wait for 'idle' BEFORE the elevation poll, not instead of it. Polling
+    // alone can't distinguish "the DEM has finished arriving" from "two bursts
+    // of tiles happen to be 240ms apart", and the latter satisfies
+    // waitForTerrainStable's three-steady-reads test while half the
+    // destination's terrain is still in flight. 'idle' is the signal that
+    // actually means finished, which is why maybeSignalMapReady already leans
+    // on it for the equivalent moment on first load.
+    waitForMapIdle(() => {
+      if (resortSwitchPending !== key) return;
+      waitForTerrainStable(() => {
+        if (resortSwitchPending !== key) return; // superseded while settling
+        // Deliberately slower than it looks like it needs to be. This last 1.2
+        // zoom levels is not just camera movement — it requests a whole fresh,
+        // finer round of DEM tiles that the settle above could not have waited
+        // for, because they hadn't been asked for yet at settleZoom. Those
+        // tiles refine the terrain under the camera when they land, and the
+        // only thing separating "refinement" from "jolt" is whether the camera
+        // is still moving at the time. The old 700ms routinely stopped first.
+        map.flyTo({ center: newLoc.center, zoom: newLoc.zoom, pitch: newLoc.pitch, bearing: newLoc.bearing, duration: 1600, essential: true });
+        map.once('moveend', () => {
+          if (resortSwitchPending !== key) return;
+          resortSwitchPending = null;
+          finishResortSwitch(key, newLoc);
+          if (typeof window.__startAutoRotateRampIn === 'function') window.__startAutoRotateRampIn();
+        });
+      }, null, 0, 0, newLoc);
+    });
   });
 }
 
@@ -2705,6 +2722,27 @@ let mapStyleReady = false;
 // destination resort's config explicitly instead, since LOC itself isn't
 // reassigned to the new resort until finishResortSwitch runs, after this
 // has already confirmed the new center's terrain has settled.
+// Resolves once MapLibre reports 'idle' — camera transitions finished AND every
+// requested tile loaded and rendered. Strictly stronger than polling elevation:
+// tile loads arrive in bursts, so a lull between two bursts looks identical to
+// "finished" from a sampled reading, while the DEM is still only half there.
+//
+// 'idle' won't re-fire if the map is already idle and nothing further is
+// requested, so the timeout isn't just a safety valve — it's the normal exit
+// when there was nothing left to wait for.
+function waitForMapIdle(cb, timeoutMs = 4000) {
+  let done = false;
+  const finish = () => {
+    if (done) return;
+    done = true;
+    clearTimeout(timer);
+    map.off('idle', finish);
+    cb();
+  };
+  const timer = setTimeout(finish, timeoutMs);
+  map.on('idle', finish);
+}
+
 function waitForTerrainStable(cb, prev, stableCount, attempt, loc) {
   loc = loc || LOC;
   prev = (prev === undefined) ? null : prev;
