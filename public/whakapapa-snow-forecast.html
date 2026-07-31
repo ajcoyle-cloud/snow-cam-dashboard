@@ -6560,6 +6560,12 @@ const radarPad2 = (n) => String(n).padStart(2, '0');
 function radarFilenameFor(date) {
   return '' + date.getUTCFullYear() + radarPad2(date.getUTCMonth() + 1) + radarPad2(date.getUTCDate()) + radarPad2(date.getUTCHours()) + radarPad2(date.getUTCMinutes());
 }
+// Inverse of radarFilenameFor — YYYYMMDDHHmm (UTC) back to a Date, so a frame's
+// own timestamp can be used as the starting point for walking the slot grid.
+function radarTsToDate(ts) {
+  return new Date(Date.UTC(
+    +ts.slice(0, 4), +ts.slice(4, 6) - 1, +ts.slice(6, 8), +ts.slice(8, 10), +ts.slice(10, 12)));
+}
 function radarCandidateTimestamps(count, from) {
   const out = [];
   let cursor = new Date(from || new Date());
@@ -6654,22 +6660,212 @@ function radarApplyRadialFade(canvas, fadeStartFrac = 0.82) {
   ctx.putImageData(imgData, 0, 0);
   return canvas;
 }
-async function radarFetchAndProcessFrame(ts) {
-  const res = await fetch(radarFrameUrl(ts));
+// ── Regional (single-site) hi-res radar ────────────────────────────────────
+// The national composite is ~2.13 km/px. A single-site PPI scan covers ~630km
+// across the same 600px, i.e. ~1.05 km/px — twice the linear detail over the
+// area that matters when you're looking at one field.
+//
+// Mirrored from src/radarRegionalCalibration.js (this page is static, outside
+// the build, so it can't import) — keep both in sync by hand. Only the regions
+// that have been hand-aligned against the coastline are listed; adding another
+// site means calibrating its corners first, not just naming it here.
+const REGIONAL_RADAR_CALIBRATIONS = {
+  westland: {
+    crop: { topPct: 0, bottomPct: 0, leftPct: 0, rightPct: 21 },
+    isolate: { minSaturation: 15, minBrightness: 20, maxBrightness: 100,
+      hueBands: { yellowGold: true, green: true, blue: true, redPurple: true } },
+    corners: [[167.7392578125, -40.396764305572034], [174.61669921875, -39.926588421909436],
+      [175.0341796875, -45.50634690108341], [167.200927734375, -45.34442410452239]],
+    opacity: 0.9,
+  },
+  canterbury: {
+    crop: { topPct: 0, bottomPct: 0, leftPct: 0, rightPct: 21 },
+    isolate: { minSaturation: 36, minBrightness: 30, maxBrightness: 100,
+      hueBands: { yellowGold: true, green: true, blue: true, redPurple: true } },
+    corners: [[168.37646484375, -40.99648401437788], [175.75927734375, -41.04621681452063],
+      [176.02294921875, -46.54374960273856], [168.1787109375, -46.392411189814645]],
+    opacity: 0.9,
+  },
+  bayofplenty: {
+    crop: { topPct: 0, bottomPct: 0, leftPct: 0, rightPct: 21 },
+    isolate: { minSaturation: 34, minBrightness: 28, maxBrightness: 100,
+      hueBands: { yellowGold: true, green: true, blue: true, redPurple: true } },
+    corners: [[172.68310546875, -35.31736632923786], [179.5166015625, -35.33529320309327],
+      [179.593505859375, -40.71395582628604], [172.540283203125, -40.72228267283148]],
+    opacity: 0.9,
+  },
+  otago: {
+    crop: { topPct: 0, bottomPct: 0, leftPct: 0, rightPct: 21 },
+    isolate: { minSaturation: 34, minBrightness: 28, maxBrightness: 100,
+      hueBands: { yellowGold: true, green: true, blue: true, redPurple: true } },
+    corners: [[166.4208984375, -42.94033923363181], [173.4521484375, -42.94033923363181],
+      [173.4521484375, -48.42920055556841], [166.4208984375, -48.42920055556841]],
+    opacity: 0.9,
+  },
+};
+
+// A PPI scan is centred on its own radar site, so the calibrated quad's midpoint
+// IS the site. Nearest one to the selected resort wins — only one region is
+// fetched per frame (not all four), keeping this to one extra request per tick.
+function radarRegionCentre(region) {
+  const c = REGIONAL_RADAR_CALIBRATIONS[region].corners;
+  const lons = c.map((p) => p[0]), lats = c.map((p) => p[1]);
+  return [(Math.min(...lons) + Math.max(...lons)) / 2, (Math.min(...lats) + Math.max(...lats)) / 2];
+}
+
+function radarNearestRegion() {
+  let best = null, bestD = Infinity;
+  for (const region of Object.keys(REGIONAL_RADAR_CALIBRATIONS)) {
+    const [lon, lat] = radarRegionCentre(region);
+    // Rough equirectangular distance — only used to rank sites, so the cos
+    // correction at NZ latitudes is plenty.
+    const dx = (lon - LOC.lon) * Math.cos((lat * Math.PI) / 180);
+    const dy = lat - LOC.lat;
+    const d = dx * dx + dy * dy;
+    if (d < bestD) { bestD = d; best = region; }
+  }
+  return best;
+}
+
+function radarRegionalFrameUrl(region, ts) {
+  return `/radar-feed-regional/${region}/${ts}.gif`;
+}
+
+// Same isolate pass as the national composite, but driven by the region's own
+// thresholds — the single-site frames carry a white coastline and a white
+// 55dBZ band that are visually identical, so each region was tuned separately
+// for how much of that to let through.
+function radarCropAndIsolateWith(img, cal) {
+  const { crop, isolate } = cal;
+  const iw = img.naturalWidth, ih = img.naturalHeight;
+  const top = Math.round(ih * crop.topPct / 100), bottom = Math.round(ih * crop.bottomPct / 100);
+  const left = Math.round(iw * crop.leftPct / 100), right = Math.round(iw * crop.rightPct / 100);
+  const cw = Math.max(1, iw - left - right), ch = Math.max(1, ih - top - bottom);
+  const canvas = document.createElement('canvas');
+  canvas.width = cw; canvas.height = ch;
+  const ctx = canvas.getContext('2d');
+  ctx.drawImage(img, left, top, cw, ch, 0, 0, cw, ch);
+  const imgData = ctx.getImageData(0, 0, cw, ch);
+  const d = imgData.data;
+  const bands = isolate.hueBands;
+  for (let i = 0; i < d.length; i += 4) {
+    const [h, s, v] = radarRgbToHsv(d[i], d[i + 1], d[i + 2]);
+    let hueOk = false;
+    if (bands.yellowGold && h >= 35 && h < 70) hueOk = true;
+    else if (bands.green && h >= 70 && h < 160) hueOk = true;
+    else if (bands.blue && h >= 160 && h < 280) hueOk = true;
+    else if (bands.redPurple && (h >= 280 || h < 35)) hueOk = true;
+    const isRain = s >= isolate.minSaturation && v >= isolate.minBrightness && v <= isolate.maxBrightness && hueOk;
+    if (!isRain) d[i + 3] = 0;
+  }
+  ctx.putImageData(imgData, 0, 0);
+  return canvas;
+}
+
+// Clears the national frame's alpha where the regional covers it, following the
+// SAME fade curve the regional's own edge uses, so the two crossfade instead of
+// stacking. Without this the overlap showed doubled/ghosted rain wherever the
+// two feeds didn't align exactly — they're separate scans minutes apart, so
+// they never align perfectly.
+//
+// The national quad is treated as an axis-aligned lat/lon box (ignoring its
+// small hand-calibrated skew) and the region as an ellipse on its own quad's
+// midpoint: good enough for a soft hole, not a survey.
+function radarPunchRegionalHole(canvas, nationalQuad, region) {
+  const cal = REGIONAL_RADAR_CALIBRATIONS[region];
+  if (!cal) return canvas;
+  const ctx = canvas.getContext('2d');
+  const w = canvas.width, h = canvas.height;
+  const nLons = nationalQuad.map((c) => c[0]), nLats = nationalQuad.map((c) => c[1]);
+  const minLon = Math.min(...nLons), maxLon = Math.max(...nLons);
+  const minLat = Math.min(...nLats), maxLat = Math.max(...nLats);
+  const lons = cal.corners.map((c) => c[0]), lats = cal.corners.map((c) => c[1]);
+  const centerLon = (Math.min(...lons) + Math.max(...lons)) / 2;
+  const centerLat = (Math.min(...lats) + Math.max(...lats)) / 2;
+  const radiusLon = (Math.max(...lons) - Math.min(...lons)) / 2;
+  const radiusLat = (Math.max(...lats) - Math.min(...lats)) / 2;
+
+  const fadeStartFrac = 0.82; // matches radarApplyRadialFade so the zones line up
+  const imgData = ctx.getImageData(0, 0, w, h);
+  const d = imgData.data;
+  for (let y = 0; y < h; y++) {
+    const lat = maxLat - (y / h) * (maxLat - minLat);
+    for (let x = 0; x < w; x++) {
+      const i = (y * w + x) * 4;
+      if (d[i + 3] === 0) continue;
+      const lon = minLon + (x / w) * (maxLon - minLon);
+      const distFrac = Math.hypot((lon - centerLon) / radiusLon, (lat - centerLat) / radiusLat);
+      if (distFrac > 1) continue;
+      const keep = distFrac <= fadeStartFrac ? 0 : (distFrac - fadeStartFrac) / (1 - fadeStartFrac);
+      d[i + 3] = Math.round(d[i + 3] * keep);
+    }
+  }
+  ctx.putImageData(imgData, 0, 0);
+  return canvas;
+}
+
+async function radarLoadImage(url) {
+  const res = await fetch(url);
   if (!res.ok) return null;
   const blob = await res.blob();
   const blobUrl = URL.createObjectURL(blob);
   try {
-    const img = await new Promise((resolve, reject) => {
+    return await new Promise((resolve, reject) => {
       const im = new Image();
-      im.onload = () => resolve(im);
+      im.onload = () => resolve({ img: im, blobUrl });
       im.onerror = reject;
       im.src = blobUrl;
     });
-    const canvas = radarApplyRadialFade(radarCropAndIsolate(img));
-    return { timestamp: ts, dataUrl: canvas.toDataURL('image/png') };
-  } finally {
+  } catch (e) {
     URL.revokeObjectURL(blobUrl);
+    return null;
+  }
+}
+
+async function radarFetchAndProcessFrame(ts) {
+  const loaded = await radarLoadImage(radarFrameUrl(ts));
+  if (!loaded) return null;
+  try {
+    // The single-site feed runs at roughly half the national cadence (~15 min
+    // vs ~7.5), so an exact timestamp match only lands about every other frame.
+    // Taking that literally made the patch blink between sharp and coarse on
+    // alternating frames during playback, which is far more distracting than
+    // the thing it was showing. Fall back through the preceding slots instead,
+    // so every frame finds a scan within ~15 min and the detail simply holds.
+    const region = radarNearestRegion();
+    let regionalUrl = null;
+    let regionalTs = null;
+    if (region) {
+      // ts itself first, then up to two slots back — the timestamp grid is
+      // shared between the two feeds, so stepping it is exact, not guesswork.
+      const slots = [ts, ...radarCandidateTimestamps(3, new Date(radarTsToDate(ts).getTime() - 60000))];
+      for (const cand of slots.slice(0, 3)) {
+        const rLoaded = await radarLoadImage(radarRegionalFrameUrl(region, cand));
+        if (!rLoaded) continue;
+        try {
+          const rCanvas = radarApplyRadialFade(
+            radarCropAndIsolateWith(rLoaded.img, REGIONAL_RADAR_CALIBRATIONS[region]));
+          regionalUrl = rCanvas.toDataURL('image/png');
+          regionalTs = cand;
+        } finally {
+          URL.revokeObjectURL(rLoaded.blobUrl);
+        }
+        break;
+      }
+    }
+    let canvas = radarApplyRadialFade(radarCropAndIsolate(loaded.img));
+    // Only punch the hole when there's actually a regional frame to fill it,
+    // or the national would just be missing a chunk of rain.
+    if (regionalUrl) canvas = radarPunchRegionalHole(canvas, RADAR_CALIBRATION.corners, region);
+    return {
+      timestamp: ts,
+      dataUrl: canvas.toDataURL('image/png'),
+      regionalUrl,
+      regionalTs,
+      region: regionalUrl ? region : null,
+    };
+  } finally {
+    URL.revokeObjectURL(loaded.blobUrl);
   }
 }
 
@@ -6683,6 +6879,41 @@ let radarCurrentIndex = -1;
 let radarPlayTimer = null;
 let radarLoadPromise = null;
 let radarPollStarted = false;
+
+// The hi-res patch, drawn immediately above the national drape. Its own source
+// has to be recreated (not just updateImage'd) when the region changes, because
+// the source's `coordinates` — the quad it's projected onto — differ per site.
+let radarRegionalShown = null;
+
+function radarDrawRegional(f) {
+  const hasRegional = !!(f && f.regionalUrl);
+  const visible = hasRegional && viewMode === 'radar' && !radarAccumOn;
+  if (!hasRegional) {
+    // Hide rather than remove: frames drop in and out as the site's publishing
+    // schedule drifts against the national one, and churning the layer on every
+    // gap flickers.
+    if (map.getLayer('radar-regional-layer')) map.setLayoutProperty('radar-regional-layer', 'visibility', 'none');
+    return;
+  }
+  const cal = REGIONAL_RADAR_CALIBRATIONS[f.region];
+  if (map.getSource('radar-regional-src') && radarRegionalShown === f.region) {
+    map.getSource('radar-regional-src').updateImage({ url: f.regionalUrl });
+  } else {
+    if (map.getLayer('radar-regional-layer')) map.removeLayer('radar-regional-layer');
+    if (map.getSource('radar-regional-src')) map.removeSource('radar-regional-src');
+    map.addSource('radar-regional-src', { type: 'image', url: f.regionalUrl, coordinates: cal.corners });
+    // Directly above the national drape and below the lift lines, same slot
+    // reasoning as radar-layer itself.
+    map.addLayer({
+      id: 'radar-regional-layer', type: 'raster', source: 'radar-regional-src',
+      paint: { 'raster-opacity': cal.opacity, 'raster-fade-duration': 0 },
+      layout: { visibility: visible ? 'visible' : 'none' },
+    }, map.getLayer('resort-lifts-line') ? 'resort-lifts-line' : undefined);
+    radarRegionalShown = f.region;
+    bringContoursAboveRadar();
+  }
+  map.setLayoutProperty('radar-regional-layer', 'visibility', visible ? 'visible' : 'none');
+}
 
 function radarDrawFrame(i) {
   if (!map || !radarFrames[i]) return;
@@ -6715,6 +6946,7 @@ function radarDrawFrame(i) {
     setTimeout(() => radarDrawFrame(i), 80);
     return;
   }
+  radarDrawRegional(f);
   // While Σ Total is showing, #rtl-label is carrying the accumulation's own
   // window/progress text — the live loop still loads and polls underneath, but
   // it mustn't overwrite that from under it.
@@ -6883,6 +7115,12 @@ function radarSyncLayerVisibility() {
   const live = viewMode === 'radar' && !radarAccumOn;
   const accum = viewMode === 'radar' && radarAccumOn;
   if (map.getLayer('radar-layer')) map.setLayoutProperty('radar-layer', 'visibility', live ? 'visible' : 'none');
+  // The hi-res regional patch rides with the live loop — it has no meaning over
+  // the accumulation, which is summed from the national frames only.
+  if (map.getLayer('radar-regional-layer')) {
+    const hasRegional = !!radarFrames[radarCurrentIndex]?.regionalUrl;
+    map.setLayoutProperty('radar-regional-layer', 'visibility', (live && hasRegional) ? 'visible' : 'none');
+  }
   if (map.getLayer(RADAR_ACCUM_LAYER)) map.setLayoutProperty(RADAR_ACCUM_LAYER, 'visibility', accum ? 'visible' : 'none');
   // The coastline reference belongs to the accumulated drape only — the live
   // loop is animated and reads fine against the basemap it doesn't hide.
