@@ -51,6 +51,10 @@
       "destination": "/api/lyford-cam?cam=:cam"
     },
     {
+      "source": "/ohau-cam/:cam",
+      "destination": "/api/ohau-cam?cam=:cam"
+    },
+    {
       "source": "/rainbow-cam/:cam",
       "destination": "/api/rainbow-cam?cam=:cam"
     },
@@ -101,6 +105,10 @@
     {
       "source": "/mtlyford-report",
       "destination": "/api/report?resort=mtlyford"
+    },
+    {
+      "source": "/ohau-report",
+      "destination": "/api/report?resort=ohau"
     },
     {
       "source": "/((?!whakapapa-snow-forecast\\.html|radar-map\\.html|radar-accum\\.js|radar-test|assets|api).*)",

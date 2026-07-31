@@ -2,6 +2,7 @@ import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import { resolveLyfordCam } from './api/lyford-cam.js'
 import { resolveRainbowCam } from './api/rainbow-cam.js'
+import { resolveOhauCam } from './api/ohau-cam.js'
 import { resolveWhakapapaReport } from './lib/reports/whakapapa-report.js'
 import { resolveCardronaReport, resolveTrebleconeReport } from './lib/reports/cardrona-report.js'
 import { resolveMthuttReport } from './lib/reports/mthutt-report.js'
@@ -11,11 +12,42 @@ import { resolveRainbowReport } from './lib/reports/rainbow-report.js'
 import { resolveRemarkablesReport } from './lib/reports/remarkables-report.js'
 import { resolveRoundhillReport } from './lib/reports/roundhill-report.js'
 import { resolveMtLyfordReport } from './lib/reports/mtlyford-report.js'
+import { resolveOhauReport } from './lib/reports/ohau-report.js'
 
 // Dev parity for the Mt Lyford webcam scraper. In prod, /lyford-cam/<cam> is a
 // Vercel function (api/lyford-cam.js); the Vite dev server doesn't run that, so
 // reuse the same core here as middleware. Mirrors how the other proxies below
 // are replicated for dev.
+// Dev parity for the Ōhau webcam scraper — same arrangement as lyfordCamDev
+// below (prod serves this from api/ohau-cam.js as a Vercel function).
+function ohauCamDev() {
+  return {
+    name: 'ohau-cam-dev',
+    configureServer(server) {
+      server.middlewares.use('/ohau-cam', async (req, res) => {
+        const url = new URL(req.url, 'http://localhost')
+        const cam = url.pathname.replace(/^\/+/, '').split('/')[0]
+        try {
+          const result = await resolveOhauCam(cam, { debug: url.searchParams.has('debug') })
+          if (result.debug) {
+            res.setHeader('Content-Type', 'application/json')
+            res.end(JSON.stringify(result.debug))
+            return
+          }
+          res.setHeader('Content-Type', result.contentType)
+          res.setHeader('Cache-Control', 'public, max-age=60')
+          res.end(result.buffer)
+        } catch (e) {
+          const status = e && typeof e.status === 'number' ? e.status : 502
+          res.statusCode = status
+          res.setHeader('Content-Type', 'application/json')
+          res.end(JSON.stringify(e && e.body ? e.body : { error: String((e && e.message) || e) }))
+        }
+      })
+    },
+  }
+}
+
 function lyfordCamDev() {
   return {
     name: 'lyford-cam-dev',
@@ -104,6 +136,7 @@ export default defineConfig({
   plugins: [
     react(),
     lyfordCamDev(),
+    ohauCamDev(),
     rainbowCamDev(),
     snowReportDev('/whakapapa-report', resolveWhakapapaReport),
     snowReportDev('/cardrona-report', resolveCardronaReport),
@@ -115,6 +148,7 @@ export default defineConfig({
     snowReportDev('/remarkables-report', resolveRemarkablesReport),
     snowReportDev('/roundhill-report', resolveRoundhillReport),
     snowReportDev('/mtlyford-report', resolveMtLyfordReport),
+    snowReportDev('/ohau-report', resolveOhauReport),
   ],
   server: {
     port: 5173,

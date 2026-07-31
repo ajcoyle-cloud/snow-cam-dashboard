@@ -1231,6 +1231,21 @@ const RESORT_CONFIG = {
     // the resort's own coordinates, same starting point mthutt/remarkables got.
     center: [172.860638, -41.871435], zoom: 13.2, pitch: 62, bearing: 0
   },
+  // Ōhau Snow Fields, above Lake Ōhau in the Mackenzie. Mirrors src/App.jsx's
+  // RESORTS entry — lat/lon is OSM's own point for the field, summit/base are
+  // the field's published highest-lift/lift-base figures (1825m/1425m, their
+  // stated 400m vertical). topElev allows for the ridge above the top lift,
+  // which the field itself gives as 1925m — the ~100m margin matches the
+  // mtlyford/roundhill/rainbow convention rather than the bigger buffers used
+  // where a dominant peak looms over the area.
+  ohau: {
+    name: 'Ōhau',
+    lat: -44.220277, lon: 169.773604, summitElev: 1825, baseElev: 1425, timezone: 'Pacific/Auckland',
+    topElev: 1925,
+    // No hand-picked camera framing yet — plain default centred on the
+    // resort's own coordinates, same starting point mthutt/rainbow got.
+    center: [169.773604, -44.220277], zoom: 13.2, pitch: 62, bearing: 0
+  },
   // Same volcano as ruapehu/Whakapapa (Tongariro National Park), southwest
   // flank — lat/lon is TUROA_LIFTS' own lowest-elevation point (Alpine
   // Meadow Platter's base end, real OSM data, not a guess). summitElev
@@ -1375,7 +1390,7 @@ const RESORT_PILL_LABELS = {
   ruapehu: 'Whakapapa', cardrona: 'Cardrona', loveland: 'Loveland',
   mtlyford: 'Mt Lyford', roundhill: 'Roundhill', mtvernon: 'Mt Vernon', treblecone: 'Treble Cone',
   mthutt: 'Mt Hutt', remarkables: 'The Remarkables', rainbow: 'Rainbow',
-  turoa: 'Turoa', tukino: 'Tukino'
+  turoa: 'Turoa', tukino: 'Tukino', ohau: 'Ōhau'
 };
 let resortPillMarkers = {};
 
@@ -4473,7 +4488,7 @@ function toggleContours() {
 // own demo style.json, not guessed.
 const RESORT_COUNTRY_ISO3 = {
   ruapehu: 'NZL', cardrona: 'NZL', mtlyford: 'NZL', roundhill: 'NZL', treblecone: 'NZL', mthutt: 'NZL',
-  remarkables: 'NZL', rainbow: 'NZL', turoa: 'NZL', tukino: 'NZL',
+  remarkables: 'NZL', rainbow: 'NZL', turoa: 'NZL', tukino: 'NZL', ohau: 'NZL',
   loveland: 'USA', mtvernon: 'USA',
 };
 

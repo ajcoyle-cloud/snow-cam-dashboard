@@ -40,6 +40,7 @@ const WEATHER_LOCATIONS = {
   'Mt Vernon': { lat: 39.72011925175132, lon: -105.26872905339022, elevation: 2190 },
   'Mt Lyford': { lat: -42.446503, lon: 173.143418, elevation: 1800 },
   Rainbow: { lat: -41.871435, lon: 172.860638, elevation: 1758 },
+  'Ōhau': { lat: -44.220277, lon: 169.773604, elevation: 1825 },
 }
 
 const getWeatherIcon = (pictocode) => {
@@ -186,6 +187,16 @@ const SOUTH_ISLAND = [
   // current frame. Only Shirt Front wired up so far — Top T-Bar and
   // Learners Slope exist on the site but aren't sourced yet.
   { name: 'Rainbow - Shirt Front', url: '/rainbow-cam/shirt-front', location: 'Rainbow' },
+  // Ōhau publishes each frame as a timestamped file (cam4_260731-1604.jpg),
+  // so old URLs 404 within minutes — same situation as Mt Lyford above.
+  // /ohau-cam/<id> scrapes the current filename (api/ohau-cam.js) and
+  // serves the full-resolution original rather than the page's 400x300
+  // derivative. All five of the field's cameras are wired up.
+  { name: 'Ōhau - Daylodge', url: '/ohau-cam/daylodge', location: 'Ōhau' },
+  { name: 'Ōhau - Snow Mat Slope', url: '/ohau-cam/snow-mat', location: 'Ōhau' },
+  { name: 'Ōhau - Top of Chair', url: '/ohau-cam/top-of-chair', location: 'Ōhau' },
+  { name: "Ōhau - Craig's Way", url: '/ohau-cam/craigs-way', location: 'Ōhau' },
+  { name: 'Ōhau - Powder Bank', url: '/ohau-cam/powder-bank', location: 'Ōhau' },
 ]
 
 const USA_RESORTS = [
@@ -210,6 +221,7 @@ function cameraRegion(cam) {
   if (cam.location === 'Mt Hutt') return 'mthutt'
   if (cam.location === 'The Remarkables') return 'remarkables'
   if (cam.location === 'Rainbow') return 'rainbow'
+  if (cam.location === 'Ōhau') return 'ohau'
   return 'southisland' // Treble Cone, Coronet Peak
 }
 
@@ -217,23 +229,26 @@ function cameraRegion(cam) {
 // turoa/tukino inserted right next to whakapapa/northisland everywhere,
 // since all three ski fields share the same volcano (Ruapehu).
 const CAMERA_REGION_ORDER = {
-  ruapehu: ['whakapapa', 'northisland', 'turoa', 'tukino', 'cardrona', 'southisland', 'remarkables', 'roundhill', 'loveland', 'mtlyford', 'rainbow', 'mthutt'],
+  ruapehu: ['whakapapa', 'northisland', 'turoa', 'tukino', 'cardrona', 'southisland', 'remarkables', 'roundhill', 'ohau', 'loveland', 'mtlyford', 'rainbow', 'mthutt'],
   // Ruapehu's other two fields lead with themselves, then their two same-
   // mountain neighbours, then the rest matches ruapehu's own relative order.
-  turoa: ['turoa', 'whakapapa', 'northisland', 'tukino', 'cardrona', 'southisland', 'remarkables', 'roundhill', 'loveland', 'mtlyford', 'rainbow', 'mthutt'],
-  tukino: ['tukino', 'whakapapa', 'northisland', 'turoa', 'cardrona', 'southisland', 'remarkables', 'roundhill', 'loveland', 'mtlyford', 'rainbow', 'mthutt'],
-  cardrona: ['cardrona', 'southisland', 'remarkables', 'roundhill', 'whakapapa', 'northisland', 'turoa', 'tukino', 'loveland', 'mtlyford', 'rainbow', 'mthutt'],
-  roundhill: ['roundhill', 'cardrona', 'southisland', 'remarkables', 'whakapapa', 'northisland', 'turoa', 'tukino', 'loveland', 'mtlyford', 'rainbow', 'mthutt'],
-  loveland: ['loveland', 'whakapapa', 'northisland', 'turoa', 'tukino', 'cardrona', 'roundhill', 'southisland', 'remarkables', 'mtlyford', 'rainbow', 'mthutt'],
-  mtlyford: ['mtlyford', 'rainbow', 'southisland', 'remarkables', 'roundhill', 'cardrona', 'whakapapa', 'northisland', 'turoa', 'tukino', 'loveland', 'mthutt'],
-  mthutt: ['mthutt', 'southisland', 'remarkables', 'roundhill', 'mtlyford', 'rainbow', 'cardrona', 'whakapapa', 'northisland', 'turoa', 'tukino', 'loveland'],
+  turoa: ['turoa', 'whakapapa', 'northisland', 'tukino', 'cardrona', 'southisland', 'remarkables', 'roundhill', 'ohau', 'loveland', 'mtlyford', 'rainbow', 'mthutt'],
+  tukino: ['tukino', 'whakapapa', 'northisland', 'turoa', 'cardrona', 'southisland', 'remarkables', 'roundhill', 'ohau', 'loveland', 'mtlyford', 'rainbow', 'mthutt'],
+  cardrona: ['cardrona', 'southisland', 'remarkables', 'roundhill', 'ohau', 'whakapapa', 'northisland', 'turoa', 'tukino', 'loveland', 'mtlyford', 'rainbow', 'mthutt'],
+  roundhill: ['roundhill', 'ohau', 'cardrona', 'southisland', 'remarkables', 'whakapapa', 'northisland', 'turoa', 'tukino', 'loveland', 'mtlyford', 'rainbow', 'mthutt'],
+  loveland: ['loveland', 'whakapapa', 'northisland', 'turoa', 'tukino', 'cardrona', 'roundhill', 'ohau', 'southisland', 'remarkables', 'mtlyford', 'rainbow', 'mthutt'],
+  mtlyford: ['mtlyford', 'rainbow', 'southisland', 'remarkables', 'roundhill', 'ohau', 'cardrona', 'whakapapa', 'northisland', 'turoa', 'tukino', 'loveland', 'mthutt'],
+  mthutt: ['mthutt', 'southisland', 'remarkables', 'roundhill', 'ohau', 'mtlyford', 'rainbow', 'cardrona', 'whakapapa', 'northisland', 'turoa', 'tukino', 'loveland'],
   // Queenstown/Wanaka neighbours (cardrona, the southisland catch-all — Treble
   // Cone/Coronet Peak) lead, same logic as cardrona's own list above.
-  remarkables: ['remarkables', 'cardrona', 'southisland', 'roundhill', 'whakapapa', 'northisland', 'turoa', 'tukino', 'loveland', 'mtlyford', 'rainbow', 'mthutt'],
+  remarkables: ['remarkables', 'cardrona', 'southisland', 'roundhill', 'ohau', 'whakapapa', 'northisland', 'turoa', 'tukino', 'loveland', 'mtlyford', 'rainbow', 'mthutt'],
   // Nelson Lakes/St Arnaud, top of the South Island — no close neighbour in
   // this list, so mtlyford (the other small, remote South Island club-ish
   // field, North Canterbury) is the nearest thing to "closest" here.
-  rainbow: ['rainbow', 'mtlyford', 'roundhill', 'cardrona', 'southisland', 'remarkables', 'whakapapa', 'northisland', 'turoa', 'tukino', 'loveland', 'mthutt'],
+  rainbow: ['rainbow', 'mtlyford', 'roundhill', 'ohau', 'cardrona', 'southisland', 'remarkables', 'whakapapa', 'northisland', 'turoa', 'tukino', 'loveland', 'mthutt'],
+  // Mackenzie Basin, inland South Island. Roundhill (Tekapo) is the nearest
+  // field by a wide margin, then the Wanaka/Queenstown cluster.
+  ohau: ['ohau', 'roundhill', 'cardrona', 'southisland', 'remarkables', 'mthutt', 'mtlyford', 'rainbow', 'whakapapa', 'northisland', 'turoa', 'tukino', 'loveland'],
 }
 
 // Stable sort keeps original within-bucket order; unknown buckets sort last.
@@ -553,6 +568,7 @@ const SNOW_REPORT_SOURCES = {
   'The Remarkables': { endpoint: '/remarkables-report', title: 'The Remarkables Snow Report' },
   Roundhill: { endpoint: '/roundhill-report', title: 'Roundhill Snow Report' },
   'Mt Lyford': { endpoint: '/mtlyford-report', title: 'Mt Lyford Snow Report' },
+  'Ōhau': { endpoint: '/ohau-report', title: 'Ōhau Snow Report' },
 }
 
 // Dedicated "Snow Reports" tab — a row of location pills (same .toggle-btn
@@ -1125,6 +1141,13 @@ const RESORTS = {
   // base/summit elevations and the MetService slug ('rainbow-valley', not
   // just 'rainbow') confirmed via its own official site's stats.
   rainbow: { name: 'Rainbow', lat: -41.871435, lon: 172.860638, summitElev: 1758, baseElev: 1540, timezone: 'Pacific/Auckland', metservicePath: 'mountains-and-parks/ski-fields/rainbow-valley' },
+  // Ōhau Snow Fields, above Lake Ōhau in the Mackenzie. lat/lon is OSM's own
+  // point for the field (DEM there reads 1717m — mid-way up the lift band,
+  // confirming it's the field and not the lakeside lodge at ~520m).
+  // summit/base are the field's published highest-lift (1825m) and lift-base
+  // (1425m) figures, which match their stated 400m vertical. No pwObsStations:
+  // PredictWind has no station near here, so it runs forecast-only.
+  ohau: { name: 'Ōhau', lat: -44.220277, lon: 169.773604, summitElev: 1825, baseElev: 1425, timezone: 'Pacific/Auckland', metservicePath: 'mountains-and-parks/ski-fields/ohau' },
   // Same volcano as ruapehu/Whakapapa (Tongariro National Park), southwest
   // flank. lat/lon is real OSM lift data's own lowest-elevation point (see
   // whakapapa-snow-forecast.html's TUROA_LIFTS comment for how the shared

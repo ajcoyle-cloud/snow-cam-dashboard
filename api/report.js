@@ -25,6 +25,7 @@ import { resolveRainbowReport } from '../lib/reports/rainbow-report.js';
 import { resolveRemarkablesReport } from '../lib/reports/remarkables-report.js';
 import { resolveRoundhillReport } from '../lib/reports/roundhill-report.js';
 import { resolveMtLyfordReport } from '../lib/reports/mtlyford-report.js';
+import { resolveOhauReport } from '../lib/reports/ohau-report.js';
 
 const RESOLVERS = {
   whakapapa: resolveWhakapapaReport,
@@ -37,6 +38,7 @@ const RESOLVERS = {
   remarkables: resolveRemarkablesReport,
   roundhill: resolveRoundhillReport,
   mtlyford: resolveMtLyfordReport,
+  ohau: resolveOhauReport,
 };
 
 export default async function handler(req, res) {
