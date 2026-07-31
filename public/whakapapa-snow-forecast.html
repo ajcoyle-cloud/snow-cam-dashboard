@@ -1153,7 +1153,10 @@ const PAUSE_ICON_SVG = '<svg width="16" height="16" viewBox="0 0 24 24" fill="no
 const RESORT_CONFIG = {
   ruapehu: {
     name: 'Mt Ruapehu (Whakapapa)',
-    lat: -39.28, lon: 175.57, summitElev: 2300, baseElev: 1630, timezone: 'Pacific/Auckland',
+    // Base area — the Sky Waka gondola's bottom terminal at Top o' the Bruce,
+    // from the same OSM data WHAKAPAPA_LIFTS draws. Was -39.28/175.57, which
+    // put the resort pill 3.5km SE of the field, up towards the crater.
+    lat: -39.237191, lon: 175.557730, summitElev: 2300, baseElev: 1630, timezone: 'Pacific/Auckland',
     topElev: 2750, // approx summit/crater rim for the colour ramp's upper bound
     center: [175.55, -39.25], zoom: 12.6, pitch: 64, bearing: 160
   },

@@ -24,20 +24,44 @@ const AI_SUMMARY_ENABLED = false
 // of the outer app changes this and busts the cache.
 const IFRAME_CACHE_BUST = Date.now()
 
+// Every lat/lon here is a real point ON the field (the base area unless noted),
+// not the 1-decimal placeholders several of these started as — those sat 7-36km
+// away, so Open-Meteo was sampling a different valley, and at 16 days out that
+// is a materially different forecast. Each one below is either the field's own
+// lift geometry (the OSM aerialway data the map pages draw from, see
+// WHAKAPAPA_LIFTS et al in public/whakapapa-snow-forecast.html) or a named OSM
+// feature; `elevation` is unchanged and still does the vertical downscaling.
 const WEATHER_LOCATIONS = {
-  Whakapapa: { lat: -39.2, lon: 175.5, elevation: 2300 },
-  Turoa: { lat: -39.2, lon: 175.5, elevation: 2300 },
-  Ruapehu: { lat: -39.2, lon: 175.5, elevation: 2797 },
-  'Mt Hutt': { lat: -43.2, lon: 171.5, elevation: 2100 },
+  // Sky Waka gondola's base terminal — Top o' the Bruce, where Rangatira
+  // Express and the carpets also start. Was -39.2/175.5, ~7.5km NW.
+  Whakapapa: { lat: -39.237191, lon: 175.557730, elevation: 2300 },
+  // Meadow Platter's base end, matching RESORTS.turoa. Was -39.2/175.5, ~11.7km
+  // north — Turoa is on the far (SW) side of the mountain from Whakapapa, so
+  // one shared placeholder could never have been right for both.
+  Turoa: { lat: -39.3062323, lon: 175.5269647, elevation: 2300 },
+  // The mountain itself rather than either ski field (elevation is the 2797m
+  // summit): OSM's Mount Ruapehu volcano node, the crater. Was -39.2/175.5.
+  Ruapehu: { lat: -39.281203, lon: 175.564289, elevation: 2797 },
+  // Car park/base area, matching RESORTS.mthutt. Was -43.2/171.5, ~32.5km NE
+  // out over the Canterbury Plains — a completely different climate to the face.
+  'Mt Hutt': { lat: -43.4956, lon: 171.539722, elevation: 2100 },
   // Was -44.5/169.0 (~30km north of the field, near Luggate) — corrected to
   // the real base area, same coordinates as RESORTS.cardrona below.
   Cardrona: { lat: -44.872168, lon: 168.948496, elevation: 1860 },
-  'Treble Cone': { lat: -44.4, lon: 169.2, elevation: 2088 },
+  // Home Basin base area, matching RESORTS.treblecone. Was -44.4/169.2, ~36km
+  // NE (up the Lindis, nowhere near the Wanaka side).
+  'Treble Cone': { lat: -44.633063, lon: 168.896105, elevation: 2088 },
   // Was -44.4/168.7 (~65km off, an old placeholder) — corrected to the real
   // ski field base area coordinates when 'remarkables' was added to RESORTS.
   'The Remarkables': { lat: -45.052892, lon: 168.815148, elevation: 1622 },
-  'Coronet Peak': { lat: -44.4, lon: 168.8, elevation: 1649 },
-  'Loveland': { lat: 39.65, lon: -105.49, elevation: 3290 },
+  // OSM's Coronet Peak Ski Area polygon (way 482928475, the one carrying the
+  // nzski.com website tag) — the only resort here with no lift geometry in the
+  // repo to derive from. Was -44.4/168.8, ~58km north.
+  'Coronet Peak': { lat: -44.922202, lon: 168.738874, elevation: 1649 },
+  // Base area, matching RESORT_CONFIG.loveland on the map page. Was
+  // 39.65/-105.49, ~35km east — down on the Front Range foothills, not the
+  // Continental Divide.
+  'Loveland': { lat: 39.6803, lon: -105.8989, elevation: 3290 },
   'Roundhill': { lat: -43.825421, lon: 170.656220, elevation: 1800 },
   'Mt Vernon': { lat: 39.72011925175132, lon: -105.26872905339022, elevation: 2190 },
   'Mt Lyford': { lat: -42.446503, lon: 173.143418, elevation: 1800 },
@@ -1118,13 +1142,18 @@ function snowfallWithFallback(snowfallMm, precipMm, freezingLevel, elev, temp, w
 }
 
 const RESORTS = {
-  ruapehu: { name: 'Whakapapa', lat: -39.28, lon: 175.57, summitElev: 2300, baseElev: 1630, timezone: 'Pacific/Auckland', metservicePath: 'mountains-and-parks/national-parks/tongariro' },
+  // lat/lon is the Sky Waka gondola's base terminal (Top o' the Bruce), not the
+  // rounded -39.28/175.57 that was here — that sat 3.5km SE, up towards the
+  // crater rather than on the ski field.
+  ruapehu: { name: 'Whakapapa', lat: -39.237191, lon: 175.557730, summitElev: 2300, baseElev: 1630, timezone: 'Pacific/Auckland', metservicePath: 'mountains-and-parks/national-parks/tongariro' },
   // lat/lon is the ski field's base area (car park end of McDougall's
   // Chondola, from OSM aerialway data), not the rounded -44.76/169.0 that
   // was here — that sat ~12km NNE out on the Criffel Range, so every forecast
   // for Cardrona was sampled off the field.
   cardrona: { name: 'Cardrona', lat: -44.872168, lon: 168.948496, summitElev: 1860, baseElev: 1640, timezone: 'Pacific/Auckland', metservicePath: 'mountains-and-parks/ski-fields/cardrona' },
-  loveland: { name: 'Loveland', lat: 39.65, lon: -105.49, summitElev: 3500, baseElev: 3100, timezone: 'America/Denver' },
+  // Base area, matching RESORT_CONFIG.loveland on the map page — was
+  // 39.65/-105.49, ~35km east of the ski area.
+  loveland: { name: 'Loveland', lat: 39.6803, lon: -105.8989, summitElev: 3500, baseElev: 3100, timezone: 'America/Denver' },
   mtlyford: { name: 'Mt Lyford', lat: -42.446503, lon: 173.143418, summitElev: 1800, baseElev: 1340, timezone: 'Pacific/Auckland', metservicePath: 'mountains-and-parks/ski-fields/mount-lyford' },
   roundhill: { name: 'Roundhill', lat: -43.825421, lon: 170.656220, summitElev: 2170, baseElev: 1800, timezone: 'Pacific/Auckland', metservicePath: 'mountains-and-parks/ski-fields/roundhill', pwObsStations: ['tekapo-balmoral', 'clayton', 'burkes-pass'] },
   mtvernon: { name: 'Mt Vernon', lat: 39.72011925175132, lon: -105.26872905339022, summitElev: 2190, baseElev: 1800, timezone: 'America/Denver', pwObsStations: ['bjc', 'c99', '0co'] },
