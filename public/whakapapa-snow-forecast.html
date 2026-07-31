@@ -327,21 +327,21 @@
   #rotate-toggle.active { background: rgba(92,92,106,0.95); }
   #rotate-toggle:hover { background: rgba(70,70,80,0.9); }
   #rotate-toggle.active:hover { background: rgba(106,106,122,0.95); }
-  #snow-toggle { left: 152px; }
+  #snow-toggle { left: 196px; }
   #snow-toggle.active { background: rgba(92,92,106,0.95); }
   #snow-toggle:hover { background: rgba(70,70,80,0.9); }
   #snow-toggle.active:hover { background: rgba(106,106,122,0.95); }
-  #snow-overlay-toggle { left: 196px; font-size: 0.95rem; }
+  #snow-overlay-toggle { left: 240px; font-size: 0.95rem; }
   #snow-overlay-toggle.active { background: rgba(92,92,106,0.95); }
   #snow-overlay-toggle:hover { background: rgba(70,70,80,0.9); }
   #snow-overlay-toggle.active:hover { background: rgba(106,106,122,0.95); }
-  #basemap-toggle { left: 240px; font-size: 0.95rem; }
+  #basemap-toggle { left: 284px; font-size: 0.95rem; }
   #basemap-toggle.active { background: rgba(92,92,106,0.95); }
   #basemap-toggle:hover { background: rgba(70,70,80,0.9); }
   #basemap-toggle.active:hover { background: rgba(106,106,122,0.95); }
   /* Only meaningful (and only shown — see toggleBasemap()) while the dark
      terrain basemap itself is on, so it sits right after that toggle. */
-  #contour-toggle { left: 284px; font-size: 0.95rem; display: none; }
+  #contour-toggle { left: 328px; font-size: 0.95rem; display: none; }
   #contour-toggle.active { background: rgba(92,92,106,0.95); }
   #contour-toggle:hover { background: rgba(70,70,80,0.9); }
   #contour-toggle.active:hover { background: rgba(106,106,122,0.95); }
@@ -349,12 +349,21 @@
      current hour's wind, replacing the flat elevation-only tint while
      active. Only High-Res tab (?highres=1, see isHighResMode below), not
      Snow Test or the regular Map tab. See toggleOrographicSnow(). */
-  #orographic-toggle { left: 328px; font-size: 0.95rem; }
+  #orographic-toggle { left: 372px; font-size: 0.95rem; }
 
   /* Split-screen model comparison. Desktop only — two 3D terrain maps side by
      side needs horizontal room a phone doesn't have, and it's hidden outright
-     below the mobile breakpoint rather than just being awkward there. */
-  #split-toggle { left: 372px; font-size: 0.95rem; }
+     below the mobile breakpoint rather than just being awkward there.
+
+     Sits at 152px, immediately after the three buttons that are always on
+     (enlarge/obs/rotate), NOT out at the end of the row. Everything from
+     #snow-toggle rightwards is a trial toggle that's display:none in the
+     normal Map tab, so a slot past them looks like it's floating in empty
+     space — and worse, when this page is embedded in the React app the
+     parent's centred resort-switcher pill (.map-resort-switch) overlays that
+     region, which left the button invisible and unclickable in prod even
+     though it rendered fine on the standalone page. Keep it left of ~190px. */
+  #split-toggle { left: 152px; font-size: 0.95rem; }
   #split-toggle.active { background: rgba(92,92,106,0.95); }
   #split-toggle:hover { background: rgba(70,70,80,0.9); }
   #split-toggle.active:hover { background: rgba(106,106,122,0.95); }
