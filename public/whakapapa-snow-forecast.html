@@ -3154,11 +3154,13 @@ function initMap() {
     // getDepthAtElevation only counts SNOW, from the snow line up — so a tap
     // anywhere in the sleet band is tinted yet legitimately 0cm of snow.
     // Reporting a bare "0.0cm" over obviously-coloured terrain reads as a bug;
-    // name the phase instead so the tint and the number agree.
-    const hr = forecastHours[currentIndex];
-    const inSleetBand = viewMode === 'hourly' && hr
-      && hr.rainLineWB != null && hr.snowLineWB != null
-      && elev >= hr.rainLineWB && elev < hr.snowLineWB;
+    // name the phase instead so the tint and the number agree. currentSleetBand
+    // is the band the drape was actually painted with (see sleetBandFor) — the
+    // point is to answer "is this pixel violet?", which is exactly the question
+    // buildSnowRamp already answered, so re-deriving it here from the hour's
+    // raw wet-bulb lines would just be a second formula free to disagree.
+    const inSleetBand = viewMode === 'hourly' && currentSleetBand
+      && elev >= currentSleetBand.floor && elev < currentSleetBand.top;
     const label = inSleetBand && depthCm < 0.05 ? 'sleet' : `${depthCm.toFixed(1)}cm`;
     if (viewMode === 'accumulated') {
       // Move the black snowfall pill to the tapped point (depth there) and
@@ -4922,6 +4924,40 @@ function lerpRgbStr(a, b, t) {
   return `${Math.round(ar + (br - ar) * t)},${Math.round(ag + (bg - ag) * t)},${Math.round(ab + (bb - ab) * t)}`;
 }
 
+// The violet sleet band the drape actually paints, as a real elevation range
+// ({ floor, top }) — or null for the hours where it paints none at all. This is
+// the single source of truth for "is this elevation in the sleet band": the
+// drape colours it (buildSnowRamp below) and the tap-to-probe popup names it
+// (the map 'click' handler), so the tint and the label can't drift apart.
+//
+// They did drift: the probe used to re-derive the band straight from
+// rainLineWB/snowLineWB, which the drape only honours when snow is actually
+// FALLING. On a dry hour the drape switches to the flat freezing-level tint
+// with no violet anywhere, yet the probe still reported "sleet" for every tap
+// between those two lines — and on a dry hour those lines sit low (e.g. 453m
+// to 617m here), so taps far down on plainly untinted terrain read as sleet.
+function sleetBandFor(hour) {
+  if (!hour || hour.freezingLevel == null || hour.snowfallMm == null) return null;
+  // Not snowing → buildSnowRamp's freezing-level branch, which has no violet.
+  if (hour.snowfallMm < SNOWFALL_THRESHOLD_MM) return null;
+  // No wet-bulb crossings → the drape falls back to the freezing−300m snow
+  // line and draws no band, since there's nothing to put its edges at.
+  if (hour.snowLineWB == null || hour.rainLineWB == null) return null;
+  // Snow line above the whole displayed terrain → buildSnowRamp bails out to a
+  // fully transparent ramp; nothing is painted, so nothing is sleet either.
+  if (hour.snowLineWB >= TOP_ELEV) return null;
+  const top = Math.min(hour.snowLineWB, TOP_ELEV - 2);
+  // Only a real gap below the snow line counts — a sliver thinner than this
+  // isn't drawn (the ramp starts at the snow line instead).
+  if (!(hour.rainLineWB < top && top - hour.rainLineWB > 20)) return null;
+  return { floor: Math.max(0, hour.rainLineWB), top };
+}
+
+// Mirrors sleetBandFor(the hour the drape was last built from) — the CURRENT
+// hour on a timeline tick, or the blended hour mid-playback (see startPlay),
+// which is why the probe reads this rather than forecastHours[currentIndex].
+let currentSleetBand = null;
+
 function buildSnowRamp(hour) {
   // A malformed/missing hour would otherwise produce a garbage 'interpolate'
   // expression below — MapLibre's color-relief renderer can't recover from
@@ -5012,21 +5048,19 @@ function buildSnowRamp(hour) {
   // transparent than the snow above it so it reads as "marginal, not banked
   // snow". Only drawn when wet-bulb actually gave us both crossings AND they
   // leave a real gap below the snow line; otherwise the ramp starts at the
-  // snow line exactly as before.
-  const rainLine = hour.rainLineWB;
-  const hasSleetBand = hour.snowLineWB != null && rainLine != null
-    && rainLine < line && line - rainLine > 20;
-  const sleetFloor = hasSleetBand ? Math.max(0, rainLine) : null;
+  // snow line exactly as before. sleetBandFor() owns those conditions, and the
+  // tap-to-probe popup reads the same answer.
+  const sleetBand = sleetBandFor(hour);
 
-  const stops = hasSleetBand
+  const stops = sleetBand
     ? [
         'interpolate', ['linear'], ['elevation'],
-        sleetFloor - 1, `rgba(${SLEET_RGB},0)`,
-        sleetFloor, `rgba(${SLEET_RGB},0.45)`,
+        sleetBand.floor - 1, `rgba(${SLEET_RGB},0)`,
+        sleetBand.floor, `rgba(${SLEET_RGB},0.45)`,
         // Hold the violet up to just under the snow line, then hand over to
         // the snow hue so the two zones meet at a visible edge rather than
         // cross-fading into an ambiguous mush.
-        line - 1, `rgba(${SLEET_RGB},0.55)`
+        sleetBand.top - 1, `rgba(${SLEET_RGB},0.55)`
       ]
     : ['interpolate', ['linear'], ['elevation'], line - 1, `rgba(${c0},0)`];
 
@@ -5146,6 +5180,9 @@ function openMapView(index) {
   // snowing (buildSnowRamp's non-snowing branch is a flat freezing-level
   // tint, unrelated to snowfall amount) or when band data isn't available.
   currentHourBandRates = hourSnowing ? computeElevationBandRates(hour.time, currentHourCm) : null;
+  // Same hour buildSnowRamp is about to paint from, so the probe's "sleet"
+  // answer and the violet on screen come from one decision (see sleetBandFor).
+  currentSleetBand = sleetBandFor(hour);
 
   applyRampWhenReady(buildSnowRamp(hour));
   // Split mode: pane B's drape, the difference readout and both comparison
@@ -7555,6 +7592,9 @@ function startPlay() {
     // each full-hour tick (openMapView) — same boundary logic as there/
     // buildSnowRamp, so a tap mid-animation still matches what's rendered.
     const blendedSnowing = blended.snowfallMm >= SNOWFALL_THRESHOLD_MM;
+    // The violet band moves with the blend too — read off the same blended
+    // hour the ramp above was built from, not the hour tick's raw values.
+    currentSleetBand = sleetBandFor(blended);
     currentSnowLine = blendedSnowing
       ? (blended.snowLineWB != null ? blended.snowLineWB : blended.freezingLevel - SNOW_OFFSET)
       : blended.freezingLevel;
