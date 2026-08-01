@@ -6,7 +6,8 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "browser-check": "node scripts/browser-check.mjs"
+    "browser-check": "node scripts/browser-check.mjs",
+    "layout-probe": "node scripts/layout-probe.mjs"
   },
   "dependencies": {
     "@vercel/analytics": "^2.0.1",
