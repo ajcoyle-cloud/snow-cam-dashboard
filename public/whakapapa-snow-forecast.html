@@ -797,7 +797,7 @@
          which is where the extra ~46px came from. 152px covers the switcher at
          its widest ("The Remarkables") plus the gap; the row runs to the 12px
          right margin instead of stopping 58px short for a cog that has gone. */
-      max-width: calc(100vw - 146px);
+      max-width: calc(100vw - 140px);
       flex-wrap: wrap;
       justify-content: flex-end;
     }
@@ -817,7 +817,15 @@
        the last few pixels; if a longer mode label is ever added, take width
        from here rather than restoring the scroll. */
     .pill-group { overflow-x: visible; min-height: 38px; align-items: center; gap: 0; padding: 3px; }
-    .pill-btn { padding: 6px 4px; font-size: 0.6rem; }
+    /* Bigger than the 0.6rem/4px these were squeezed to when the cog and
+       model switch still shared this row. Both have moved to row two, so the
+       pills get the width back and spend it on legibility. */
+    .pill-btn { padding: 6px 6px; font-size: 0.68rem; }
+    /* 360-389px can't carry the full-size text beside the switcher; one step
+       down keeps all five whole rather than clipping Isobars again. */
+    @media (min-width: 360px) and (max-width: 389px) {
+      .pill-btn { padding: 6px 4px; font-size: 0.6rem; }
+    }
     #mode-switch { overflow-x: visible; }
 
     /* Map toggle buttons (live-obs, auto-rotate) tuck just under the top control
@@ -846,8 +854,12 @@
 
     /* Model switcher: its own third row, top-right (row 1 = resort switch +
        mode pills, row 2 = obs/rotate toggles + playback speed). */
-    #model-switch { top: 106px; right: 12px; }
-    #map-screen.is-fullscreen #model-switch { top: 106px; }
+    /* Row two, immediately left of the settings cog (App.css puts that at
+       right:12px, 38px wide) — right:58px leaves an 8px gap. It used to sit
+       alone on a third row while row one carried unused space; pulling it up
+       frees that row entirely for the mode pills below. */
+    #model-switch { top: 60px; right: 58px; }
+    #map-screen.is-fullscreen #model-switch { top: 60px; }
     #model-switch-btn { padding: 8px 12px; font-size: 0.72rem; }
 
     /* Freezing-level sparkline: overlay it across the bottom of the map, but only
@@ -1915,17 +1927,20 @@ function switchResort(key, notifyParent = true) {
   map.flyTo({ center: newLoc.center, zoom: settleZoom, pitch: newLoc.pitch, bearing: newLoc.bearing, duration: 2500, essential: true });
   map.once('moveend', () => {
     if (resortSwitchPending !== key) return; // superseded by a later switch mid-flight
-    // Wait for 'idle' BEFORE the elevation poll, not instead of it. Polling
-    // alone can't distinguish "the DEM has finished arriving" from "two bursts
-    // of tiles happen to be 240ms apart", and the latter satisfies
-    // waitForTerrainStable's three-steady-reads test while half the
-    // destination's terrain is still in flight. 'idle' is the signal that
-    // actually means finished, which is why maybeSignalMapReady already leans
-    // on it for the equivalent moment on first load.
-    waitForMapIdle(() => {
-      if (resortSwitchPending !== key) return;
-      waitForTerrainStable(() => {
-        if (resortSwitchPending !== key) return; // superseded while settling
+    // Straight into the closing flight — deliberately NOT behind waitForMapIdle
+    // + waitForTerrainStable any more. Those two waits were the whole problem:
+    // the camera stopped at settleZoom and then sat there, frozen, for however
+    // long the DEM took to arrive and read steady, and only then moved again.
+    // What that produced was exactly "flies in, pauses, jumps to a slightly
+    // different view" — the pause being the wait and the jump being this
+    // flight starting from a dead stop. The point of the two-stage approach
+    // was always to keep the terrain's late correction hidden INSIDE camera
+    // motion, and continuous motion serves that better than a stall does: the
+    // correction now lands during these 1600ms rather than after them. If the
+    // tiles are slow the worst case is the old single-flight bump, which is
+    // still less noticeable than a freeze.
+    {
+      {
         // Deliberately slower than it looks like it needs to be. This last 1.2
         // zoom levels is not just camera movement — it requests a whole fresh,
         // finer round of DEM tiles that the settle above could not have waited
@@ -1940,8 +1955,8 @@ function switchResort(key, notifyParent = true) {
           finishResortSwitch(key, newLoc);
           if (typeof window.__startAutoRotateRampIn === 'function') window.__startAutoRotateRampIn();
         });
-      }, null, 0, 0, newLoc);
-    });
+      }
+    }
   });
 }
 
@@ -8266,10 +8281,29 @@ function pwRenderPill(trackId) {
   // pwDisplayTime !== null when scrubbing the live time slider into the past
   const live = pwDisplayTime == null;
 
-  // In HOURLY view, show forecasted temperature; otherwise show observed
+  // In HOURLY view, show forecasted temperature; otherwise show observed.
+  // The forecast has to be brought to each station's OWN elevation first.
+  // Every pill used to print forecastHours[currentIndex].temp verbatim —
+  // one number, the summit's — so two stations several hundred metres apart
+  // showed the identical reading and the map looked isothermal. Interpolate
+  // down the hour's own summit-to-base lapse instead, the same rate the
+  // freezing-level calculation below already derives from these two fields,
+  // falling back to the standard atmospheric 6.5°C/km when the hour's own
+  // rate is missing or inverted (which the freezing-level code guards for
+  // too). Observed modes are unaffected: those pills carry a real reading
+  // from the station itself and never wanted a model value.
   let tempC;
   if (viewMode === 'hourly' && forecastHours[currentIndex]) {
-    tempC = forecastHours[currentIndex].temp;
+    const h = forecastHours[currentIndex];
+    const stationElev = st.meta.elevM;
+    let lapse = null;
+    if (h.baseTemp != null && h.temp != null && LOC.summitElev !== LOC.baseElev) {
+      lapse = (h.baseTemp - h.temp) / (LOC.baseElev - LOC.summitElev);
+    }
+    // Positive or near-flat means the hour is inverted or the two levels
+    // barely differ — not a rate worth extrapolating a station off.
+    if (lapse == null || lapse > -0.002) lapse = -0.0065;
+    tempC = stationElev == null ? h.temp : h.temp + lapse * (stationElev - LOC.summitElev);
   } else {
     tempC = live ? st.series[st.series.length - 1].tempC : pwTempAtTime(st.series, pwDisplayTime);
   }
