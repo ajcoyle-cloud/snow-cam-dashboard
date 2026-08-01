@@ -496,23 +496,6 @@
      (.map-settings-menu, 38px circle, right-anchored with the same 20px
      edge margin as this row — see App.css), so the two sit side by side on
      the far right instead of overlapping: 20px edge + 38px cog + 10px gap. */
-  /* Orographic colour-ramp picker (High-Res only) — grey/blur pill matching
-     the other controls, top-left. Hidden until restoreMapSettings shows it. */
-  #ramp-select {
-    display: none;
-    position: absolute; top: 20px; left: 20px; z-index: 45;
-    height: 38px; box-sizing: border-box;
-    background: rgba(54,54,62,0.85); backdrop-filter: blur(14px);
-    border: none; color: #fff; border-radius: 999px;
-    padding: 0 34px 0 16px; font-size: 0.78rem; font-weight: 700;
-    cursor: pointer; font-family: inherit; white-space: nowrap;
-    box-shadow: 0 4px 24px rgba(0,0,0,0.3);
-    -webkit-appearance: none; appearance: none;
-    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'><polyline points='6 9 12 15 18 9'/></svg>");
-    background-repeat: no-repeat; background-position: right 14px center;
-  }
-  #ramp-select option { color: #000; }
-  @media (max-width: 700px) { #ramp-select { top: 14px; left: 14px; } }
 
   #model-switch { position: absolute; top: 20px; right: 68px; z-index: 45; }
 
@@ -1107,7 +1090,6 @@
 
   <!-- Colour-ramp preview picker — High-Res orographic map only (shown +
        populated by restoreMapSettings when isHighResMode). Hidden otherwise. -->
-  <select id="ramp-select" title="Orographic colour ramp"></select>
 
   <div id="top-controls">
     <div class="pill-group" id="mode-switch">
@@ -3854,43 +3836,15 @@ function toggleSnowOverlay() {
 // orographicBoxBlur above, the real fix for that; this is a complementary
 // change making whatever range of hues shows up easier to read at a glance.
 // Selectable colour ramps for the orographic drape, previewable live via the
-// High-Res "Colour ramp" dropdown (see the #ramp-select wiring in
-// restoreMapSettings). Each is a stepped list of RGB bands, lee (t=0) →
-// windward (t=1); band count can differ per ramp (orographicRampColor uses
-// .length). All are sequential/perceptual ramps chosen to avoid the harsh
-// red-against-blue clash of the original rainbow. The active choice persists
-// in localStorage so it survives reloads while testing; once one's locked in
-// we can drop the others and hardcode it.
-const OROGRAPHIC_RAMP_PRESETS = [
-  { key: 'skyberry', label: 'Sky → Berry',   bands: [[140,200,240],[30,60,150],[225,90,170],[120,40,150]] },
-  { key: 'warmcool', label: 'Orange → Blue', bands: [[230,130,35],[230,195,55],[110,190,90],[70,90,210]] },
-  { key: 'viridis',  label: 'Viridis',       bands: [[68,1,84],[59,82,139],[33,145,140],[93,201,99],[253,231,37]] },
-  { key: 'plasma',   label: 'Plasma',        bands: [[13,8,135],[126,3,168],[204,71,120],[248,149,64],[240,249,33]] },
-  { key: 'magma',    label: 'Magma',         bands: [[15,12,40],[81,18,124],[183,55,121],[252,137,97],[252,253,191]] },
-  { key: 'cividis',  label: 'Cividis',       bands: [[0,32,76],[0,67,88],[123,125,120],[188,175,111],[255,233,69]] },
-  { key: 'blues',    label: 'Blues (mono)',  bands: [[222,235,247],[158,202,225],[66,146,198],[8,69,148]] },
-  { key: 'ice',      label: 'Ice (cool)',    bands: [[8,29,88],[34,94,168],[65,182,196],[199,233,180]] },
-  // Bright/fun set — the ramps above lean cool and muted (viridis/cividis/
-  // blues/ice are deliberately desaturated scientific palettes); these are
-  // vivid, high-saturation "candy" ramps instead. Extremes are still chosen
-  // to avoid the original harsh pure-red-vs-pure-blue clash (see the comment
-  // at the top of this list) — punchy, but no jarring complementary pair.
-  { key: 'tropical', label: 'Tropical Punch', bands: [[255,90,120],[255,170,40],[255,225,60],[80,220,140],[40,200,220]] },
-  { key: 'candy',    label: 'Candy Shop',     bands: [[255,105,180],[255,165,0],[255,235,59],[124,252,0],[64,224,208]] },
-  { key: 'neon',     label: 'Neon Nights',    bands: [[255,0,170],[255,110,0],[255,255,0],[0,255,140],[0,200,255]] },
-  { key: 'bubblegum',label: 'Bubblegum Pop',  bands: [[186,104,255],[255,110,199],[255,159,67],[255,224,102],[111,222,166]] },
-  { key: 'sunset',   label: 'Sunset Fiesta',  bands: [[255,87,87],[255,159,67],[255,206,84],[255,138,205],[186,120,255]] },
-  { key: 'fruit',    label: 'Fruit Salad',    bands: [[255,99,72],[255,183,3],[184,225,53],[46,213,157],[72,219,251]] },
-];
-function orographicRampKeyToBands(key) {
-  const p = OROGRAPHIC_RAMP_PRESETS.find((p) => p.key === key);
-  return (p || OROGRAPHIC_RAMP_PRESETS[0]).bands;
-}
-// Active ramp — initialised from the saved choice so the very first tile
-// render already uses it (this runs well before the map/dropdown exist).
-let orographicRampBands = orographicRampKeyToBands(
-  (() => { try { return localStorage.getItem('orographicRampKey'); } catch (e) { return null; } })()
-);
+// High-Res orographic drape colour ramp: a stepped list of RGB bands, lee
+// (t=0) -> windward (t=1). This used to be a dropdown of fifteen candidates
+// with the choice kept in localStorage while one got picked — "once one's
+// locked in we can drop the others and hardcode it", as the note here said.
+// Bubblegum Pop won, so this is it. Vivid enough to read at a glance on a
+// phone, and its extremes still avoid the harsh pure-red-against-pure-blue
+// clash the original rainbow ramp had. The picker, the other fourteen
+// presets and the saved-preference plumbing are all gone with it.
+const orographicRampBands = [[186,104,255],[255,110,199],[255,159,67],[255,224,102],[111,222,166]];
 function orographicRampColor(t) {
   t = t < 0 ? 0 : t > 1 ? 1 : t;
   const n = orographicRampBands.length;
@@ -4856,26 +4810,6 @@ function restoreMapSettings() {
     // The wind-redistributed Accumulated drape is this page's only feature —
     // always on, no toggle button, no other mode to pick.
     renderHiResAccum();
-    // Colour-ramp preview dropdown — populate, show, and select whatever's
-    // saved (orographicRampBands was already initialised from it above, so
-    // the first render matches). Changing it swaps the ramp live and
-    // regenerates the tiles. See OROGRAPHIC_RAMP_PRESETS.
-    const rampSel = document.getElementById('ramp-select');
-    if (rampSel && !rampSel.dataset.wired) {
-      rampSel.innerHTML = OROGRAPHIC_RAMP_PRESETS
-        .map((p) => `<option value="${p.key}">${p.label}</option>`).join('');
-      let savedKey = null;
-      try { savedKey = localStorage.getItem('orographicRampKey'); } catch (e) {}
-      rampSel.value = OROGRAPHIC_RAMP_PRESETS.some((p) => p.key === savedKey)
-        ? savedKey : OROGRAPHIC_RAMP_PRESETS[0].key;
-      rampSel.style.display = 'block';
-      rampSel.dataset.wired = '1';
-      rampSel.addEventListener('change', () => {
-        orographicRampBands = orographicRampKeyToBands(rampSel.value);
-        try { localStorage.setItem('orographicRampKey', rampSel.value); } catch (e) {}
-        renderHiResAccum();
-      });
-    }
   } else if (settings.darkMode) {
     setDarkMode(true);
   }

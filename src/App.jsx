@@ -4193,7 +4193,23 @@ const NAV_ITEMS = [
   // viewed tab instead of resurrecting the page.
   { id: 'snow-test', label: 'Snow Test', Icon: Snowflake, path: '/snow-test', hidden: true },
 ]
-const VISIBLE_NAV_ITEMS = NAV_ITEMS.filter(n => !n.hidden)
+// The public edition leads with the Map. It's the thing worth showing a
+// stranger first — the full site opens on Webcams, which that edition doesn't
+// have, and Forecast is a table to read rather than something to look at.
+// Order here is the only lever needed: DEFAULT_TAB below takes the first
+// visible item, so leading the list also makes it the landing tab.
+const PUBLIC_NAV_ORDER = ['map', 'forecast', 'highres']
+const VISIBLE_NAV_ITEMS = (() => {
+  const visible = NAV_ITEMS.filter(n => !n.hidden)
+  if (!IS_PUBLIC) return visible
+  const rank = (id) => {
+    const i = PUBLIC_NAV_ORDER.indexOf(id)
+    // Anything not named keeps its original relative place, after the named
+    // ones — so adding a tab can't silently jump the queue.
+    return i === -1 ? PUBLIC_NAV_ORDER.length : i
+  }
+  return [...visible].sort((a, b) => rank(a.id) - rank(b.id))
+})()
 const TAB_PATH_BY_ID = Object.fromEntries(NAV_ITEMS.map(n => [n.id, n.path]))
 // The tab a bare "/" (or an unrecognised path, or a stale localStorage entry)
 // lands on: the first one in the nav, so it's Webcams in the full edition and
