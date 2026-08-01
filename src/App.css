@@ -2255,3 +2255,22 @@
   .run-detail-panel { flex-direction: column; align-items: stretch; }
   .run-elev-row { margin-top: 12px; }
 }
+
+/* ── Narrow-desktop / tablet band (701-1200px) ─────────────────────────────
+   The switcher's default desktop rule pins its RIGHT edge 8px left of the
+   centreline, because it was written to straddle that line with
+   #top-controls sitting 8px to the right of it. In this band #top-controls
+   is right-aligned instead (see whakapapa-snow-forecast.html's matching
+   701-1200 block, which moves it and the icon ladder to clear the two-row
+   layout), so nothing balances the switcher any more and it floats in the
+   middle of the row with a gap either side. Send it to the top-left corner,
+   where a location label belongs once the row has broken into two.
+   20px matches .map-resort-switch's own padding and the iframe's icon
+   ladder, so the left edges line up down the rows. translateY alone keeps
+   the existing top:50% vertical centring on the 78px row. */
+@media (min-width: 701px) and (max-width: 1200px) {
+  .map-resort-switch .resort-selector {
+    left: 20px;
+    transform: translateY(-50%);
+  }
+}
