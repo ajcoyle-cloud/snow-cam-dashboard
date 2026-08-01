@@ -90,7 +90,7 @@
   .split-pane-select {
     appearance: none; -webkit-appearance: none;
     background: rgba(54,54,62,0.9); backdrop-filter: blur(14px);
-    border: 1px solid rgba(255,255,255,0.16); border-radius: 999px;
+    border: none; border-radius: 999px;
     color: #fff; font-family: inherit; font-size: 0.74rem; font-weight: 700;
     padding: 7px 26px 7px 12px; cursor: pointer;
     background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'><polyline points='6 9 12 15 18 9'/></svg>");
@@ -216,12 +216,12 @@
     flex-shrink: 0; display: flex; align-items: center; gap: 5px;
     height: 30px; padding: 0 12px; border-radius: 999px;
     background: rgba(255,255,255,0.12); color: rgba(255,255,255,0.8);
-    border: 1px solid rgba(255,255,255,0.18);
+    border: none;
     font-size: 0.72rem; font-weight: 700; font-family: inherit;
     cursor: pointer; white-space: nowrap; transition: all 0.15s;
   }
   #rtl-accum:hover { background: rgba(255,255,255,0.22); color: #fff; }
-  #rtl-accum.active { background: rgba(37,99,235,0.95); border-color: #7dd3fc; color: #fff; }
+  #rtl-accum.active { background: rgba(37,99,235,0.95); color: #fff; }
   #rtl-accum-window { display: none; align-items: center; gap: 9px; flex-shrink: 0; }
   #rtl-accum-slider {
     -webkit-appearance: none; appearance: none; width: 132px;
@@ -302,16 +302,19 @@
 
   /* Same grey+blur pill language as the top-controls row (pill-group/
      model-switch/resort-switcher/settings cog — all 38px tall). Background
-     is a genuine mid-grey (not a darkened black) with a faint light border
-     so these read clearly against a pure-black dark-mode sky too, not just
-     against the map imagery. .active is brighter still, as a selected cue. */
+     is a genuine mid-grey (not a darkened black), which is what carries the
+     shape against a pure-black dark-mode sky as well as against the map
+     imagery. These used to draw a faint white hairline border too, now
+     dropped across every button for a cleaner look — the mid-grey fill and
+     the drop shadow do that job. .active is brighter still, as a selected
+     cue. */
   #map-enlarge, #map-close, #obs-toggle, #rotate-toggle, #snow-toggle, #snow-overlay-toggle, #basemap-toggle, #contour-toggle, #orographic-toggle, #split-toggle {
     /* z-index above .maplibregl-marker (40) — live station pills are
        lng/lat-anchored, so at some camera angles one projects right under
        this icon row; UI chrome must always win over map content. */
     position: absolute; top: 20px; z-index: 45;
     background: rgba(54,54,62,0.85); backdrop-filter: blur(14px); color: #fff;
-    border: 1px solid rgba(255,255,255,0.14);
+    border: none;
     width: 38px; height: 38px; border-radius: 50%; font-size: 1.1rem; cursor: pointer;
     transition: background 0.15s;
     display: flex; align-items: center; justify-content: center;
@@ -454,13 +457,14 @@
      .map-resort-switch .resort-button / .map-settings-toggle. pill-btn has
      no vertical padding of its own; it stretches to the group's full height
      (flex default align-items:stretch) and centers its own text/icon.
-     Background is a genuine mid-grey (not a darkened black) with a faint
-     light border so it still reads clearly against a pure-black dark-mode
-     sky, not just against the map imagery. */
+     Background is a genuine mid-grey (not a darkened black) so it still
+     reads clearly against a pure-black dark-mode sky, not just against the
+     map imagery — the faint white hairline it used to carry is gone, dropped
+     across every button for a cleaner look. */
   .pill-group {
     display: flex; gap: 4px; height: 38px; box-sizing: border-box;
     background: rgba(54,54,62,0.85); backdrop-filter: blur(14px);
-    border: 1px solid rgba(255,255,255,0.14);
+    border: none;
     border-radius: 999px; padding: 4px;
     box-shadow: 0 4px 24px rgba(0,0,0,0.3);
   }
@@ -499,7 +503,7 @@
     position: absolute; top: 20px; left: 20px; z-index: 45;
     height: 38px; box-sizing: border-box;
     background: rgba(54,54,62,0.85); backdrop-filter: blur(14px);
-    border: 1px solid rgba(255,255,255,0.14); color: #fff; border-radius: 999px;
+    border: none; color: #fff; border-radius: 999px;
     padding: 0 34px 0 16px; font-size: 0.78rem; font-weight: 700;
     cursor: pointer; font-family: inherit; white-space: nowrap;
     box-shadow: 0 4px 24px rgba(0,0,0,0.3);
@@ -511,6 +515,41 @@
   @media (max-width: 700px) { #ramp-select { top: 14px; left: 14px; } }
 
   #model-switch { position: absolute; top: 20px; right: 68px; z-index: 45; }
+
+  /* ── Narrow-desktop / tablet band (701-1200px) ─────────────────────────
+     Row one has four things competing for it here — the icon ladder on the
+     left, the React resort switcher, these mode pills, and the model switch
+     plus settings cog on the right — and below ~1250px they stop fitting.
+     What used to happen was not a visible break but a silent one:
+     syncTopControlsLayout() capped #top-controls' width and #mode-switch
+     scrolled inside it, so Isobars (and at times Radar) simply weren't there,
+     with nothing to say a mode had been cut. Exactly the mobile bug, one
+     breakpoint up.
+     Same remedy as mobile, then: give row one to the switcher and the pills
+     alone and drop the model switch to row two, where it sits beside the cog
+     (App.css moves that in step, keeping their right:68/right:20 order). The
+     ladder stays on row one — it ends by ~190px, well left of the pills.
+     Above 1200px the original single row genuinely fits and is left alone. */
+  @media (min-width: 701px) and (max-width: 1200px) {
+    #top-controls {
+      left: auto; right: 20px; transform: none;
+      width: max-content;
+      /* Clears the icon ladder (ends ~190px) and the switcher beside it. */
+      max-width: calc(100vw - 250px);
+      justify-content: flex-end;
+    }
+    #model-switch, #map-screen.is-fullscreen #model-switch { top: 70px; right: 68px; }
+    /* The icon ladder joins them on row two. It only reaches ~190px, so it
+       looked safe on row one — but the React resort switcher is centred on a
+       group, not on itself, which walks its left edge leftward as the window
+       narrows until it lands on top of these around 960px. Rather than chase
+       that with a margin, give row one to the switcher and the pills alone.
+       Row two then reads left-to-right as map buttons, model switch, cog —
+       the same shape as mobile's second row. */
+    #map-enlarge, #obs-toggle, #rotate-toggle, #split-toggle,
+    #snow-toggle, #snow-overlay-toggle, #basemap-toggle, #contour-toggle { top: 70px; }
+    #snow-overlay-controls { top: 120px; }
+  }
   /* In fullscreen, #map-close (40px, right:64px) sits under where this
      button would otherwise land — drop it below the icon row instead. */
   #map-screen.is-fullscreen #model-switch { top: 72px; }
@@ -518,7 +557,7 @@
     display: flex; align-items: center; gap: 8px;
     height: 38px; box-sizing: border-box;
     background: rgba(54,54,62,0.85); backdrop-filter: blur(14px);
-    border: 1px solid rgba(255,255,255,0.14); color: #fff; border-radius: 999px;
+    border: none; color: #fff; border-radius: 999px;
     padding: 0 16px; font-size: 0.78rem; font-weight: 700;
     cursor: pointer; font-family: inherit; white-space: nowrap;
     box-shadow: 0 4px 24px rgba(0,0,0,0.3);
@@ -767,10 +806,15 @@
     #top-controls {
       top: 14px;
       left: auto;
-      right: 58px;
+      right: 12px;
       transform: none;
       width: max-content;
-      max-width: calc(100vw - 198px);
+      /* Only the resort switcher shares this row now — the settings cog moved
+         down to row 2 (see .map-resort-switch .map-settings-menu in App.css),
+         which is where the extra ~46px came from. 152px covers the switcher at
+         its widest ("The Remarkables") plus the gap; the row runs to the 12px
+         right margin instead of stopping 58px short for a cog that has gone. */
+      max-width: calc(100vw - 146px);
       flex-wrap: wrap;
       justify-content: flex-end;
     }
@@ -781,8 +825,17 @@
        #top-controls above) so Live/Hourly/Accum/Radar all fit on one line
        without needing the overflow-x scroll below — kept as a safety net
        for any narrower device rather than the primary fix. */
-    .pill-group { overflow-x: auto; min-height: 38px; align-items: center; gap: 1px; padding: 3px; }
-    .pill-btn { padding: 6px 6px; font-size: 0.7rem; }
+    /* No horizontal scroll here any more. Scrolling looked like it fitted and
+       didn't: the group simply cut off at its right edge, so on a 390px phone
+       "Isobars" was invisible with nothing hinting it existed — a mode you
+       cannot see is a mode you do not know you have. Every pill is now sized
+       to fit the row whole, and #mode-switch's desktop overflow-x is undone
+       below so nothing clips. Shrinking the padding/font a touch is what buys
+       the last few pixels; if a longer mode label is ever added, take width
+       from here rather than restoring the scroll. */
+    .pill-group { overflow-x: visible; min-height: 38px; align-items: center; gap: 0; padding: 3px; }
+    .pill-btn { padding: 6px 4px; font-size: 0.6rem; }
+    #mode-switch { overflow-x: visible; }
 
     /* Map toggle buttons (live-obs, auto-rotate) tuck just under the top control
        row (top row sits at 14px and is ~38px tall, ending ~52px). */
@@ -795,8 +848,17 @@
     #snow-overlay-controls { top: 106px; left: 12px; right: 12px; width: auto; }
     #map-close { top: 14px; right: 14px; }
 
-    /* Playback speed: compact, top-right, on the same second row. */
-    #speed-select { top: 60px; bottom: auto; right: 12px; padding: 4px; }
+    /* Playback speed: bottom-right, directly above the timeline it controls —
+       the same corner it occupies on desktop. It used to be pinned top-right
+       (top:60px) where it crowded the mode pills and read as another map
+       control rather than a transport control. Mirrors #drawer-launch's 78px
+       on the left so the two sit level, both clearing the timeline's 68px top
+       edge. Hidden while the drawer is open, exactly as #fl-overlay is: the
+       drawer fills this corner on mobile, and floating a pill over it looks
+       broken. The timeline itself stays usable throughout (z-index 11, above
+       the drawer). */
+    #speed-select { top: auto; bottom: 78px; right: 12px; padding: 4px; z-index: 12; }
+    #snow-info:not(.drawer-min) ~ #speed-select { display: none !important; }
     .speed-btn { padding: 6px 8px; font-size: 0.66rem; }
 
     /* Model switcher: its own third row, top-right (row 1 = resort switch +
@@ -814,11 +876,17 @@
     #snow-info:not(.drawer-min) ~ #fl-overlay { display: none !important; }
 
     /* Launcher to reopen the drawer once it's hidden: bottom-left, above the
-       timeslider. Only shown while the drawer is hidden (.drawer-min). */
+       timeslider. Only shown while the drawer is hidden (.drawer-min).
+       bottom:78px, not 60px: the timeline below sits at bottom:14px and stands
+       54px tall (38px play button + 8px padding top and bottom), so its top
+       edge is at 68px — a 60px launcher overlapped it by 8px, and with z-index
+       12 against the timeline's 11 the chevron painted ON TOP of the play
+       button. 78px clears the timeline with 10px to spare. Anything that moves
+       the timeline's height or offset needs this recomputed with it. */
     #drawer-launch {
-      position: absolute; left: 12px; bottom: 60px; z-index: 12;
+      position: absolute; left: 12px; bottom: 78px; z-index: 12;
       width: 40px; height: 40px; border-radius: 50%;
-      background: rgba(0,0,0,0.55); color: #fff; border: 1px solid rgba(255,255,255,0.3);
+      background: rgba(0,0,0,0.55); color: #fff; border: none;
       display: none; align-items: center; justify-content: center; cursor: pointer;
       box-shadow: 0 2px 8px rgba(0,0,0,0.45);
     }
@@ -914,6 +982,29 @@
     #drawer-min-summary .dms-side .v {
       font-size: 1rem; font-weight: 700; font-variant-numeric: tabular-nums;
     }
+  }
+
+  /* ── Very narrow phones (<360px) ───────────────────────────────────────
+     Below about 360px even the tightest five pills cannot share a row with
+     the resort switcher. Rather than clip one away, the mode pills get a row
+     of their own and everything under them shifts down (App.css moves the
+     settings cog in step). Three shallow rows beats a mode the user never
+     learns exists.
+     Deliberately a sibling of the 700px block above rather than nested
+     inside it: several of these ids are re-declared late in that block, so a
+     nested override lost on source order and silently did nothing. */
+  @media (max-width: 359px) {
+    #top-controls {
+      top: 60px; left: 12px; right: 12px;
+      width: auto; max-width: none;
+      justify-content: flex-start;
+    }
+    /* A full row to itself buys back the padding the shared row had to give up. */
+    .pill-btn { padding: 6px 6px; font-size: 0.66rem; }
+    #obs-toggle { top: 106px; left: 14px; }
+    #rotate-toggle { top: 106px; left: 60px; }
+    #model-switch { top: 152px; right: 12px; }
+    #snow-overlay-controls { top: 198px; }
   }
 
 </style>
@@ -1328,6 +1419,15 @@ if (!isSnowTestMode) {
 // (see restoreMapSettings()) — it's the only thing this page does, so the
 // button is hidden unconditionally rather than gated on isHighResMode.
 const isHighResMode = new URLSearchParams(window.location.search).get('highres') === '1';
+// Which edition of the app is embedding this page (?edition=public — see
+// MAP_EDITION_QS in src/App.jsx). The public site drops the tap-to-open
+// readout on the live temperature pills: those modals are the detailed
+// enthusiast layer (24h range, 12h plot, station provenance), and the public
+// map is meant to be read at a glance. The pills themselves stay — colour and
+// temperature are the point — they just stop being interactive. Defaults to
+// the full behaviour, so the standalone page and the family site are
+// unaffected, same as the flag in src/edition.js.
+const isPublicEdition = new URLSearchParams(window.location.search).get('edition') === 'public';
 {
   const orographicBtn = document.getElementById('orographic-toggle');
   if (orographicBtn) orographicBtn.style.display = 'none';
@@ -8225,7 +8325,7 @@ function pwRenderPill(trackId) {
   if (!el) {
     el = document.createElement('div');
     el.className = 'station-pill';
-    el.addEventListener('click', (e) => { e.stopPropagation(); pwOpenModal(pwState[trackId]); });
+    if (!isPublicEdition) el.addEventListener('click', (e) => { e.stopPropagation(); pwOpenModal(pwState[trackId]); });
     // subpixelPositioning avoids the whole-pixel snapping that makes pills
     // jitter/wiggle during the slow continuous auto-rotate.
     st.marker = new maplibregl.Marker({ element: el, anchor: 'center', subpixelPositioning: true })
@@ -8241,7 +8341,10 @@ function pwRenderPill(trackId) {
   // non-interactive there, matching the pseudo pills. Live/accumulated keep the
   // tap-to-open-obs behaviour. The pill never moves: its lng/lat stays the
   // real station's GPS location in every view.
-  el.style.pointerEvents = viewMode === 'hourly' ? 'none' : 'auto';
+  // isPublicEdition joins the hourly case here so the pill loses its hover
+  // grow/shadow too — with no modal behind it, a pill that still animates
+  // under the cursor is just promising something that never happens.
+  el.style.pointerEvents = (isPublicEdition || viewMode === 'hourly') ? 'none' : 'auto';
   el.innerHTML = `<span class="dot"></span>${tempC.toFixed(1)}°C`;
 }
 
@@ -8386,13 +8489,15 @@ function renderReportPill(key) {
   if (!el) {
     el = document.createElement('div');
     el.className = 'station-pill';
-    el.addEventListener('click', (e) => { e.stopPropagation(); openReportPillModal(key); });
+    if (!isPublicEdition) el.addEventListener('click', (e) => { e.stopPropagation(); openReportPillModal(key); });
     reportPillMarker = new maplibregl.Marker({ element: el, anchor: 'center', subpixelPositioning: true })
       .setLngLat([loc.lon, loc.lat]).addTo(map);
   }
   el.title = `${loc.name} official snow report${reportPillData.updatedText ? ' · updated ' + reportPillData.updatedText : ''}`;
   el.style.background = pwTempColor(reportPillData.tempC);
   el.style.display = pwRealPillsShouldShow() ? '' : 'none';
+  // Matches pwRenderPill — no modal on the public site, so no hover cue either.
+  el.style.pointerEvents = isPublicEdition ? 'none' : 'auto';
   el.innerHTML = `<span class="dot"></span>${reportPillData.tempC.toFixed(1)}°C`;
 }
 

@@ -217,7 +217,7 @@
   padding: 3px;
   background: rgba(54, 54, 62, 0.85);
   backdrop-filter: blur(14px);
-  border: 1px solid rgba(255, 255, 255, 0.14);
+  border: none;
   border-radius: 999px;
   box-shadow: 0 4px 24px rgba(0, 0, 0, 0.3);
 }
@@ -662,7 +662,7 @@
   margin: 8px auto;
   background: rgba(54, 54, 62, 0.85);
   backdrop-filter: blur(14px);
-  border: 1px solid rgba(255, 255, 255, 0.14);
+  border: none;
   border-radius: 24px;
   padding: 3px;
   box-shadow: 0 4px 24px rgba(0, 0, 0, 0.3);
@@ -794,7 +794,7 @@
   padding: 8px 20px;
   background: rgba(54, 54, 62, 0.85);
   backdrop-filter: blur(14px);
-  border: 1px solid rgba(255, 255, 255, 0.14);
+  border: none;
   border-radius: 24px;
   color: #fff;
   font-size: 0.95em;
@@ -891,7 +891,7 @@
   border-radius: 50%;
   background: rgba(54, 54, 62, 0.85);
   backdrop-filter: blur(14px);
-  border: 1px solid rgba(255, 255, 255, 0.14);
+  border: none;
   color: #fff;
   display: flex;
   align-items: center;
@@ -1221,7 +1221,7 @@
     align-items: center;
     background: rgba(54, 54, 62, 0.85);
     backdrop-filter: blur(14px);
-    border: 1px solid rgba(255, 255, 255, 0.14);
+    border: none;
   }
   .map-resort-switch .resort-button:hover {
     background: rgba(70, 70, 80, 0.9);
@@ -1332,17 +1332,30 @@
     pointer-events: auto;
   }
 
-  /* Settings cog shares the resort switcher's row/pointer-events treatment.
-     margin-left:auto pushes it to the row's right edge regardless of the
-     !important justify-content:flex-start above (that flex-start exists so
-     the switcher itself hugs the left edge — it wasn't written expecting a
-     second item). NOTE: at this width #top-controls (Live/Hourly/Accum,
-     inside the iframe) also sits top-right — this may crowd/overlap it on a
-     true narrow phone; flagged for a live-device check, not verified here. */
+  /* Settings cog drops to the SECOND row, right-hand end — the crowding the
+     old note here flagged as "not verified" turned out to be real. Row one is
+     the resort switcher plus the iframe's mode pills (#top-controls), and on a
+     390px phone those five pills could not fit beside a cog: the pill group
+     scrolled instead, hiding Isobars off its right edge with nothing to
+     indicate more existed. Moving the cog down hands that ~46px back to the
+     pills, which now fit whole (see #top-controls / .pill-btn in
+     whakapapa-snow-forecast.html's mobile block, sized against it).
+     top:60px puts it level with the iframe's own second-row buttons
+     (#obs-toggle / #rotate-toggle, both top:60px) — one tidy row of controls,
+     map buttons at the left end and the cog at the right. Absolute rather than
+     margin-left:auto now that it no longer shares a flex row with the
+     switcher; pointer-events:auto because the container opts out. */
   .map-resort-switch .map-settings-menu {
     pointer-events: auto;
-    margin-left: auto;
-    margin-right: 12px;
+    position: absolute;
+    top: 60px;
+    right: 12px;
+    margin: 0;
+  }
+  /* Below 360px the mode pills take a row to themselves (see #top-controls in
+     whakapapa-snow-forecast.html), so everything under them shifts down one. */
+  @media (max-width: 359px) {
+    .map-resort-switch .map-settings-menu { top: 106px; }
   }
   .map-settings-toggle {
     width: 38px;
@@ -1472,6 +1485,22 @@
      sits at y=39 — same as the iframe's fixed-`top:20px`, 38px-tall elements
      (pill-group/model-switch) — instead of the old 10px-top/10px-bottom
      padding, which centered the cog ~10px higher than everything else. */
+  /* 701-1200px: the settings cog drops to row two, mirroring what it does on
+     mobile and for the same reason — row one cannot hold the icon ladder, the
+     switcher, the mode pills AND a right-hand cluster at these widths, and the
+     way it failed was the mode pills silently scrolling Isobars out of sight.
+     right:20px keeps it the outermost item of row two, with the iframe's
+     #model-switch landing just inside it at right:68px (see that file's
+     matching 701-1200 block). Above 1200px it returns to row one. */
+  @media (max-width: 1200px) {
+    .map-resort-switch .map-settings-menu {
+      position: absolute;
+      top: 70px;
+      right: 20px;
+      margin: 0;
+    }
+  }
+
   .map-resort-switch {
     position: absolute;
     top: 0;
@@ -1514,14 +1543,16 @@
   }
   /* Match height/background to the iframe's pill-group and model-switch
      (both 38px tall). Background is a genuine mid-grey (not a darkened
-     black) with a faint light border, so the pill still reads clearly
-     against a pure-black dark-mode sky, not just against the map imagery. */
+     black), so the pill still reads clearly against a pure-black dark-mode
+     sky, not just against the map imagery. The faint white hairline border
+     it used to carry is gone — dropped across every button in both the app
+     and the map page for a cleaner look. */
   .map-resort-switch .resort-button {
     height: 38px;
     box-sizing: border-box;
     background: rgba(54, 54, 62, 0.85);
     backdrop-filter: blur(14px);
-    border: 1px solid rgba(255, 255, 255, 0.14);
+    border: none;
     box-shadow: 0 4px 24px rgba(0, 0, 0, 0.3);
   }
   .map-resort-switch .resort-button:hover {
@@ -1539,7 +1570,7 @@
   border-radius: 50%;
   background: rgba(54, 54, 62, 0.85);
   backdrop-filter: blur(14px);
-  border: 1px solid rgba(255, 255, 255, 0.14);
+  border: none;
   color: #fff;
   display: inline-flex;
   align-items: center;
@@ -1624,7 +1655,7 @@
   border-radius: 50%;
   background: rgba(54, 54, 62, 0.85);
   backdrop-filter: blur(14px);
-  border: 1px solid rgba(255, 255, 255, 0.14);
+  border: none;
   color: #fff;
   display: inline-flex;
   align-items: center;
@@ -1989,7 +2020,7 @@
   border-radius: 50%;
   background: rgba(20, 24, 30, 0.85);
   backdrop-filter: blur(10px);
-  border: 1px solid rgba(255, 255, 255, 0.14);
+  border: none;
   color: #fff;
   display: flex;
   align-items: center;
@@ -2038,7 +2069,7 @@
   border-radius: 50%;
   background: rgba(20, 24, 30, 0.85);
   backdrop-filter: blur(10px);
-  border: 1px solid rgba(255, 255, 255, 0.14);
+  border: none;
   color: #fff;
   display: flex;
   align-items: center;

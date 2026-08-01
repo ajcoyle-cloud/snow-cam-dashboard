@@ -4,7 +4,7 @@ import { Camera, LineChart, Map as MapIcon, Snowflake, Settings, Wind, Newspaper
 import { computeStormArrival, STORM_BAND_LABELS } from './stormArrival'
 import { subscribeRuapehuProfile } from './pwObs'
 import TrackingPage from './TrackingPage'
-import { HAS_WEBCAMS, HAS_SNOW_REPORTS } from './edition'
+import { HAS_WEBCAMS, HAS_SNOW_REPORTS, IS_PUBLIC } from './edition'
 import './App.css'
 
 const METEOBLUE_API_KEY = import.meta.env.VITE_METEOBLUE_API_KEY || 'DEMO'
@@ -31,6 +31,14 @@ const STORM_ARRIVAL_ENABLED = false
 // thrash the iframe with a new URL every time — only an actual fresh load
 // of the outer app changes this and busts the cache.
 const IFRAME_CACHE_BUST = Date.now()
+
+// whakapapa-snow-forecast.html is a static public/ file, so Vite never
+// processes it and import.meta.env doesn't exist in there — the edition has to
+// travel over the same query-string channel the page already uses for its other
+// modes (?resort=, ?highres=, ?snow=). Passing the edition itself rather than a
+// flag per behaviour means the next per-edition difference on the map needs no
+// new parameter. Appended to every embed of that page below.
+const MAP_EDITION_QS = IS_PUBLIC ? '&edition=public' : ''
 
 // Every lat/lon here is a real point ON the field (the base area unless noted),
 // not the 1-decimal placeholders several of these started as — those sat 7-36km
@@ -3423,7 +3431,7 @@ function SnowfallForecast({ resort, setResort, onOpenCompare }) {
                       key={i}
                       onClick={clickable ? () => {
                         const iso = d.datetime.toISOString().slice(0, 16)
-                        window.open(`/whakapapa-snow-forecast.html?resort=${resort}&time=${iso}`, '_blank')
+                        window.open(`/whakapapa-snow-forecast.html?resort=${resort}&time=${iso}${MAP_EDITION_QS}`, '_blank')
                       } : dayTap ? () => handleDayTap(i) : undefined}
                       title={clickable ? 'Open 3D snow elevation view for this hour' : dayTap ? 'View hourly detail for this day' : undefined}
                       style={{ width: `${tableCellWidth}px`, color: m.key === 'gfs' ? '#3b82f6' : m.color, fontWeight: 'bold', background: 'rgba(26, 26, 26, 0.15)', lineHeight: 1.1, paddingTop: '1px', paddingBottom: '1px', cursor: (clickable || dayTap) ? 'pointer' : 'default' }}>
@@ -4076,7 +4084,7 @@ function ForecastMap3D({ resort, setResort, viewMode, onViewModeChange }) {
         <iframe
           ref={iframeRef}
           className="map-3d-frame"
-          src={`/whakapapa-snow-forecast.html?resort=${initialResortRef.current}${initialViewRef.current ? `&view=${initialViewRef.current}` : ''}&v=${IFRAME_CACHE_BUST}`}
+          src={`/whakapapa-snow-forecast.html?resort=${initialResortRef.current}${initialViewRef.current ? `&view=${initialViewRef.current}` : ''}&v=${IFRAME_CACHE_BUST}${MAP_EDITION_QS}`}
           style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', border: 'none', borderRadius: 0, display: 'block' }}
           allowFullScreen
         />
@@ -4111,7 +4119,7 @@ function SnowTestPage({ resort, setResort }) {
         <iframe
           key={resort}
           className="map-3d-frame"
-          src={`/whakapapa-snow-forecast.html?resort=${resort}&snow=1&v=${IFRAME_CACHE_BUST}`}
+          src={`/whakapapa-snow-forecast.html?resort=${resort}&snow=1&v=${IFRAME_CACHE_BUST}${MAP_EDITION_QS}`}
           style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', border: 'none', display: 'block' }}
           allowFullScreen
         />
@@ -4147,7 +4155,7 @@ function HighResSnowPage({ resort, setResort }) {
         <iframe
           key={resort}
           className="map-3d-frame"
-          src={`/whakapapa-snow-forecast.html?resort=${resort}&highres=1&v=${IFRAME_CACHE_BUST}`}
+          src={`/whakapapa-snow-forecast.html?resort=${resort}&highres=1&v=${IFRAME_CACHE_BUST}${MAP_EDITION_QS}`}
           style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', border: 'none', display: 'block' }}
           allowFullScreen
         />
@@ -4208,11 +4216,30 @@ const DEFAULT_RESORT = 'ruapehu'
 // display name is "Whakapapa", the key predates that name and was never
 // renamed). A URL should read as what's on screen, so slugify the name
 // instead of exposing the internal key.
+// The NFD pass folds macronised vowels to plain ASCII (Ō -> O) BEFORE the
+// [^a-z0-9] strip gets to them. Without it the strip treated 'ō' as punctuation
+// and deleted it outright, so Ōhau's URL came out as "/hau" — the leading
+// vowel simply gone. Any te reo name with a macron hit this; Ōhau was just the
+// first resort to have one. NFD splits a macronised vowel into base letter plus
+// a combining mark in the U+0300-036F block, so dropping that block leaves the
+// letter behind instead of losing the pair.
 function slugify(name) {
-  return name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '')
+  return name
+    .normalize('NFD').replace(/[̀-ͯ]/g, '')
+    .toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '')
 }
 const RESORT_SLUG_BY_KEY = Object.fromEntries(Object.entries(RESORTS).map(([key, r]) => [key, slugify(r.name)]))
 const RESORT_KEY_BY_SLUG = Object.fromEntries(Object.entries(RESORT_SLUG_BY_KEY).map(([key, slug]) => [slug, key]))
+// Keep the pre-fix slugs resolving. "/hau" and "/forecast/hau" are in people's
+// history and bookmarks (and in analytics), and without this they'd stop
+// matching any resort and silently fall back to the default one — a worse
+// failure than the ugly URL was. Derived from the old slugify rather than
+// hardcoded, so any future macron name gets the same courtesy automatically.
+// Only fills slots the new slugs don't already own.
+for (const [key, r] of Object.entries(RESORTS)) {
+  const legacy = r.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '')
+  if (legacy && !RESORT_KEY_BY_SLUG[legacy]) RESORT_KEY_BY_SLUG[legacy] = key
+}
 
 // URL shape is "/<tab>/<resort>", e.g. "/tukino" (Webcams is the default tab
 // so it has no path prefix), "/forecast/cardrona". buildPath always writes
