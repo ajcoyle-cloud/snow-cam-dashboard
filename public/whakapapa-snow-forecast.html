@@ -61,6 +61,8 @@
     gap: 4px; padding: 4px; height: 38px; min-height: 38px;
   }
 
+  html.public-edition #mode-switch [data-mode="live"] { display: none; }
+
   /* ── Dark, fully-rounded zoom/compass control pill ──────────────────── */
   /* Pushed clear of the top control row. MapLibre anchors this to the map's
      own top-right, which is exactly where the React layer floats its settings
@@ -1475,6 +1477,14 @@ const isHighResMode = new URLSearchParams(window.location.search).get('highres')
 // the full behaviour, so the standalone page and the family site are
 // unaffected, same as the flag in src/edition.js.
 const isPublicEdition = new URLSearchParams(window.location.search).get('edition') === 'public';
+// Live is the observed-stations view — the live temperature pills, their 24h
+// ranges and station provenance. That's the enthusiast layer the public build
+// already drops the tap-through readouts for, so the whole mode goes with them
+// rather than leaving a tab that opens onto a thinner version of itself. The
+// class drives the pill's own display (see the rule with the row states); the
+// coercion in setViewMode covers every other way in — a remembered
+// localStorage mode, a ?view=live, a shared /map/<resort>/live link.
+if (isPublicEdition) document.documentElement.classList.add('public-edition');
 {
   const orographicBtn = document.getElementById('orographic-toggle');
   if (orographicBtn) orographicBtn.style.display = 'none';
@@ -6731,6 +6741,9 @@ function flyToResortView() {
 }
 
 function setViewMode(mode) {
+  // Public build has no Live — fall back to Hourly rather than to a blank
+  // pill row, so an old bookmark or a remembered mode still lands somewhere.
+  if (isPublicEdition && mode === 'live') mode = 'hourly';
   const prevMode = viewMode;
   // No NZ radar coverage for this resort (the US ones) — fall back rather
   // than entering a mode that can never load anything.
