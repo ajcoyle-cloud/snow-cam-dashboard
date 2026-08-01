@@ -20,6 +20,13 @@
   }
 
   /* ── Dark, fully-rounded zoom/compass control pill ──────────────────── */
+  /* Pushed clear of the top control row. MapLibre anchors this to the map's
+     own top-right, which is exactly where the React layer floats its settings
+     cog (.map-settings-menu, 38px at top:20px — a different document, so
+     neither knows about the other and they simply stacked). 68px clears that
+     cog's 20+38 with 10px to spare, putting the zoom pill directly beneath it
+     rather than under it. */
+  .maplibregl-ctrl-top-right { margin-top: 68px; }
   .maplibregl-ctrl-top-right .maplibregl-ctrl-group {
     background: rgba(20,20,20,0.78);
     backdrop-filter: blur(14px);
@@ -2346,11 +2353,20 @@ function syncTopControlsLayout() {
   const modelSwitch = document.getElementById('model-switch');
   if (!topControls || !modelSwitch) return;
   if (window.innerWidth <= 700) { topControls.style.maxWidth = ''; return; }
-  if (getComputedStyle(modelSwitch).display === 'none') { topControls.style.maxWidth = ''; return; }
   const gap = 10;
-  const modelLeft = modelSwitch.getBoundingClientRect().left;
   const topControlsLeft = topControls.getBoundingClientRect().left;
-  topControls.style.maxWidth = Math.max(120, modelLeft - topControlsLeft - gap) + 'px';
+  // Radar and Isobars hide the model switch, and this used to clear the cap
+  // and return the moment that happened — leaving nothing at all to the right
+  // of these pills, so on a wide window they ran straight under the React
+  // layer's settings cog and Isobars disappeared behind it. The cog is in the
+  // parent document and cannot be measured from in here, but its geometry is
+  // fixed and known: 38px wide at right:20px (App.css), so its left edge is
+  // always 58px in from the right. Fall back to that instead of to nothing.
+  const modelHidden = getComputedStyle(modelSwitch).display === 'none';
+  const rightEdge = modelHidden
+    ? window.innerWidth - 58
+    : modelSwitch.getBoundingClientRect().left;
+  topControls.style.maxWidth = Math.max(120, rightEdge - topControlsLeft - gap) + 'px';
 }
 window.addEventListener('resize', syncTopControlsLayout);
 
