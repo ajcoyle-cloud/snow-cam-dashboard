@@ -1,6 +1,6 @@
 // Updated with Loveland ski area and forecast view switcher
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { Camera, LineChart, Map as MapIcon, Snowflake, Settings, Wind, Newspaper, Volume2, Square, Loader2, List, ArrowLeft, Video, ArrowUpToLine, ArrowDownToLine, Route } from 'lucide-react'
+import { Camera, LineChart, Map as MapIcon, Snowflake, Settings, MountainSnow, Newspaper, Volume2, Square, Loader2, List, ArrowLeft, Video, ArrowUpToLine, ArrowDownToLine, Route } from 'lucide-react'
 import { computeStormArrival, STORM_BAND_LABELS } from './stormArrival'
 import { subscribeRuapehuProfile } from './pwObs'
 import TrackingPage from './TrackingPage'
@@ -4175,7 +4175,7 @@ const NAV_ITEMS = [
   { id: 'map', label: 'Map', Icon: MapIcon, path: '/map' },
   // Own tab, deliberately not integrated into the Map tab or Snow Test —
   // see HighResSnowPage above.
-  { id: 'highres', label: 'High-Res', Icon: Wind, path: '/highres' },
+  { id: 'highres', label: 'High-Res', Icon: MountainSnow, path: '/highres' },
   { id: 'reports', label: 'Snow Reports', Icon: Newspaper, path: '/reports', hidden: !HAS_SNOW_REPORTS },
   // Own top-level tab, not a Map-tab mode toggle — see TrackingPage.jsx.
   // Temporarily hidden from prod nav while route playback is still being
