@@ -3387,7 +3387,15 @@ function initMap() {
     // raw wet-bulb lines would just be a second formula free to disagree.
     const inSleetBand = viewMode === 'hourly' && currentSleetBand
       && elev >= currentSleetBand.floor && elev < currentSleetBand.top;
-    const label = inSleetBand && depthCm < 0.05 ? 'sleet' : `${depthCm.toFixed(1)}cm`;
+    // A bare "0.0cm" on terrain the drape has clearly painted as snow reads as
+    // a broken probe, the same way the sleet band did before it got named. It
+    // isn't broken: getDepthAtElevation ramps from 0cm AT the snow line up to
+    // the summit total, so the first stretch above that line genuinely rounds
+    // to nothing. "trace" says that honestly — there is snow here, not enough
+    // to measure — where a zero says the readout failed.
+    const label = depthCm < 0.05
+      ? (inSleetBand ? 'sleet' : 'trace')
+      : `${depthCm.toFixed(1)}cm`;
     if (viewMode === 'accumulated') {
       // Move the black snowfall pill to the tapped point (depth there) and
       // restart its 4s fade — the pill is the readout on the accumulated map.
