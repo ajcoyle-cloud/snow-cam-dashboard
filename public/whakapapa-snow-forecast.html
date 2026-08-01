@@ -494,7 +494,11 @@
      #top-controls' own now-superseded overflow-x approach (see that
      comment), just one level down, only kicking in once even mode-switch
      alone doesn't fit. */
-  #mode-switch { min-width: 0; max-width: 100%; overflow-x: auto; }
+  /* Never scroll. Scrolling silently CUT pills off — the "Live Hourly" crop
+     seen on desktop, with Accum/Radar/Isobars simply gone and no indication
+     they existed. Let the row overflow visibly or wrap instead; a layout
+     that looks wrong is fixable, a mode that vanished is not discoverable. */
+  #mode-switch { min-width: 0; max-width: 100%; overflow-x: visible; }
   #mode-switch::-webkit-scrollbar { display: none; }
 
   /* ── Model switcher (top-right) — single-select, same visual language as
