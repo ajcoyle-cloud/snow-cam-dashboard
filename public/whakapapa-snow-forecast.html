@@ -4337,6 +4337,13 @@ function registerOrographicAccumProtocol() {
         // multiplier throughout lands at 0, heaviest throughout at 1.
         const REF_LO = flatTotalCm * M_LO, REF_HI = flatTotalCm * M_HI;
         const refSpan = Math.max(0.001, REF_HI - REF_LO);
+        // Absolute floor, deliberately NOT derived from the relative scale
+        // above — its whole job is to answer "did any snow land here at all",
+        // which the ratio to flatTotalCm cannot. Half a centimetre over the
+        // window is nothing anyone would ski, and the 2cm fade above it keeps
+        // the snow's edge soft rather than a hard outline. See where these
+        // are applied in the per-pixel loop below.
+        const ACCUM_MIN_CM = 0.5, ACCUM_FADE_CM = 2;
 
         for (let py = 0; py < size; py++) {
           const yp1 = Math.min(size - 1, py + 1);
@@ -4360,9 +4367,22 @@ function registerOrographicAccumProtocol() {
             const f = shade * darken;
 
             const accumCm = orographicAccumAtPoint(precomputedHours, elevHere, gradEast, gradNorth);
+            // Paint only where snow actually landed. The ramp above is
+            // RELATIVE — t measures this point against the flat total, so a
+            // point with nothing at all scores below REF_LO, goes negative,
+            // and clamps to the ramp's bottom band. That band is a vivid
+            // colour, so bare ground came out drenched in it and read as the
+            // heaviest thing on screen while the tap probe correctly answered
+            // 0cm. The probe was never wrong; the drape was claiming snow
+            // where there was none. Anything under ACCUM_MIN_CM now drops out
+            // entirely, with a short fade above it so the snow's edge doesn't
+            // become a hard cartoon outline.
+            if (accumCm < ACCUM_MIN_CM) { out.data[o + 3] = 0; continue; }
             const t = (accumCm - REF_LO) / refSpan;
             const [cR, cG, cB] = orographicRampColor(t);
-            out.data[o] = cR * f; out.data[o + 1] = cG * f; out.data[o + 2] = cB * f; out.data[o + 3] = 225;
+            const edgeFade = Math.min(1, (accumCm - ACCUM_MIN_CM) / ACCUM_FADE_CM);
+            out.data[o] = cR * f; out.data[o + 1] = cG * f; out.data[o + 2] = cB * f;
+            out.data[o + 3] = 225 * edgeFade;
           }
         }
       }
