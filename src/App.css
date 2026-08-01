@@ -128,7 +128,47 @@
   height: 100%;
   display: flex;
   flex-direction: column;
+  /* Containing block for the map overlay. Without it .map-resort-switch's
+     absolutely-positioned children resolved against the viewport, so any
+     left/right offset counted the sidebar in — which is how the switcher
+     ended up sitting on top of the nav. Everything positioned over the map
+     now measures from the map's own edges. */
+  position: relative;
 }
+
+/* ── Top-bar row states ───────────────────────────────────────────────────
+   Driven by syncTopBarRows() in App.jsx, which measures every cluster and
+   picks the layout: one row while all of them clear each other by >=4px,
+   otherwise stack. Replaces guessing at breakpoints — the old @media bands
+   couldn't know how wide "The Remarkables" renders, or that hiding the model
+   switch in Radar frees 121px. The same class goes on the iframe's <html>
+   (see whakapapa-snow-forecast.html) so both documents lay out from one
+   decision. Nothing ever shrinks; the only variable is which row you're on.
+     rows-1  everything on one line
+     rows-2  switcher + mode pills | icon ladder + model switch + cog
+     rows-3  switcher | mode pills | icon ladder + model switch + cog
+   These beat the @media rules on specificity, so those stay as the
+   pre-JS fallback for the first paint. */
+/* Left-anchored in every state, one row or three. Its default rule pins the
+   switcher's RIGHT edge 8px left of the centreline, which made its position
+   depend on the viewport rather than on what sits beside it — so on one row
+   at ~1200px the right-anchored pills walked straight into it. A location
+   label belongs in the corner anyway, and now every cluster on the row is
+   anchored to an edge instead of to the middle. */
+.map-region.rows-1 .map-resort-switch .resort-selector,
+.map-region.rows-2 .map-resort-switch .resort-selector,
+.map-region.rows-3 .map-resort-switch .resort-selector {
+  left: var(--switcher-left, 20px);
+  transform: translateY(-50%);
+}
+.map-region.rows-2 .map-resort-switch .map-settings-menu,
+.map-region.rows-3 .map-resort-switch .map-settings-menu {
+  position: absolute;
+  right: 20px;
+  margin: 0;
+}
+.map-region.rows-2 .map-resort-switch .map-settings-menu { top: 66px; }
+.map-region.rows-3 .map-resort-switch .map-settings-menu { top: 112px; }
 
 .region-title {
   color: white;

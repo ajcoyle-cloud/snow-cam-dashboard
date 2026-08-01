@@ -19,6 +19,48 @@
     color: #fff;
   }
 
+  /* ── Top-bar row states (set by syncTopBarRows() in App.jsx) ───────────
+     The parent measures every cluster across both documents — same origin,
+     so it can read this one directly — and stamps rows-1/2/3 on <html> here
+     and on .map-region there. One decision, both layers. Element+class
+     specificity puts these above every @media rule below, which stay on as
+     the fallback for the first paint before the script runs.
+       rows-1  one line
+       rows-2  switcher + pills | ladder + model + cog
+       rows-3  switcher | pills | ladder + model + cog
+     Row tops are 20 / 66 / 112 — 38px tall each with an 8px gutter. */
+  html.rows-2 #top-controls,
+  html.rows-3 #top-controls {
+    transform: none; width: max-content; max-width: none; flex-wrap: nowrap;
+  }
+  html.rows-1 #top-controls {
+    top: 20px; left: auto; right: var(--tc-right, 200px);
+    transform: none; width: max-content; max-width: none; justify-content: flex-end;
+  }
+  html.rows-2 #top-controls { top: 20px; left: auto; right: 20px; justify-content: flex-end; }
+  /* Own row, full width. Below ~360px even a whole row isn't enough for five
+     pills at full size, so the group wraps to a second line — wrapping keeps
+     every pill readable and present, which shrinking and scrolling both fail
+     to do. */
+  html.rows-3 #top-controls {
+    top: 66px; left: 20px; right: 20px; width: auto; justify-content: flex-start;
+  }
+  html.rows-3 #mode-switch { max-width: 100%; }
+  html.rows-3 .pill-group { flex-wrap: wrap; height: auto; }
+  html.rows-2 #map-enlarge, html.rows-2 #obs-toggle,
+  html.rows-2 #rotate-toggle, html.rows-2 #split-toggle { top: 66px; }
+  html.rows-3 #map-enlarge, html.rows-3 #obs-toggle,
+  html.rows-3 #rotate-toggle, html.rows-3 #split-toggle { top: 112px; }
+  html.rows-2 #model-switch, html.rows-2 #map-screen.is-fullscreen #model-switch { top: 66px; right: 68px; }
+  html.rows-3 #model-switch, html.rows-3 #map-screen.is-fullscreen #model-switch { top: 112px; right: 68px; }
+  /* Nothing shrinks any more: one size at every width, on every row. */
+  html.rows-1 .pill-btn, html.rows-2 .pill-btn, html.rows-3 .pill-btn {
+    padding: 0 12px; font-size: 0.78rem;
+  }
+  html.rows-1 .pill-group, html.rows-2 .pill-group, html.rows-3 .pill-group {
+    gap: 4px; padding: 4px; height: 38px; min-height: 38px;
+  }
+
   /* ── Dark, fully-rounded zoom/compass control pill ──────────────────── */
   /* Pushed clear of the top control row. MapLibre anchors this to the map's
      own top-right, which is exactly where the React layer floats its settings

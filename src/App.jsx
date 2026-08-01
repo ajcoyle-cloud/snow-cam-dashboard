@@ -4016,6 +4016,72 @@ function ForecastMap3D({ resort, setResort, viewMode, onViewModeChange }) {
   // every later change travels by postMessage rather than reloading the map.
   const initialViewRef = useRef(viewMode)
   const iframeRef = useRef(null)
+  // Top-bar row layout. Measures every cluster's real rendered width and picks
+  // the layout, rather than guessing at breakpoints: a @media rule can't know
+  // how wide "The Remarkables" renders, or that Radar hides the model switch
+  // and frees 121px, and getting either wrong is what kept cutting pills off.
+  // Both documents are same-origin, so this reads the map page directly and
+  // stamps one decision onto both. Nothing is ever allowed to shrink — the
+  // only variable is which row a cluster sits on.
+  const syncTopBarRows = useCallback(() => {
+    const frame = iframeRef.current
+    const region = frame?.closest('.map-region')
+    const doc = frame?.contentDocument
+    if (!region || !doc) return
+    const shown = (el) => el && getComputedStyle(el).display !== 'none'
+    const wide = (el) => (shown(el) ? el.getBoundingClientRect().width : 0)
+    // scrollWidth, not the clipped rendered width — the pills' natural size is
+    // the whole question, and reading the visible box is what let a clipped
+    // row look like it fitted.
+    const modeSwitch = doc.getElementById('mode-switch')
+    const pills = shown(modeSwitch) ? modeSwitch.scrollWidth + 8 : 0
+    // Icon ladder: right edge of the furthest button that's actually visible.
+    let ladder = 0
+    for (const id of ['map-enlarge', 'obs-toggle', 'rotate-toggle', 'split-toggle',
+                      'snow-toggle', 'snow-overlay-toggle', 'basemap-toggle', 'contour-toggle']) {
+      const el = doc.getElementById(id)
+      if (shown(el)) ladder = Math.max(ladder, el.getBoundingClientRect().right)
+    }
+    ladder = ladder ? ladder - 20 : 0
+    const GAP = 4
+    const switcher = wide(region.querySelector('.map-resort-switch .resort-button'))
+    const model = wide(doc.getElementById('model-switch'))
+    const cog = wide(region.querySelector('.map-settings-toggle'))
+    const W = region.clientWidth
+    const need = 20 + ladder + GAP + switcher + GAP + pills + GAP + model + GAP + cog + 20
+    // rows-2 vs rows-3 is measured, not a width guess: the question is only
+    // ever "do the switcher and the pills fit on a line together". A constant
+    // 430px breakpoint got this wrong for every resort whose name is longer
+    // than Whakapapa's.
+    const pairFits = 20 + switcher + GAP + pills + 20 <= W
+    const rows = need <= W ? 1 : (pairFits ? 2 : 3)
+    // On one row the pills are right-anchored ahead of the model switch and
+    // cog rather than pinned to the centreline. Centre-anchoring took no
+    // account of what sits to its right, so a wide pill group ran under the
+    // cog even at widths where everything genuinely fitted.
+    // Reserve measured off where #model-switch actually sits (right:68px) when
+    // it's showing, and off the cog (right:20px, 38px wide) when it isn't.
+    doc.documentElement.style.setProperty('--tc-right', `${model ? 68 + model + GAP : 58 + GAP}px`)
+    // On one row the switcher follows the icon ladder rather than sharing its
+    // 20px inset; once stacked, the ladder is on another row and 20px is right.
+    region.style.setProperty('--switcher-left', rows === 1 ? `${20 + ladder + 8}px` : '20px')
+    for (const el of [region, doc.documentElement]) {
+      el.classList.remove('rows-1', 'rows-2', 'rows-3')
+      el.classList.add(`rows-${rows}`)
+    }
+  }, [])
+  useEffect(() => {
+    // Re-measure on anything that changes a cluster's width: the window, the
+    // resort (name length), and the view mode (Radar/Isobars hide the model
+    // switch). rAF lets the class land before we read back.
+    const run = () => requestAnimationFrame(syncTopBarRows)
+    run()
+    const frame = iframeRef.current
+    frame?.addEventListener('load', run)
+    window.addEventListener('resize', run)
+    const t = setInterval(run, 1000) // the map page shows/hides controls on its own schedule
+    return () => { frame?.removeEventListener('load', run); window.removeEventListener('resize', run); clearInterval(t) }
+  }, [syncTopBarRows, resort, viewMode])
   // The resort value the iframe is currently showing/flying toward — kept in
   // sync from both directions (this component telling the iframe, or the
   // iframe's own resort pill telling this component) so a change originating
