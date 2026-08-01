@@ -14,6 +14,13 @@ const METEOBLUE_API_KEY = import.meta.env.VITE_METEOBLUE_API_KEY || 'DEMO'
 // Flip to true to bring it back; no other change needed.
 const AI_SUMMARY_ENABLED = false
 
+// Storm-arrival banner (StormArrivalBanner below) — off in both editions.
+// It was only ever wired up for Mt Lyford as a demo, and it sat on the
+// Webcams tab, which the public edition doesn't have. Rather than move it
+// somewhere it hasn't been designed for, it's off everywhere for now.
+// Flip to true to bring it back; no other change needed.
+const STORM_ARRIVAL_ENABLED = false
+
 // whakapapa-snow-forecast.html is a plain public/ file (no content-hashed
 // filename like the bundled JS/CSS get), so nothing forces the browser to
 // fetch a fresh copy after a deploy — iOS Safari in particular will happily
@@ -4411,7 +4418,7 @@ export default function App() {
               <ResortSelector resort={resort} setResort={setResort} />
               <GridSizeSwitcher cols={gridCols} setCols={setGridCols} />
             </div>
-            <StormArrivalBanner resort={resort} onOpenRadar={openMtLyfordRadar} />
+            {STORM_ARRIVAL_ENABLED && <StormArrivalBanner resort={resort} onOpenRadar={openMtLyfordRadar} />}
             <CameraGrid cameras={orderCamerasByResort(ALL_CAMERAS, resort)} cols={gridCols} />
           </section>
         )}
