@@ -1803,6 +1803,39 @@ function liftDataFor(key) {
 // it, for a resort with none) on every switch after that. A plain
 // source.setData() is enough here (unlike the tile-protocol overlays' remove
 // +re-add refresh pattern) since this is real GeoJSON, not a per-tile cache.
+// Zoom that fits a resort's lift extent to the viewport, for the High-Res
+// page (see the call site just before the map is created). Clamped to a
+// modest window around the resort's own tuned zoom so a resort with sparse
+// or missing lift data can never produce a wild camera — the fallback for no
+// data at all is the middle of that window. FILL is the one knob worth
+// touching if the framing wants to be tighter or looser.
+const HIRES_FILL = 0.78, HIRES_MIN_BOOST = 0.6, HIRES_MAX_BOOST = 2.2;
+function hiResZoomFor(key) {
+  const base = RESORT_CONFIG[key].zoom;
+  const data = liftDataFor(key);
+  if (!data || !data.features || !data.features.length) return base + 1.3;
+  let minLon = Infinity, maxLon = -Infinity, minLat = Infinity, maxLat = -Infinity;
+  for (const f of data.features) {
+    const coords = f.geometry && f.geometry.coordinates;
+    if (!coords) continue;
+    for (const c of coords) {
+      if (c[0] < minLon) minLon = c[0];
+      if (c[0] > maxLon) maxLon = c[0];
+      if (c[1] < minLat) minLat = c[1];
+      if (c[1] > maxLat) maxLat = c[1];
+    }
+  }
+  if (!isFinite(minLon) || !isFinite(minLat)) return base + 1.3;
+  const latRad = ((minLat + maxLat) / 2) * Math.PI / 180;
+  const widthM = (maxLon - minLon) * 111320 * Math.cos(latRad);
+  const heightM = (maxLat - minLat) * 110540;
+  // 200m floor guards a resort whose "lifts" are one short carpet.
+  const extentM = Math.max(widthM, heightM, 200);
+  const px = Math.max(320, Math.min(window.innerWidth, window.innerHeight)) * HIRES_FILL;
+  const z = Math.log2(156543.03392 * Math.cos(latRad) * px / extentM);
+  return Math.max(base + HIRES_MIN_BOOST, Math.min(base + HIRES_MAX_BOOST, z));
+}
+
 const EMPTY_FEATURE_COLLECTION = { type: 'FeatureCollection', features: [] };
 function applyLiftDataForResort(key) {
   if (!map) return;
@@ -3020,6 +3053,21 @@ function buildMapStyle() {
 
 function initMap() {
   if (map) return;
+  // High-Res lands much closer than the other views. Every resort's tuned
+  // `zoom` frames the whole massif, which is right for the forecast map but
+  // wastes the High-Res drape — the thing worth seeing there is the terrain
+  // the lifts actually serve, at a resolution you only notice up close.
+  // Derive that from the lift lines themselves rather than hand-tuning
+  // thirteen numbers: their bounding box IS "top of the top lift to the
+  // bottom of the bottom lift". Runs here, not beside the RESORT_CONFIG
+  // literal, because liftDataFor reads the per-resort GeoJSON consts declared
+  // further down this file — at parse time they're still in the temporal dead
+  // zone. Mutating RESORT_CONFIG in place is deliberate: LOC holds a
+  // reference to the same object, so the initial camera, every flyTo and
+  // every resort switch all pick this up with no further changes.
+  if (isHighResMode) {
+    for (const k in RESORT_CONFIG) RESORT_CONFIG[k].zoom = hiResZoomFor(k);
+  }
   map = new maplibregl.Map({
     container: 'map',
     zoom: LOC.zoom,
