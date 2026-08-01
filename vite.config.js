@@ -132,9 +132,27 @@ function snowReportDev(path, resolver) {
   }
 }
 
+// The browser tab title, per edition. index.html is the Vite entry (not a
+// static public/ file), so this is a build-time substitution — the tag is
+// already correct in the served HTML. Setting document.title from JS instead
+// would work but would show the wrong name until the bundle ran, which is
+// exactly the moment a tab title is being read.
+// Unset edition stays "SnowPoint", matching src/edition.js: the family site is
+// the default, and a missing or misspelt variable fails towards it.
+function editionTitle() {
+  return {
+    name: 'edition-title',
+    transformIndexHtml(html) {
+      const title = process.env.VITE_APP_EDITION === 'public' ? 'MountainLab' : 'SnowPoint';
+      return html.replace(/<title>[\s\S]*?<\/title>/, `<title>${title}</title>`);
+    },
+  };
+}
+
 export default defineConfig({
   plugins: [
     react(),
+    editionTitle(),
     lyfordCamDev(),
     ohauCamDev(),
     rainbowCamDev(),
