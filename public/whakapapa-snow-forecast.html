@@ -3094,12 +3094,17 @@ function buildMapStyle() {
           // away) paints those hills with Whakapapa's own storm total the
           // moment they cross ITS snow line, regardless of what that area's
           // own forecast actually says (reported bug: "11.4cm near Lake
-          // Taupo" that the per-location tables don't support). minzoom
-          // caps how far out this can be seen before the misleading colour
-          // disappears — real fix would need a genuine spatial precip grid
-          // (like the Isobars feature's gridded fetch), not just an
-          // elevation ramp.
-          id: 'snow-relief', type: 'color-relief', source: 'terrain', minzoom: 11,
+          // Taupo" that the per-location tables don't support).
+          //
+          // This layer used to carry minzoom: 11 to cap how far out that
+          // colour could be seen, at the cost of the drape vanishing entirely
+          // the moment you pulled back for a wider look at the mountain — the
+          // view where you most want to see where the storm sits. The drape
+          // now draws at every zoom; the distant-ranges caveat above is still
+          // true, so read colour far from the resort as "this elevation would
+          // get this, IF the same storm were overhead", not as a forecast for
+          // that spot. A real fix needs a genuine spatial precip grid (like
+          // the Isobars feature's gridded fetch), not an elevation ramp.
           paint: { 'color-relief-color': ['interpolate', ['linear'], ['elevation'], 0, 'rgba(255,255,255,0)'] }
         }
       ],
