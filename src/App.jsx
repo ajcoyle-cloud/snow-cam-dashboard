@@ -4067,6 +4067,25 @@ function ForecastMap3D({ resort, setResort, viewMode, onViewModeChange }) {
     if (!region || !doc) return
     const shown = (el) => el && getComputedStyle(el).display !== 'none'
     const wide = (el) => (shown(el) ? el.getBoundingClientRect().width : 0)
+    const up = (n) => Math.ceil(n)
+
+    // Mobile is its own layout, not a narrower desktop one. On ≤700px the five
+    // mode pills are replaced by a dropdown (see #mode-dropdown in the iframe),
+    // so the desktop row-measurement below — all about fitting the pills — does
+    // not apply. Match the iframe's own @media breakpoint exactly so the two
+    // documents agree on which regime they're in, hand over the switcher width
+    // the dropdown needs to sit beside it, and let CSS place the rest.
+    if (window.matchMedia('(max-width: 700px)').matches) {
+      const switcherEl = region.querySelector('.map-resort-switch .resort-button')
+      const sw = up(wide(switcherEl))
+      for (const el of [region, doc.documentElement]) {
+        el.classList.remove('rows-1', 'rows-2', 'rows-3')
+        el.classList.add('rows-mobile')
+      }
+      doc.documentElement.style.setProperty('--switcher-w', `${sw}px`)
+      return
+    }
+    for (const el of [region, doc.documentElement]) el.classList.remove('rows-mobile')
     // scrollWidth, not the clipped rendered width — the pills' natural size is
     // the whole question, and reading the visible box is what let a clipped
     // row look like it fitted.
@@ -4116,7 +4135,6 @@ function ForecastMap3D({ resort, setResort, viewMode, onViewModeChange }) {
     // with a 3.5px gap where the rules ask for 4 (caught by
     // scripts/layout-probe.mjs at 520px). Erring wide costs nothing: the
     // worst case is wrapping a row one notch of width earlier.
-    const up = (n) => Math.ceil(n)
     const switcherEl = region.querySelector('.map-resort-switch .resort-button')
     const switcher = up(wide(switcherEl))
     // --switcher-left says where the switcher's WRAPPER goes; the button

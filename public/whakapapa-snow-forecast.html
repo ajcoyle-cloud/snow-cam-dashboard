@@ -139,6 +139,53 @@
   html.rows-3 #top-controls .pill-group .pill-btn { height: 30px; }
 
   html.public-edition #mode-switch [data-mode="live"] { display: none; }
+  html.public-edition #mode-dropdown-list [data-mode="live"] { display: none; }
+
+  /* ── Mobile top bar (html.rows-mobile) ─────────────────────────────────
+     Set by syncTopBarRows() on ≤700px instead of rows-1/2/3. The five mode
+     pills become a single dropdown so the row reads:
+       [Location ▼]  [Map type ▼] ............... [⚙]
+     with the on-map icon tools and the model / period group on a second row.
+     Keyed on the class (not a viewport @media) so both documents — this page
+     and the React shell that owns the switcher and cog — switch together off
+     the one signal. Specificity (element + class + id) clears the older
+     `@media (max-width:700px)` `#id` rules further down without !important. */
+  html.rows-mobile #mode-switch { display: none; }
+  html.rows-mobile #mode-dropdown { display: flex; }
+  /* Row two, right end. Accum shows BOTH the 5/10/15 period group and the
+     model switch (a per-model accumulation), so they sit as a pair: the model
+     switch at the corner, the period group just left of it. #top-controls only
+     carries the period group here (the mode pills it also holds are hidden on
+     mobile), so positioning the container places the group. 122px = the model
+     switch's own ~100px plus a gap, so the two never touch; every other mode
+     hides the period group, leaving the model switch alone at the corner. */
+  html.rows-mobile #top-controls {
+    top: 62px; bottom: auto;
+    left: auto; right: 122px;
+  }
+  html.rows-mobile #mode-dropdown {
+    position: absolute; top: 14px;
+    /* Just right of the React location switcher, whose width this page can't
+       see — syncTopBarRows measures it and hands it over as --switcher-w. */
+    left: calc(var(--switcher-w, 140px) + 22px);
+    /* Never let the button run under the settings cog. 80px = this element's
+       left gap (22) + the cog (38), its right margin (12) and an 8px gap. On a
+       360px+ phone every label fits with room to spare; only at ~320px with
+       "Accumulated" does the cap bite, and then the label ellipsises instead
+       of sliding under the cog. */
+    max-width: calc(100vw - var(--switcher-w, 140px) - 80px);
+  }
+  html.rows-mobile #mode-dropdown-label {
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0;
+  }
+  html.rows-mobile #mode-dropdown-btn { min-width: 0; }
+  html.rows-mobile #obs-toggle { top: 62px; left: 14px; }
+  html.rows-mobile #rotate-toggle { top: 62px; left: 60px; }
+  /* Model switch shares row two's right end with nothing (period is Accum-only
+     and hides the model), so one position serves both. */
+  html.rows-mobile #model-switch,
+  html.rows-mobile #map-screen.is-fullscreen #model-switch { top: 62px; right: 12px; }
+  html.rows-mobile .maplibregl-ctrl-top-right { margin-top: 0; }
 
   /* ── Dark, fully-rounded zoom/compass control pill ──────────────────── */
   /* Pushed clear of the top control row. MapLibre anchors this to the map's
@@ -664,6 +711,39 @@
      the far right instead of overlapping: 20px edge + 38px cog + 10px gap. */
 
   #model-switch { position: absolute; top: 20px; right: 68px; z-index: 45; }
+
+  /* Mobile map-type dropdown — hidden until html.rows-mobile shows it (see the
+     mobile block up top). Same visual language as #model-switch's dropdown so
+     the two read as one family. */
+  #mode-dropdown { display: none; z-index: 46; align-items: center; }
+  #mode-dropdown-btn {
+    display: flex; align-items: center; gap: 8px;
+    height: 38px; box-sizing: border-box;
+    background: rgba(54,54,62,0.85); backdrop-filter: blur(14px);
+    border: none; color: #fff; border-radius: 999px;
+    padding: 0 16px; font-size: 0.82rem; font-weight: 700;
+    cursor: pointer; font-family: inherit; white-space: nowrap;
+    box-shadow: 0 4px 24px rgba(0,0,0,0.3);
+  }
+  #mode-dropdown.open .model-switch-arrow { transform: rotate(180deg); }
+  #mode-dropdown-list {
+    display: none;
+    position: absolute; top: calc(100% + 8px); left: 0;
+    background: rgba(20,20,20,0.92); backdrop-filter: blur(14px);
+    border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 12px; padding: 4px 0; min-width: 168px;
+    box-shadow: 0 8px 28px rgba(0,0,0,0.5);
+    z-index: 60;
+  }
+  #mode-dropdown.open #mode-dropdown-list { display: block; }
+  .mode-option {
+    display: block; width: 100%;
+    background: transparent; border: none; color: rgba(255,255,255,0.75);
+    font-size: 0.9rem; font-weight: 600; text-align: left;
+    padding: 11px 18px; cursor: pointer; font-family: inherit;
+  }
+  .mode-option:hover { background: rgba(255,255,255,0.06); color: #fff; }
+  .mode-option.active { background: rgba(255,255,255,0.1); color: #fff; }
 
   /* ── Narrow-desktop / tablet band (701-1200px) ─────────────────────────
      Row one has four things competing for it here — the icon ladder on the
@@ -1291,6 +1371,19 @@
       <button class="pill-btn" data-days="10" onclick="setPeriod(10)">10</button>
       <button class="pill-btn" data-days="15" onclick="setPeriod(15)">15</button>
     </div>
+  </div>
+
+  <!-- Mobile-only equivalent of #mode-switch: five pills won't fit a phone row
+       beside the location switcher and settings cog, so on ≤700px the pills are
+       hidden and this dropdown takes their place (full mode names, not the
+       abbreviations the pills fall back to). Built and kept in sync by
+       buildModeDropdown() / setViewMode(); shown only under html.rows-mobile. -->
+  <div id="mode-dropdown">
+    <button id="mode-dropdown-btn" onclick="toggleModeDropdown()">
+      <span id="mode-dropdown-label">Hourly</span>
+      <span class="model-switch-arrow">▼</span>
+    </button>
+    <div id="mode-dropdown-list"></div>
   </div>
 
   <div id="model-switch">
@@ -2048,6 +2141,8 @@ function updateRadarAvailability(key) {
   RADAR_AVAILABLE = RESORT_COUNTRY_ISO3[key] === 'NZL';
   const btn = document.querySelector('#mode-switch [data-mode="radar"]');
   if (btn) btn.style.display = RADAR_AVAILABLE ? '' : 'none';
+  // Keep the mobile dropdown's options in step with the pills' radar gating.
+  buildModeDropdown();
   if (!RADAR_AVAILABLE && viewMode === 'radar') setViewMode('hourly');
 }
 
@@ -3027,6 +3122,50 @@ function closeModelMenu() {
 document.addEventListener('click', (e) => {
   const el = document.getElementById('model-switch');
   if (el && el.classList.contains('open') && !el.contains(e.target)) closeModelMenu();
+});
+
+// ── Mobile map-type dropdown ────────────────────────────────────────────────
+// The full-name equivalent of the desktop mode pills, shown only on ≤700px
+// (html.rows-mobile). Options mirror the pills exactly — same modes, same
+// gating (no Live on the public edition, no Radar where there's no NZ radar
+// coverage) — so the two controls are never out of step. Rebuilt on resort
+// change because RADAR_AVAILABLE is per-resort.
+const MODE_LABELS = { live: 'Live', hourly: 'Hourly', accumulated: 'Accumulated', radar: 'Radar', isobars: 'Isobars' };
+function buildModeDropdown() {
+  const list = document.getElementById('mode-dropdown-list');
+  if (!list) return;
+  const modes = Object.keys(MODE_LABELS).filter((m) => {
+    if (m === 'live' && isPublicEdition) return false;
+    if (m === 'radar' && !RADAR_AVAILABLE) return false;
+    return true;
+  });
+  list.innerHTML = modes.map((m) =>
+    `<button class="mode-option" data-mode="${m}" onclick="pickMode('${m}')">${MODE_LABELS[m]}</button>`
+  ).join('');
+  syncModeDropdown();
+}
+// Reflect the current viewMode onto the dropdown's button label and the ticked
+// option. Called from setViewMode so tapping a pill (desktop) or the dropdown
+// (mobile) both keep this in sync, and a mode forced by a fallback still shows.
+function syncModeDropdown() {
+  const label = document.getElementById('mode-dropdown-label');
+  if (label && MODE_LABELS[viewMode]) label.textContent = MODE_LABELS[viewMode];
+  document.querySelectorAll('#mode-dropdown-list .mode-option')
+    .forEach((b) => b.classList.toggle('active', b.dataset.mode === viewMode));
+}
+function toggleModeDropdown() {
+  document.getElementById('mode-dropdown')?.classList.toggle('open');
+}
+function closeModeDropdown() {
+  document.getElementById('mode-dropdown')?.classList.remove('open');
+}
+function pickMode(mode) {
+  closeModeDropdown();
+  setViewMode(mode);
+}
+document.addEventListener('click', (e) => {
+  const el = document.getElementById('mode-dropdown');
+  if (el && el.classList.contains('open') && !el.contains(e.target)) closeModeDropdown();
 });
 
 // Fallback so the demo still works offline / if the API is unreachable.
@@ -6958,6 +7097,7 @@ function setViewMode(mode) {
   // Harmless when this page is opened directly: postMessage to self.
   try { window.parent.postMessage({ type: 'map-view-mode', mode }, '*'); } catch (e) {}
   document.querySelectorAll('#mode-switch .pill-btn').forEach(b => b.classList.toggle('active', b.dataset.mode === mode));
+  syncModeDropdown();
   document.getElementById('period-switch').style.display = mode === 'accumulated' ? 'flex' : 'none';
   // No forecast data backs the Live temperature map, the Radar map, or the
   // Isobars map (none of them have a per-model breakdown), so the model

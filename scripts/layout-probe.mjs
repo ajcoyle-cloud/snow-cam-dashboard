@@ -94,7 +94,10 @@ for (const width of WIDTHS) {
   await page.goto(BASE + PATH, { waitUntil: 'domcontentloaded' });
   await page.waitForSelector('iframe.map-3d-frame', { timeout: 30000 });
   const frame = page.frames().find((f) => f.url().includes('whakapapa-snow-forecast'));
-  await frame.waitForSelector('#top-controls', { timeout: 30000 });
+  // The on-map obs toggle is visible in every probed mode at every width —
+  // unlike #top-controls, which is empty (and so `hidden`) on a mobile width in
+  // any mode that shows neither the mode pills nor the period group.
+  await frame.waitForSelector('#obs-toggle', { timeout: 30000 });
   // Wait for the layout to STOP moving rather than for a fixed delay. The map
   // page keeps changing cluster widths as it loads — the saved view mode is
   // restored after the forecast fetch, the model label fills in, Radar's pill
@@ -107,7 +110,7 @@ for (const width of WIDTHS) {
     const f = document.querySelector('iframe.map-3d-frame');
     const region = f.closest('.map-region');
     const doc = f.contentDocument;
-    const sel = ['#obs-toggle', '#rotate-toggle', '#mode-switch', '#period-switch', '#model-switch'];
+    const sel = ['#obs-toggle', '#rotate-toggle', '#mode-switch', '#mode-dropdown', '#period-switch', '#model-switch'];
     const inner = sel.map((s) => { const e = doc.querySelector(s); if (!e) return 'x'; const r = e.getBoundingClientRect(); return `${Math.round(r.x)},${Math.round(r.y)},${Math.round(r.width)},${Math.round(r.height)}`; });
     const outer = ['.map-resort-switch .resort-button', '.map-settings-toggle'].map((s) => { const e = region.querySelector(s); if (!e) return 'x'; const r = e.getBoundingClientRect(); return `${Math.round(r.x)},${Math.round(r.y)}`; });
     return [[...region.classList].find((c) => c.startsWith('rows-')), ...inner, ...outer].join('|');
@@ -134,7 +137,7 @@ for (const width of WIDTHS) {
     // switcher, so measuring only the wrapper would leave the pair it now
     // shares a row with unchecked. (Measuring both the wrapper and a group
     // inside it just reports the child overlapping its own parent.)
-    ...await boxes(frame, ['#obs-toggle', '#rotate-toggle', '#mode-switch', '#period-switch', '#model-switch'], fb.x, fb.y),
+    ...await boxes(frame, ['#obs-toggle', '#rotate-toggle', '#mode-switch', '#mode-dropdown', '#period-switch', '#model-switch'], fb.x, fb.y),
     ...await boxes(page, ['.map-resort-switch .resort-button', '.map-settings-toggle']),
   ];
 
