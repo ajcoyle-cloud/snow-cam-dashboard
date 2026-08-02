@@ -174,6 +174,15 @@ export default defineConfig({
     // browser can't fetch it directly. Proxy it through the dev server instead:
     // /ms-api/<path>  ->  https://www.metservice.com/publicData/webdata/<path>
     proxy: {
+      // Dev parity for the Open-Meteo caching proxy (api/om/[...path].js in
+      // prod). The Vite dev server has no Vercel runtime, so forward /api/om
+      // straight to Open-Meteo — uncached here, which is fine for local work;
+      // the edge caching only matters in prod.
+      '/api/om': {
+        target: 'https://api.open-meteo.com',
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/api\/om/, ''),
+      },
       '/ms-api': {
         target: 'https://www.metservice.com',
         changeOrigin: true,

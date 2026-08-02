@@ -1908,7 +1908,7 @@ function elevationBandsFor(r) {
 function elevationBandUrlsFor(r) {
   return elevationBandsFor(r).map((elev) => ({
     elev,
-    url: `https://api.open-meteo.com/v1/forecast?latitude=${r.lat}&longitude=${r.lon}&temperature_unit=celsius&timezone=${r.timezone}&forecast_days=16&elevation=${elev}&hourly=temperature_2m,precipitation,snowfall&models=gfs_global`,
+    url: `/api/om/v1/forecast?latitude=${r.lat}&longitude=${r.lon}&temperature_unit=celsius&timezone=${r.timezone}&forecast_days=16&elevation=${elev}&hourly=temperature_2m,precipitation,snowfall&models=gfs_global`,
   }));
 }
 
@@ -2467,7 +2467,7 @@ function buildAverageHours(sources) {
 // background prefetch of every OTHER resort, so both build identical URLs
 // (required for the response cache below to actually hit).
 function forecastUrlsFor(r) {
-  const base = `https://api.open-meteo.com/v1/forecast?latitude=${r.lat}&longitude=${r.lon}&temperature_unit=celsius&timezone=${r.timezone}&forecast_days=16`;
+  const base = `/api/om/v1/forecast?latitude=${r.lat}&longitude=${r.lon}&temperature_unit=celsius&timezone=${r.timezone}&forecast_days=16`;
   return {
     gfsSummitUrl: `${base}&wind_speed_unit=kmh&elevation=${r.summitElev}&hourly=temperature_2m,wet_bulb_temperature_2m,precipitation,snowfall,freezinglevel_height,windspeed_700hPa,winddirection_700hPa&models=gfs_global`,
     // windspeed_850hPa/winddirection_850hPa (~1500m, roughly base-elevation)
@@ -6005,7 +6005,7 @@ async function fetchWeatherChunk(latsChunk, lons, hourlyVar, models) {
   // (a plain number, unaffected by how its timestamp is formatted) but
   // keeps the request honest regardless.
   const modelsParam = models ? `&models=${models}` : '';
-  const url = `https://api.open-meteo.com/v1/forecast?latitude=${flatLat.join(',')}&longitude=${flatLon.join(',')}&hourly=${hourlyVar}&forecast_days=7&timezone=auto${modelsParam}`;
+  const url = `/api/om/v1/forecast?latitude=${flatLat.join(',')}&longitude=${flatLon.join(',')}&hourly=${hourlyVar}&forecast_days=7&timezone=auto${modelsParam}`;
   const json = await fetchJsonCached(url, { timeoutMs: 20000, retries: 1 });
   if (!json) return null;
   const entries = Array.isArray(json) ? json : [json];

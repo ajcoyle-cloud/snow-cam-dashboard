@@ -41,7 +41,15 @@ const page = await browser.newPage();
 // also makes the probe deterministic: the layout no longer depends on how
 // quickly a fetch came back, which is what made the odd run report a phantom
 // overlap.
-await page.route('**://api.open-meteo.com/**', async (route) => {
+// The app now calls Open-Meteo through the same-origin caching proxy
+// (/api/om/v1/forecast — api/om/[...path].js in prod), which the vite preview
+// this probe runs against does not serve. Intercept the proxy path (and the
+// direct host, for any tool still using it) and fulfil with synthetic data —
+// same reasons as before: keep the probe off Open-Meteo's per-IP daily quota
+// and make the layout independent of network latency.
+await page.route('**/api/om/**', (route) => fulfilForecast(route));
+await page.route('**://api.open-meteo.com/**', (route) => fulfilForecast(route));
+async function fulfilForecast(route) {
   const url = new URL(route.request().url());
   const vars = (url.searchParams.get('hourly') || 'temperature_2m').split(',');
   const days = Number(url.searchParams.get('forecast_days') || 16);
@@ -74,7 +82,7 @@ await page.route('**://api.open-meteo.com/**', async (route) => {
       hourly,
     }),
   });
-});
+}
 
 const boxes = (ctx, sels, ox = 0, oy = 0) => ctx.evaluate(({ sels, ox, oy }) => {
   const out = [];
