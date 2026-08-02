@@ -110,6 +110,31 @@
   #map-screen { position: fixed; top: 0; left: 0; right: 0; height: var(--app-vh, 100vh); z-index: 500; }
   #map { width: 100%; height: 100%; }
 
+  /* ── First-load veil ──────────────────────────────────────────────────
+     The load sequence deliberately parks the camera on the resort's FINAL
+     close-up pose while the DEM settles (see waitForTerrainStable — the
+     landing framing depends on that elevation reading having gone stable),
+     and only then pulls back to the establishing pose and flies in. That
+     settling phase used to be genuinely invisible: the dashboard mounted a
+     fresh iframe per resort and crossfaded it in when this page posted
+     'map-ready'. The iframe is permanent now (see ForecastMap3D in
+     src/App.jsx), so nothing covers it any more — the settling close-up was
+     on screen the whole time, and you'd see the destination view first, then
+     the camera pop out to the wide shot and fly back to the very view you'd
+     just been looking at. This veil restores that cover locally: opaque from
+     the first paint, lifted on the frame the establishing pose is set, so
+     the approach is the first thing anyone sees.
+     It is a sibling of #map-screen (z-index 500), not a child, so its own
+     z-index has to clear that whole stacking context — hence a number well
+     above anything else on the page. It is removed from the DOM once the
+     fade finishes, so it never sits over a live map swallowing taps. */
+  #map-veil {
+    position: fixed; inset: 0; z-index: 4000;
+    background: linear-gradient(180deg, #0f1c30 0%, #14253e 100%);
+    transition: opacity .45s ease;
+  }
+  #map-veil.lifted { opacity: 0; pointer-events: none; }
+
   /* ── Split-screen model comparison (desktop only) ──────────────────────
      Two independent MapLibre instances side by side with linked cameras and
      one shared timeline, so the same hour can be read off two models at once.
@@ -1060,6 +1085,11 @@
 </style>
 </head>
 <body>
+
+<!-- Covers everything until the camera is posed for the fly-in (or, when this
+     page is opened on its own, until the map has simply settled) — see the
+     #map-veil rule above and liftMapVeil(). -->
+<div id="map-veil"></div>
 
 <div id="map-screen">
   <div id="map"></div>
@@ -2977,8 +3007,29 @@ function waitForTerrainStable(cb, prev, stableCount, attempt, loc) {
   setTimeout(() => waitForTerrainStable(cb, elev, nextStable, attempt + 1, loc), 80);
 }
 
+// Fades the first-load cover out (see the #map-veil rule) and drops it from
+// the DOM once the fade is over so it can never swallow a tap. Safe to call
+// repeatedly — every path below funnels through here and only the first call
+// does anything.
+function liftMapVeil() {
+  const veil = document.getElementById('map-veil');
+  if (!veil || veil.classList.contains('lifted')) return;
+  veil.classList.add('lifted');
+  setTimeout(() => { try { veil.remove(); } catch (e) {} }, 700);
+}
+// Belt and braces: if the map never reaches 'idle' — a WebGL failure, tiles
+// that never arrive — the veil would otherwise sit there as a permanently
+// blank rectangle. Whatever state the map is in by then, showing it beats
+// showing nothing.
+setTimeout(liftMapVeil, 9000);
+
 function maybeSignalMapReady() {
-  if (!mapStyleReady || window.parent === window) return;
+  if (!mapStyleReady) return;
+  // Opened directly rather than embedded: there's no fly-in on this path (the
+  // cinematic is the dashboard's, and the rest of this function is about
+  // coordinating with it), so the map is already showing its settled default
+  // view — just reveal it.
+  if (window.parent === window) { liftMapVeil(); return; }
   // This whole establishing-shot cinematic exists to reveal the resort's
   // own close-up oblique pose (LOC.center/zoom/pitch/bearing) — it runs
   // once per page load via map.once('idle', ...) below, independently of
@@ -2993,6 +3044,7 @@ function maybeSignalMapReady() {
   // region directly and signal ready, skipping the rest of this function.
   if (viewMode === 'isobars') {
     flyToIsobarRegion();
+    liftMapVeil();
     window.parent.postMessage({ type: 'map-ready' }, '*');
     return;
   }
@@ -3024,13 +3076,17 @@ function maybeSignalMapReady() {
       // is why the fly-in landing never matched the loaded view.
       // Reveal at a pulled-back establishing pose, then fly in. Start well
       // back (≈2.6 zoom levels out) so there's a real approach to see, and
-      // hold that establishing shot until the parent's ~0.4s crossfade has
-      // finished revealing this frame BEFORE the fly begins — otherwise the
-      // first chunk of the approach happens while the frame is still fading
-      // in, so you only catch the last ~1s and it feels like it rushes
-      // straight into a close-up.
+      // hold that establishing shot until the ~0.45s veil fade has finished
+      // revealing this frame BEFORE the fly begins — otherwise the first
+      // chunk of the approach happens while the frame is still fading in, so
+      // you only catch the last ~1s and it feels like it rushes straight
+      // into a close-up.
       const startZoom = Math.max(LOC.zoom - 2.6, 8.5);
       map.jumpTo({ center: LOC.center, zoom: startZoom, pitch: LOC.pitch, bearing: LOC.bearing });
+      // Pose first, uncover second — the veil has been hiding the settling
+      // close-up up to this exact point, so the first frame anyone sees is
+      // the establishing shot, not the destination.
+      liftMapVeil();
       window.parent.postMessage({ type: 'map-ready' }, '*');
       setTimeout(() => {
         map.flyTo({ center: LOC.center, zoom: LOC.zoom, pitch: LOC.pitch, bearing: LOC.bearing, duration: 2600, essential: true });
