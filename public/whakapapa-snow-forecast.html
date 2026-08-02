@@ -8781,7 +8781,11 @@ function pwRenderPill(trackId) {
   if (!el) {
     el = document.createElement('div');
     el.className = 'station-pill';
-    if (!isPublicEdition) el.addEventListener('click', (e) => { e.stopPropagation(); pwOpenModal(pwState[trackId]); });
+    // The tap-to-open observation modal is disabled on every edition: the
+    // pills stay as a live temperature readout, but clicking one no longer
+    // opens a popup box (pwOpenModal is left in place, just no longer wired
+    // to the pill). Matches the report pill and pseudo pills, which are also
+    // non-interactive below.
     // subpixelPositioning avoids the whole-pixel snapping that makes pills
     // jitter/wiggle during the slow continuous auto-rotate.
     st.marker = new maplibregl.Marker({ element: el, anchor: 'center', subpixelPositioning: true })
@@ -8797,10 +8801,11 @@ function pwRenderPill(trackId) {
   // non-interactive there, matching the pseudo pills. Live/accumulated keep the
   // tap-to-open-obs behaviour. The pill never moves: its lng/lat stays the
   // real station's GPS location in every view.
-  // isPublicEdition joins the hourly case here so the pill loses its hover
-  // grow/shadow too — with no modal behind it, a pill that still animates
-  // under the cursor is just promising something that never happens.
-  el.style.pointerEvents = (isPublicEdition || viewMode === 'hourly') ? 'none' : 'auto';
+  // Always non-interactive now — the click-to-open-obs modal is disabled on
+  // every edition (see above), so the pill loses its hover grow/shadow too:
+  // a pill that still animated under the cursor would promise a popup that
+  // never happens.
+  el.style.pointerEvents = 'none';
   el.innerHTML = `<span class="dot"></span>${tempC.toFixed(1)}°C`;
 }
 
