@@ -2370,9 +2370,22 @@ function SnowfallForecast({ resort, setResort, onOpenCompare }) {
   if (!forecastData || !Array.isArray(forecastData) || forecastData.length === 0) {
     return (
       <div className="forecast-container">
-        <div className="forecast-loading">
-          <div className="spinner" />
-        </div>
+        {forecastError ? (
+          <div className="forecast-error">
+            <h3>Forecast unavailable</h3>
+            <p>
+              {forecastError.rateLimited
+                ? 'The free weather service has had all the requests it allows from this network today. It resets at midnight UTC — noon NZ time. Everything else on the site still works.'
+                : "Couldn't reach the weather service."}
+            </p>
+            <p className="forecast-error-detail">{forecastError.message}</p>
+            <button type="button" onClick={() => setForecastReloadKey((n) => n + 1)}>Try again</button>
+          </div>
+        ) : (
+          <div className="forecast-loading">
+            <div className="spinner" />
+          </div>
+        )}
       </div>
     )
   }
@@ -4075,6 +4088,9 @@ function ForecastMap3D({ resort, setResort, viewMode, onViewModeChange }) {
     // the group's own padding either side) — enough to leave the row six
     // pixels short and wrap a pill onto a second line.
     let pillsRaw = shown(modeSwitch) ? Math.ceil(topControls.getBoundingClientRect().width) : 0
+    // The mode pills on their own, before any reserve — this is what has to
+    // fit a line, so it is what the row inset and the wrap test are based on.
+    const modeNatural = shown(modeSwitch) ? Math.ceil(modeSwitch.getBoundingClientRect().width) : 0
     // Plan for the period group whether or not this mode has one. Without it
     // the row count was mode-dependent — at ~1100px Hourly fitted on one row
     // and Accum did not — so switching modes moved the pills to another line.
@@ -4116,7 +4132,17 @@ function ForecastMap3D({ resort, setResort, viewMode, onViewModeChange }) {
     const cog = up(wide(region.querySelector('.map-settings-toggle')))
     doc.documentElement.classList.remove('tb-measuring')
     const W = region.clientWidth
-    const need = 20 + ladder + GAP + inset + switcher + GAP + pills + GAP + model + GAP + cog + 20
+    // Reserve the widest model switch seen this session and plan every row
+    // against THAT, not the one showing now. Radar, Isobars and Live hide the
+    // switch, which frees ~130px — enough to drop from two rows to one — so
+    // without this the row COUNT changed with the mode (and at 1100px the
+    // one-row version collided the switcher and pills by a pixel). This is the
+    // row-count twin of the --tc-right reserve below, which already keeps the
+    // pills from moving sideways; the layout has to be planned for the widest
+    // thing that can appear, or it reflows every time you switch mode.
+    modelReserveRef.current = Math.max(modelReserveRef.current, model)
+    const modelReserve = modelReserveRef.current
+    const need = 20 + ladder + GAP + inset + switcher + GAP + pills + GAP + modelReserve + GAP + cog + 20
     // rows-2 vs rows-3 is measured, not a width guess: the question is only
     // ever "do the switcher and the pills fit on a line together". A constant
     // 430px breakpoint got this wrong for every resort whose name is longer
@@ -4138,15 +4164,18 @@ function ForecastMap3D({ resort, setResort, viewMode, onViewModeChange }) {
     // (never shrinking below a sane floor) plus the cog, and the pills sit in
     // the same place in every mode. The reserved band is simply empty in the
     // modes that have no model switch.
-    modelReserveRef.current = Math.max(modelReserveRef.current, model)
-    doc.documentElement.style.setProperty('--tc-right', `${68 + modelReserveRef.current + GAP}px`)
+    doc.documentElement.style.setProperty('--tc-right', `${68 + modelReserve + GAP}px`)
     // How far in from the edges the stacked rows sit. 20px normally; tightened
     // (never below 12) when those few pixels are the difference between the
     // pill group sitting on one line and wrapping — at 375px the group is
     // 329px wide against 335px of room, and it was wrapping "Isobars" onto a
     // line of its own for the sake of six pixels. Padding is the one
     // dimension these rules allow to flex; the pills themselves stay put.
-    const rowInset = rows === 1 ? 20 : Math.max(10, Math.min(20, Math.floor((W - pillsRaw) / 2)))
+    // Measured from the mode pills ALONE, never from the planning width above:
+    // that one carries a reserve for Accum's period pills, so folding it in
+    // here gave Accum a different inset from every other mode — the rows
+    // visibly started further in on that one view.
+    const rowInset = rows === 1 ? 20 : Math.max(10, Math.min(20, Math.floor((W - modeNatural) / 2)))
     for (const el of [region, doc.documentElement]) el.style.setProperty('--row-inset', `${rowInset}px`)
     // The map page needs the switcher's width to park Accum's period pills
     // beside it on row one — it can't see the switcher, which is over here.
@@ -4179,7 +4208,7 @@ function ForecastMap3D({ resort, setResort, viewMode, onViewModeChange }) {
     // two), and the measurement covers Accum, where the period group can wrap
     // onto a line of its own and make row two taller than any estimate of the
     // mode pills alone.
-    const wraps = rows === 3 && pillsRaw > W - 2 * rowInset
+    const wraps = rows === 3 && modeNatural > W - 2 * rowInset
     const measured = rows === 3 && tc ? Math.ceil(tc.getBoundingClientRect().height) : 38
     const row3 = 66 + Math.max(38, wraps ? 72 : 38, measured) + 8
     for (const el of [region, doc.documentElement]) el.style.setProperty('--row3-top', `${row3}px`)

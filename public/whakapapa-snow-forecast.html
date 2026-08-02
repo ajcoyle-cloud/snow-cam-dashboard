@@ -84,12 +84,32 @@
      at the boundary (~620px), and with it the position of the mode pills. */
   html.tb-measuring .pill-long { display: inline; }
   html.tb-measuring .pill-short { display: none; }
+  /* Measure the period group IN FLOW, always. In the three-row layout it is
+     lifted out with position:absolute, so #top-controls' measured width left
+     it out — and whether it was left out depended on the PREVIOUS pass's row
+     state, so the row-fit check answered "switcher + pills fit?" without the
+     period pills whenever the last pass had been three rows. That flip-flopped
+     Accum across the 620px boundary. Same trap as the short labels above:
+     measure the widest honest state, never the state the last pass produced. */
+  html.tb-measuring #period-switch { position: static; }
   html.tb-measuring .pill-group { flex-wrap: nowrap; height: 38px; }
   html.tb-measuring #mode-switch { max-width: none; }
   html.rows-2 #map-enlarge, html.rows-2 #obs-toggle,
   html.rows-2 #rotate-toggle, html.rows-2 #split-toggle { top: 66px; }
   html.rows-3 #map-enlarge, html.rows-3 #obs-toggle,
   html.rows-3 #rotate-toggle, html.rows-3 #split-toggle { top: var(--row3-top, 112px); }
+  /* ...and the same inset as the rows above them, so all three rows start on
+     one left edge. The small-screen blocks further down park this ladder at a
+     hardcoded 14px, which no longer matches the rows once the inset flexes.
+     Spacing is each button's own 38px plus the gutter, as on the desktop row.
+     Only obs + rotate survive at three rows — enlarge and split are hidden
+     below 700px, which is the only place three rows happen. */
+  html.rows-2 #map-enlarge { left: var(--row-inset, 20px); }
+  html.rows-2 #obs-toggle { left: calc(var(--row-inset, 20px) + 44px); }
+  html.rows-2 #rotate-toggle { left: calc(var(--row-inset, 20px) + 88px); }
+  html.rows-2 #split-toggle { left: calc(var(--row-inset, 20px) + 132px); }
+  html.rows-3 #obs-toggle { left: var(--row-inset, 20px); }
+  html.rows-3 #rotate-toggle { left: calc(var(--row-inset, 20px) + 46px); }
   /* 48px = the cog (38) plus the gap beside it, so the model switch keeps
      its place relative to the cog as the row inset flexes. */
   html.rows-2 #model-switch, html.rows-2 #map-screen.is-fullscreen #model-switch {
