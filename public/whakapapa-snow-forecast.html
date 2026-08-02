@@ -47,6 +47,29 @@
     width: auto; justify-content: flex-start;
   }
   html.rows-3 #mode-switch { max-width: 100%; }
+  /* Accum's period pills grow to the LEFT of the mode pills, not the right.
+     #top-controls is right-anchored, so a group added after the mode pills
+     pushed them sideways every time you switched into or out of Accum — the
+     one control that must stay put, since it is what you switch modes with. */
+  #period-switch { order: -1; }
+  .pill-short { display: none; }
+  html.rows-3 .pill-long { display: none; }
+  html.rows-3 .pill-short { display: inline; }
+  /* Accum's 5/10/15 group rides up onto row one, next to the resort
+     switcher, instead of sharing row two with the mode pills. Sharing meant
+     both groups were squeezed onto one line and each wrapped internally —
+     "Radar Isobars" on a second line inside their own pill, "15" on a second
+     line inside its own. Row one has the room (switcher ~130px + this ~110px
+     against ~355px), and this keeps Accum to the same three rows as every
+     other mode.
+     Positioned against #top-controls, which is the row-two box: -46px lifts
+     it to row one's 20px, and the left offset clears the switcher, whose
+     width the parent measures for us (--switcher-w). */
+  html.rows-3 #period-switch {
+    position: absolute;
+    top: -46px;
+    left: calc(var(--switcher-w, 140px) + 8px);
+  }
   html.rows-3 .pill-group { flex-wrap: wrap; height: auto; }
   /* Held for the duration of one measuring pass by syncTopBarRows(), so the
      pill group reports its NATURAL width. In rows-3 the group is allowed to
@@ -55,6 +78,12 @@
      switcher when they would not, so around 520px the layout settled on two
      rows with the two clusters 3.5px apart instead of dropping to three. */
   html.tb-measuring #top-controls { flex-wrap: nowrap; width: max-content; max-width: none; }
+  /* Measure the LONG labels, always. The short pair only exists because the
+     row is tight, so measuring them would answer "does it fit?" with the
+     width it only has BECAUSE it didn't fit — which oscillated the row count
+     at the boundary (~620px), and with it the position of the mode pills. */
+  html.tb-measuring .pill-long { display: inline; }
+  html.tb-measuring .pill-short { display: none; }
   html.tb-measuring .pill-group { flex-wrap: nowrap; height: 38px; }
   html.tb-measuring #mode-switch { max-width: none; }
   html.rows-2 #map-enlarge, html.rows-2 #obs-toggle,
@@ -1229,9 +1258,13 @@
     <div class="pill-group" id="mode-switch">
       <button class="pill-btn" data-mode="live" onclick="setViewMode('live')">Live</button>
       <button class="pill-btn active" data-mode="hourly" onclick="setViewMode('hourly')">Hourly</button>
-      <button class="pill-btn" data-mode="accumulated" onclick="setViewMode('accumulated')">Accum</button>
+      <!-- Two labels, one shown at a time (see .pill-long/.pill-short): the
+           short pair only appears in the three-row phone layout, where those
+           extra characters are the difference between five pills on one line
+           and two of them wrapping onto a line of their own. -->
+      <button class="pill-btn" data-mode="accumulated" onclick="setViewMode('accumulated')"><span class="pill-long">Accum</span><span class="pill-short">Acc</span></button>
       <button class="pill-btn" data-mode="radar" onclick="setViewMode('radar')">Radar</button>
-      <button class="pill-btn" data-mode="isobars" onclick="setViewMode('isobars')">Isobars</button>
+      <button class="pill-btn" data-mode="isobars" onclick="setViewMode('isobars')"><span class="pill-long">Isobars</span><span class="pill-short">Iso</span></button>
     </div>
     <div class="pill-group" id="period-switch">
       <button class="pill-btn active" data-days="5" onclick="setPeriod(5)">5</button>

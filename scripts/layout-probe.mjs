@@ -65,11 +65,16 @@ for (const width of WIDTHS) {
     const f = document.querySelector('iframe.map-3d-frame');
     const region = f.closest('.map-region');
     const doc = f.contentDocument;
-    const sel = ['#obs-toggle', '#rotate-toggle', '#top-controls', '#model-switch'];
+    const sel = ['#obs-toggle', '#rotate-toggle', '#mode-switch', '#period-switch', '#model-switch'];
     const inner = sel.map((s) => { const e = doc.querySelector(s); if (!e) return 'x'; const r = e.getBoundingClientRect(); return `${Math.round(r.x)},${Math.round(r.y)},${Math.round(r.width)},${Math.round(r.height)}`; });
     const outer = ['.map-resort-switch .resort-button', '.map-settings-toggle'].map((s) => { const e = region.querySelector(s); if (!e) return 'x'; const r = e.getBoundingClientRect(); return `${Math.round(r.x)},${Math.round(r.y)}`; });
     return [[...region.classList].find((c) => c.startsWith('rows-')), ...inner, ...outer].join('|');
   });
+  // A first floor before the settle check: the view mode saved from a previous
+  // visit is only restored once the forecast fetch returns, and in Accum that
+  // brings a whole extra cluster with it. Two identical reads taken before
+  // that lands look settled while the layout still has a change coming.
+  await page.waitForTimeout(1200);
   let last = null;
   for (let i = 0; i < 24; i++) {
     await page.waitForTimeout(250);
@@ -81,7 +86,13 @@ for (const width of WIDTHS) {
   const rows = await page.$eval('.map-region', (e) => [...e.classList].find((c) => c.startsWith('rows-')) || 'none');
   const fb = await page.locator('iframe.map-3d-frame').boundingBox();
   const all = [
-    ...await boxes(frame, ['#obs-toggle', '#rotate-toggle', '#top-controls', '#model-switch'], fb.x, fb.y),
+    // The two pill groups, not their #top-controls wrapper: they are what can
+    // actually collide with something, and in the three-row layout the period
+    // group is lifted out of that wrapper onto row one beside the resort
+    // switcher, so measuring only the wrapper would leave the pair it now
+    // shares a row with unchecked. (Measuring both the wrapper and a group
+    // inside it just reports the child overlapping its own parent.)
+    ...await boxes(frame, ['#obs-toggle', '#rotate-toggle', '#mode-switch', '#period-switch', '#model-switch'], fb.x, fb.y),
     ...await boxes(page, ['.map-resort-switch .resort-button', '.map-settings-toggle']),
   ];
 

@@ -4023,6 +4023,16 @@ function ForecastMap3D({ resort, setResort, viewMode, onViewModeChange }) {
   // Both documents are same-origin, so this reads the map page directly and
   // stamps one decision onto both. Nothing is ever allowed to shrink — the
   // only variable is which row a cluster sits on.
+  // Widest the model switch has ever been in this session, floored at a width
+  // that comfortably fits every label it ships with ("GFS Model", "ECMWF
+  // IFS", "AIFS", "UKMO"). Used to reserve a fixed slot for it — see
+  // --tc-right below.
+  const modelReserveRef = useRef(132)
+  // Same idea for Accum's 5/10/15 group: the row count is planned as if it
+  // were always there, so switching into Accum never costs an extra row (and
+  // therefore never moves the mode pills to a different line). Floored at a
+  // width that fits 5/10/15.
+  const periodReserveRef = useRef(118)
   const syncTopBarRows = useCallback(() => {
     const frame = iframeRef.current
     const region = frame?.closest('.map-region')
@@ -4050,7 +4060,16 @@ function ForecastMap3D({ resort, setResort, viewMode, onViewModeChange }) {
     // it reported the pill group 8px narrower than it draws (its border, and
     // the group's own padding either side) — enough to leave the row six
     // pixels short and wrap a pill onto a second line.
-    const pillsRaw = shown(modeSwitch) ? Math.ceil(topControls.getBoundingClientRect().width) : 0
+    let pillsRaw = shown(modeSwitch) ? Math.ceil(topControls.getBoundingClientRect().width) : 0
+    // Plan for the period group whether or not this mode has one. Without it
+    // the row count was mode-dependent — at ~1100px Hourly fitted on one row
+    // and Accum did not — so switching modes moved the pills to another line.
+    const periodEl = doc.getElementById('period-switch')
+    if (shown(periodEl)) {
+      periodReserveRef.current = Math.max(periodReserveRef.current, Math.ceil(periodEl.getBoundingClientRect().width))
+    } else if (pillsRaw) {
+      pillsRaw += periodReserveRef.current + 8
+    }
     const pills = pillsRaw ? pillsRaw + 8 : 0
     // Icon ladder: right edge of the furthest button that's actually visible.
     let ladder = 0
@@ -4096,7 +4115,17 @@ function ForecastMap3D({ resort, setResort, viewMode, onViewModeChange }) {
     // cog even at widths where everything genuinely fitted.
     // Reserve measured off where #model-switch actually sits (right:68px) when
     // it's showing, and off the cog (right:20px, 38px wide) when it isn't.
-    doc.documentElement.style.setProperty('--tc-right', `${model ? 68 + model + GAP : 58 + GAP}px`)
+    // A CONSTANT reserve, not the model switch's current width. The mode pills
+    // are the thing you navigate with, so they must not move when the thing
+    // beside them changes: switching to Radar hides the model switch, and
+    // picking ECMWF makes its label wider than GFS's — both used to shove the
+    // pills sideways, so the toggle you were aiming at was somewhere else by
+    // the time the map redrew. Reserve room for the widest model label seen
+    // (never shrinking below a sane floor) plus the cog, and the pills sit in
+    // the same place in every mode. The reserved band is simply empty in the
+    // modes that have no model switch.
+    modelReserveRef.current = Math.max(modelReserveRef.current, model)
+    doc.documentElement.style.setProperty('--tc-right', `${68 + modelReserveRef.current + GAP}px`)
     // How far in from the edges the stacked rows sit. 20px normally; tightened
     // (never below 12) when those few pixels are the difference between the
     // pill group sitting on one line and wrapping — at 375px the group is
@@ -4105,6 +4134,9 @@ function ForecastMap3D({ resort, setResort, viewMode, onViewModeChange }) {
     // dimension these rules allow to flex; the pills themselves stay put.
     const rowInset = rows === 1 ? 20 : Math.max(10, Math.min(20, Math.floor((W - pillsRaw) / 2)))
     for (const el of [region, doc.documentElement]) el.style.setProperty('--row-inset', `${rowInset}px`)
+    // The map page needs the switcher's width to park Accum's period pills
+    // beside it on row one — it can't see the switcher, which is over here.
+    doc.documentElement.style.setProperty('--switcher-w', `${switcher}px`)
     // On one row the switcher follows the icon ladder rather than sharing its
     // inset; once stacked, the ladder is on another row and the inset is right.
     region.style.setProperty('--switcher-left', rows === 1 ? `${20 + ladder + 8}px` : `${rowInset}px`)

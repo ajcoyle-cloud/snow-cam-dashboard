@@ -29,6 +29,24 @@ are React, in `src/App.css`. Same origin, so the parent can measure both.
   is allowed to wrap (`--row-inset`). At 375px the pill group is 337px wide
   against 335px of room, and those few pixels of padding are the difference
   between one line and "Isobars" sitting on a line of its own.
+- **The mode pills do not move between modes.** They are what you navigate
+  with, so their position is fixed at a given width whatever else is on the
+  row: the model switch gets a constant reserved slot (it hides in Radar and
+  Isobars, and its label width changes with the model), and the row count is
+  planned as though Accum's period pills were always present. The reserved
+  space is simply empty in the modes that don't use it. Verified by walking
+  every mode at each width and comparing the pill group's position.
+- **Two clusters never share a line by squeezing.** In Accum the 5/10/15
+  period group rides up onto row one beside the resort switcher rather than
+  sharing row two with the mode pills — sharing meant both were squeezed onto
+  one line and each wrapped inside its own pill ("Radar Isobars" on a second
+  line, "15" on a second line). Row one has the room, and Accum stays on the
+  same three rows as every other mode.
+- **The two longest mode labels shorten on the three-row layout only** —
+  Accum → Acc, Isobars → Iso (`.pill-long` / `.pill-short`). Both labels are
+  in the markup; only the row state decides which shows. That is a content
+  change, not a size change: the pills keep their padding and type, and the
+  full words are back the moment there is room for them.
 - **Below ~350px the pill group wraps**, because no amount of padding will
   save it. Wrapping keeps every pill full-size and present, which is what
   shrinking and scrolling each fail to do — and the wrapped line is a full
@@ -56,6 +74,9 @@ both documents. It also sets two custom properties the CSS reads:
 - `--row-inset` — the side inset for the stacked rows, 20px down to 10px.
 - `--row3-top` — where row three starts, which is not a constant once row two
   can be two lines tall.
+- `--switcher-w` — the switcher's measured width, which the map page needs to
+  park Accum's period pills beside it on row one (it cannot see the switcher:
+  that lives in the other document).
 
 The old `@media` rules are still there as the pre-script fallback for first
 paint. The `rows-*` state rules beat them on specificity — element+class
@@ -130,6 +151,11 @@ has.
 - **A hard `height` on `.pill-group` for every row state.** It came after the
   `rows-3` wrap rule at equal specificity and won, so a wrapped group stayed
   one pill tall and drew its second line outside its own grey pill.
+- **Measuring the short labels.** The short pair only exists because the row
+  is tight, so measuring them answers "does it fit?" with the width it only
+  has *because* it didn't fit. That oscillated the row count around 620px,
+  and with it the position of the mode pills. The measuring pass forces the
+  long labels.
 - **A fixed delay in the probe.** The map page keeps changing cluster widths
   as it loads (saved view mode restored, model label filled in, Radar's pill
   dropped outside NZ), so a fixed wait sometimes sampled mid-change and
