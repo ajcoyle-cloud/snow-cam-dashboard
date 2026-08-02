@@ -34,6 +34,48 @@ const SANDBOX = '/opt/pw-browsers/chromium';
 const browser = await chromium.launch(existsSync(SANDBOX) ? { executablePath: SANDBOX } : {});
 const page = await browser.newPage();
 
+// Serve the weather API from here rather than the internet. Open-Meteo counts
+// requests per IP per day and every page load fires eight of them, so a few
+// sweeps of this probe can exhaust the day's allowance for the whole network —
+// and then the real site shows no forecast until it resets. Synthetic data
+// also makes the probe deterministic: the layout no longer depends on how
+// quickly a fetch came back, which is what made the odd run report a phantom
+// overlap.
+await page.route('**://api.open-meteo.com/**', async (route) => {
+  const url = new URL(route.request().url());
+  const vars = (url.searchParams.get('hourly') || 'temperature_2m').split(',');
+  const days = Number(url.searchParams.get('forecast_days') || 16);
+  const n = days * 24;
+  const start = new Date();
+  start.setMinutes(0, 0, 0);
+  const time = Array.from({ length: n }, (_, i) => new Date(start.getTime() + i * 3600e3).toISOString().slice(0, 16));
+  // Values only need to be plausible and non-null — nothing here is asserted
+  // on, it just has to keep the app's own maths from bailing out.
+  const valueFor = (name) => {
+    if (name.startsWith('winddirection')) return 270;
+    if (name.startsWith('windspeed')) return 15;
+    if (name === 'freezinglevel_height') return 1500;
+    if (name === 'weather_code') return 0;
+    if (name === 'precipitation_probability') return 20;
+    if (name === 'snowfall' || name === 'precipitation') return 0.2;
+    return -2;
+  };
+  const hourly = { time };
+  for (const v of vars) hourly[v] = Array.from({ length: n }, () => valueFor(v));
+  await route.fulfill({
+    status: 200,
+    contentType: 'application/json',
+    body: JSON.stringify({
+      latitude: Number(url.searchParams.get('latitude') || 0),
+      longitude: Number(url.searchParams.get('longitude') || 0),
+      elevation: Number(url.searchParams.get('elevation') || 0),
+      timezone: url.searchParams.get('timezone') || 'Pacific/Auckland',
+      utc_offset_seconds: 43200,
+      hourly,
+    }),
+  });
+});
+
 const boxes = (ctx, sels, ox = 0, oy = 0) => ctx.evaluate(({ sels, ox, oy }) => {
   const out = [];
   for (const s of sels) {
