@@ -53,7 +53,30 @@ for (const width of WIDTHS) {
   await page.waitForSelector('iframe.map-3d-frame', { timeout: 30000 });
   const frame = page.frames().find((f) => f.url().includes('whakapapa-snow-forecast'));
   await frame.waitForSelector('#top-controls', { timeout: 30000 });
-  await page.waitForTimeout(1300); // let syncTopBarRows settle on its interval
+  // Wait for the layout to STOP moving rather than for a fixed delay. The map
+  // page keeps changing cluster widths as it loads — the saved view mode is
+  // restored after the forecast fetch, the model label fills in, Radar's pill
+  // disappears for a resort outside NZ — and each of those legitimately
+  // re-runs the row measurement. A fixed 1300ms sometimes sampled the frame
+  // mid-change and reported an overlap that no longer existed a tick later,
+  // which is a flaky probe, not a broken layout. Two identical reads 250ms
+  // apart means it has settled; give up after ~6s and measure anyway.
+  const fingerprint = () => page.evaluate(() => {
+    const f = document.querySelector('iframe.map-3d-frame');
+    const region = f.closest('.map-region');
+    const doc = f.contentDocument;
+    const sel = ['#obs-toggle', '#rotate-toggle', '#top-controls', '#model-switch'];
+    const inner = sel.map((s) => { const e = doc.querySelector(s); if (!e) return 'x'; const r = e.getBoundingClientRect(); return `${Math.round(r.x)},${Math.round(r.y)},${Math.round(r.width)},${Math.round(r.height)}`; });
+    const outer = ['.map-resort-switch .resort-button', '.map-settings-toggle'].map((s) => { const e = region.querySelector(s); if (!e) return 'x'; const r = e.getBoundingClientRect(); return `${Math.round(r.x)},${Math.round(r.y)}`; });
+    return [[...region.classList].find((c) => c.startsWith('rows-')), ...inner, ...outer].join('|');
+  });
+  let last = null;
+  for (let i = 0; i < 24; i++) {
+    await page.waitForTimeout(250);
+    const now = await fingerprint();
+    if (now === last) break;
+    last = now;
+  }
 
   const rows = await page.$eval('.map-region', (e) => [...e.classList].find((c) => c.startsWith('rows-')) || 'none');
   const fb = await page.locator('iframe.map-3d-frame').boundingBox();
@@ -69,7 +92,13 @@ for (const width of WIDTHS) {
     const mr = m.getBoundingClientRect();
     return {
       over: m.scrollWidth - m.clientWidth,
+      // Hidden pills are not clipped pills: the public edition drops Live
+      // (html.public-edition, see whakapapa-snow-forecast.html), and a
+      // display:none button reports an all-zero rect that sits "outside" the
+      // group by definition — which reported every width as broken on that
+      // edition while nothing was actually wrong.
       cut: [...m.querySelectorAll('.pill-btn')]
+        .filter((b) => getComputedStyle(b).display !== 'none' && b.getBoundingClientRect().width > 0)
         .filter((b) => { const r = b.getBoundingClientRect(); return r.right > mr.right + 1 || r.left < mr.left - 1; })
         .map((b) => b.textContent.trim()),
     };

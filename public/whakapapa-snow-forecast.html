@@ -37,22 +37,38 @@
     top: 20px; left: auto; right: var(--tc-right, 200px);
     transform: none; width: max-content; max-width: none; justify-content: flex-end;
   }
-  html.rows-2 #top-controls { top: 20px; left: auto; right: 20px; justify-content: flex-end; }
+  html.rows-2 #top-controls { top: 20px; left: auto; right: var(--row-inset, 20px); justify-content: flex-end; }
   /* Own row, full width. Below ~360px even a whole row isn't enough for five
      pills at full size, so the group wraps to a second line — wrapping keeps
      every pill readable and present, which shrinking and scrolling both fail
      to do. */
   html.rows-3 #top-controls {
-    top: 66px; left: 20px; right: 20px; width: auto; justify-content: flex-start;
+    top: 66px; left: var(--row-inset, 20px); right: var(--row-inset, 20px);
+    width: auto; justify-content: flex-start;
   }
   html.rows-3 #mode-switch { max-width: 100%; }
   html.rows-3 .pill-group { flex-wrap: wrap; height: auto; }
+  /* Held for the duration of one measuring pass by syncTopBarRows(), so the
+     pill group reports its NATURAL width. In rows-3 the group is allowed to
+     wrap onto two lines, which nearly halves its scrollWidth — and measuring
+     THAT told the parent the pills would happily share a line with the
+     switcher when they would not, so around 520px the layout settled on two
+     rows with the two clusters 3.5px apart instead of dropping to three. */
+  html.tb-measuring #top-controls { flex-wrap: nowrap; width: max-content; max-width: none; }
+  html.tb-measuring .pill-group { flex-wrap: nowrap; height: 38px; }
+  html.tb-measuring #mode-switch { max-width: none; }
   html.rows-2 #map-enlarge, html.rows-2 #obs-toggle,
   html.rows-2 #rotate-toggle, html.rows-2 #split-toggle { top: 66px; }
   html.rows-3 #map-enlarge, html.rows-3 #obs-toggle,
-  html.rows-3 #rotate-toggle, html.rows-3 #split-toggle { top: 112px; }
-  html.rows-2 #model-switch, html.rows-2 #map-screen.is-fullscreen #model-switch { top: 66px; right: 68px; }
-  html.rows-3 #model-switch, html.rows-3 #map-screen.is-fullscreen #model-switch { top: 112px; right: 68px; }
+  html.rows-3 #rotate-toggle, html.rows-3 #split-toggle { top: var(--row3-top, 112px); }
+  /* 48px = the cog (38) plus the gap beside it, so the model switch keeps
+     its place relative to the cog as the row inset flexes. */
+  html.rows-2 #model-switch, html.rows-2 #map-screen.is-fullscreen #model-switch {
+    top: 66px; right: calc(var(--row-inset, 20px) + 48px);
+  }
+  html.rows-3 #model-switch, html.rows-3 #map-screen.is-fullscreen #model-switch {
+    top: var(--row3-top, 112px); right: calc(var(--row-inset, 20px) + 48px);
+  }
   /* Nothing shrinks any more: one size at every width, on every row. */
   html.rows-1 .pill-btn, html.rows-2 .pill-btn, html.rows-3 .pill-btn {
     padding: 0 12px; font-size: 0.78rem;
@@ -60,6 +76,18 @@
   html.rows-1 .pill-group, html.rows-2 .pill-group, html.rows-3 .pill-group {
     gap: 4px; padding: 4px; height: 38px; min-height: 38px;
   }
+  /* ...but a group that has wrapped needs the room for the line it wrapped
+     onto. The rule above sets a hard 38px on every row state, and it comes
+     after the rows-3 wrap rule at equal specificity, so it was winning — the
+     group stayed one pill tall and the wrapped line (Isobars, usually) drew
+     outside its own grey pill. Only reachable on a very narrow phone, which
+     is exactly where it was seen. */
+  html.rows-3 #top-controls .pill-group { height: auto; min-height: 38px; }
+  /* Each wrapped line keeps a full-size pill: without an explicit height the
+     buttons only stretch to their text on a wrapped line, so the group came
+     out two half-height rows instead of two proper ones. 30px = 38 minus the
+     group's 4px padding top and bottom. */
+  html.rows-3 #top-controls .pill-group .pill-btn { height: 30px; }
 
   html.public-edition #mode-switch [data-mode="live"] { display: none; }
 
@@ -71,6 +99,12 @@
      cog's 20+38 with 10px to spare, putting the zoom pill directly beneath it
      rather than under it. */
   .maplibregl-ctrl-top-right { margin-top: 68px; }
+  /* ...and once the row stacks, the cog goes down with it, so the zoom pill
+     has to follow. 68 = row top 20 + 38 + 10; the others are the same sum on
+     their own row (66 for two rows, --row3-top for three). Without this the
+     zoom control sat under the cog again the moment the bar wrapped. */
+  html.rows-2 .maplibregl-ctrl-top-right { margin-top: 114px; }
+  html.rows-3 .maplibregl-ctrl-top-right { margin-top: calc(var(--row3-top, 112px) + 48px); }
   .maplibregl-ctrl-top-right .maplibregl-ctrl-group {
     background: rgba(20,20,20,0.78);
     backdrop-filter: blur(14px);
@@ -518,13 +552,16 @@
        UI chrome must always win over map content, not the other way round. */
     position: absolute; top: 20px; left: calc(50% + 8px); z-index: 45;
     display: flex; gap: 10px;
-    /* Safety net for syncTopControlsLayout()'s inline max-width (JS, see
-       below): when mode-switch + period-switch together don't fit in the
-       space left of the model switch, period-switch WRAPS onto its own row
-       below rather than being scrolled out of view. A previous version used
-       overflow-x:auto with a hidden scrollbar here, which just silently cut
-       pills off with no indication more existed — that's the "controls
-       getting cropped" bug; wrapping keeps every pill visible instead. */
+    /* Safety net for syncTopControlsLayout()'s inline max-width — which now
+       only applies when this page is opened on its own, outside the
+       dashboard, since the parent's row system takes over otherwise (see the
+       rows-* rules at the top of this stylesheet). When mode-switch +
+       period-switch together don't fit in the space left of the model
+       switch, period-switch WRAPS onto its own row below rather than being
+       scrolled out of view. A previous version used overflow-x:auto with a
+       hidden scrollbar here, which just silently cut pills off with no
+       indication more existed — that's the "controls getting cropped" bug;
+       wrapping keeps every pill visible instead. */
     flex-wrap: wrap; row-gap: 8px;
   }
   #top-controls::-webkit-scrollbar { display: none; }
@@ -2471,6 +2508,20 @@ function syncTopControlsLayout() {
   const topControls = document.getElementById('top-controls');
   const modelSwitch = document.getElementById('model-switch');
   if (!topControls || !modelSwitch) return;
+  // Embedded in the dashboard, the parent owns this: syncTopBarRows() (see
+  // ForecastMap3D in src/App.jsx) measures every cluster across BOTH
+  // documents and stamps rows-1/2/3 on this page's <html>. This function can
+  // only see its own document, so its cap is a guess made without the
+  // switcher or the cog — and being an inline style, that guess beat the row
+  // rules' `max-width: none` and squeezed the pill group until Accum, Radar
+  // and Isobars spilled straight out of it (caught by
+  // scripts/layout-probe.mjs at 820-1320px). Being in an iframe at all means
+  // the parent is doing this properly, so stand down — and clear anything
+  // set on an earlier pass.
+  if (window.parent !== window) {
+    topControls.style.maxWidth = '';
+    return;
+  }
   if (window.innerWidth <= 700) { topControls.style.maxWidth = ''; return; }
   const gap = 10;
   const topControlsLeft = topControls.getBoundingClientRect().left;
@@ -2488,6 +2539,37 @@ function syncTopControlsLayout() {
   topControls.style.maxWidth = Math.max(120, rightEdge - topControlsLeft - gap) + 'px';
 }
 window.addEventListener('resize', syncTopControlsLayout);
+
+// Tell the parent the moment anything in here changes the width of a top-bar
+// cluster, so its measuring pass (syncTopBarRows in App.jsx) runs on the
+// change instead of on its next 1s tick. Everything that moves is in this
+// document — the mode pills gaining Accum's 5/10/15 group, the model label
+// going from "AIFS" to "ECMWF IFS", Radar's pill disappearing for a resort
+// outside NZ, a trial button appearing in the icon ladder — and the parent
+// has no way to know about any of it. The poll stays as a backstop; this
+// just closes the window where the layout is a second out of date, which is
+// what made the layout probe intermittently catch a stale row count.
+const notifyTopBarChanged = (() => {
+  let queued = false;
+  return () => {
+    if (queued || window.parent === window) return;
+    queued = true;
+    requestAnimationFrame(() => {
+      queued = false;
+      try { window.parent.postMessage({ type: 'top-bar-changed' }, '*'); } catch (e) {}
+    });
+  };
+})();
+{
+  const watch = ['top-controls', 'model-switch', 'map-enlarge', 'obs-toggle', 'rotate-toggle',
+                 'split-toggle', 'snow-toggle', 'snow-overlay-toggle', 'basemap-toggle',
+                 'contour-toggle', 'orographic-toggle', 'ramp-select'];
+  const obs = new MutationObserver(notifyTopBarChanged);
+  for (const id of watch) {
+    const el = document.getElementById(id);
+    if (el) obs.observe(el, { attributes: true, attributeFilter: ['style', 'class'], childList: true, subtree: true, characterData: true });
+  }
+}
 
 function toggleModelMenu() {
   document.getElementById('model-switch').classList.toggle('open');
@@ -3161,6 +3243,7 @@ function buildMapStyle() {
           // get this, IF the same storm were overhead", not as a forecast for
           // that spot. A real fix needs a genuine spatial precip grid (like
           // the Isobars feature's gridded fetch), not an elevation ramp.
+          id: 'snow-relief', type: 'color-relief', source: 'terrain',
           paint: { 'color-relief-color': ['interpolate', ['linear'], ['elevation'], 0, 'rgba(255,255,255,0)'] }
         }
       ],

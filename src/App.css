@@ -158,17 +158,29 @@
 .map-region.rows-1 .map-resort-switch .resort-selector,
 .map-region.rows-2 .map-resort-switch .resort-selector,
 .map-region.rows-3 .map-resort-switch .resort-selector {
+  /* Pinned to the row's own top (20px, the same line every other cluster
+     starts on) rather than centred on its container. Centring only worked
+     while that container happened to be 78px tall: on a phone it is 28px, so
+     translateY(-50%) put the switcher 5px ABOVE the top of the map and the
+     pill was drawn with its top edge cut off. Absolute here too — on mobile
+     the element was still in normal flow, which is why `left` did nothing
+     and it sat wherever the container's padding left it. */
+  position: absolute;
+  top: 20px;
   left: var(--switcher-left, 20px);
-  transform: translateY(-50%);
+  transform: none;
 }
 .map-region.rows-2 .map-resort-switch .map-settings-menu,
 .map-region.rows-3 .map-resort-switch .map-settings-menu {
   position: absolute;
-  right: 20px;
+  right: var(--row-inset, 20px);
   margin: 0;
 }
 .map-region.rows-2 .map-resort-switch .map-settings-menu { top: 66px; }
-.map-region.rows-3 .map-resort-switch .map-settings-menu { top: 112px; }
+/* --row3-top, not a constant 112: on a phone narrow enough that the pill
+   group wraps to two lines, row two is 38px taller and row three has to
+   follow it down. syncTopBarRows() measures the group and sets it. */
+.map-region.rows-3 .map-resort-switch .map-settings-menu { top: var(--row3-top, 112px); }
 
 .region-title {
   color: white;

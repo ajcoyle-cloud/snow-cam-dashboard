@@ -4033,8 +4033,25 @@ function ForecastMap3D({ resort, setResort, viewMode, onViewModeChange }) {
     // scrollWidth, not the clipped rendered width — the pills' natural size is
     // the whole question, and reading the visible box is what let a clipped
     // row look like it fitted.
+    // Measure the pills at their natural size, not at whatever size the
+    // CURRENT row plan gave them: rows-3 lets the group wrap onto two lines,
+    // and a wrapped group's scrollWidth is about half its real width, which
+    // is enough to argue itself back onto a row it doesn't fit (see
+    // html.tb-measuring in the iframe's stylesheet).
+    // #top-controls, not #mode-switch: Accum mode adds the 5/10/15 period
+    // group beside the mode pills inside the same container, and measuring
+    // only the mode pills left that extra ~120px out of every sum — which
+    // put the pills straight through the resort switcher in Accum (caught by
+    // scripts/layout-probe.mjs on /map/whakapapa/accumulated).
+    const topControls = doc.getElementById('top-controls')
     const modeSwitch = doc.getElementById('mode-switch')
-    const pills = shown(modeSwitch) ? modeSwitch.scrollWidth + 8 : 0
+    doc.documentElement.classList.add('tb-measuring')
+    // Outer width, not scrollWidth: scrollWidth stops at the padding box, so
+    // it reported the pill group 8px narrower than it draws (its border, and
+    // the group's own padding either side) — enough to leave the row six
+    // pixels short and wrap a pill onto a second line.
+    const pillsRaw = shown(modeSwitch) ? Math.ceil(topControls.getBoundingClientRect().width) : 0
+    const pills = pillsRaw ? pillsRaw + 8 : 0
     // Icon ladder: right edge of the furthest button that's actually visible.
     let ladder = 0
     for (const id of ['map-enlarge', 'obs-toggle', 'rotate-toggle', 'split-toggle',
@@ -4042,18 +4059,36 @@ function ForecastMap3D({ resort, setResort, viewMode, onViewModeChange }) {
       const el = doc.getElementById(id)
       if (shown(el)) ladder = Math.max(ladder, el.getBoundingClientRect().right)
     }
-    ladder = ladder ? ladder - 20 : 0
+    ladder = ladder ? Math.ceil(ladder) - 20 : 0
     const GAP = 4
-    const switcher = wide(region.querySelector('.map-resort-switch .resort-button'))
-    const model = wide(doc.getElementById('model-switch'))
-    const cog = wide(region.querySelector('.map-settings-toggle'))
+    // Round every measurement UP. Rendered widths are fractional and
+    // scrollWidth is an integer, so summing them raw could be a pixel or so
+    // short of the truth — enough to call a row "fitting" that then rendered
+    // with a 3.5px gap where the rules ask for 4 (caught by
+    // scripts/layout-probe.mjs at 520px). Erring wide costs nothing: the
+    // worst case is wrapping a row one notch of width earlier.
+    const up = (n) => Math.ceil(n)
+    const switcherEl = region.querySelector('.map-resort-switch .resort-button')
+    const switcher = up(wide(switcherEl))
+    // --switcher-left says where the switcher's WRAPPER goes; the button
+    // inside it lands a few pixels further right again (the selector carries
+    // its own padding). Measure that offset instead of assuming it's zero —
+    // assuming zero is what let 520px pick two rows and then render the
+    // switcher and the pills 3.7px apart, under the 4px the rules promise.
+    const leftVar = parseFloat(getComputedStyle(region).getPropertyValue('--switcher-left')) || 20
+    const inset = switcherEl
+      ? Math.min(40, Math.max(0, Math.round(switcherEl.getBoundingClientRect().left - region.getBoundingClientRect().left - leftVar)))
+      : 0
+    const model = up(wide(doc.getElementById('model-switch')))
+    const cog = up(wide(region.querySelector('.map-settings-toggle')))
+    doc.documentElement.classList.remove('tb-measuring')
     const W = region.clientWidth
-    const need = 20 + ladder + GAP + switcher + GAP + pills + GAP + model + GAP + cog + 20
+    const need = 20 + ladder + GAP + inset + switcher + GAP + pills + GAP + model + GAP + cog + 20
     // rows-2 vs rows-3 is measured, not a width guess: the question is only
     // ever "do the switcher and the pills fit on a line together". A constant
     // 430px breakpoint got this wrong for every resort whose name is longer
     // than Whakapapa's.
-    const pairFits = 20 + switcher + GAP + pills + 20 <= W
+    const pairFits = 20 + inset + switcher + GAP + pills + 20 <= W
     const rows = need <= W ? 1 : (pairFits ? 2 : 3)
     // On one row the pills are right-anchored ahead of the model switch and
     // cog rather than pinned to the centreline. Centre-anchoring took no
@@ -4062,13 +4097,46 @@ function ForecastMap3D({ resort, setResort, viewMode, onViewModeChange }) {
     // Reserve measured off where #model-switch actually sits (right:68px) when
     // it's showing, and off the cog (right:20px, 38px wide) when it isn't.
     doc.documentElement.style.setProperty('--tc-right', `${model ? 68 + model + GAP : 58 + GAP}px`)
+    // How far in from the edges the stacked rows sit. 20px normally; tightened
+    // (never below 12) when those few pixels are the difference between the
+    // pill group sitting on one line and wrapping — at 375px the group is
+    // 329px wide against 335px of room, and it was wrapping "Isobars" onto a
+    // line of its own for the sake of six pixels. Padding is the one
+    // dimension these rules allow to flex; the pills themselves stay put.
+    const rowInset = rows === 1 ? 20 : Math.max(10, Math.min(20, Math.floor((W - pillsRaw) / 2)))
+    for (const el of [region, doc.documentElement]) el.style.setProperty('--row-inset', `${rowInset}px`)
     // On one row the switcher follows the icon ladder rather than sharing its
-    // 20px inset; once stacked, the ladder is on another row and 20px is right.
-    region.style.setProperty('--switcher-left', rows === 1 ? `${20 + ladder + 8}px` : '20px')
+    // inset; once stacked, the ladder is on another row and the inset is right.
+    region.style.setProperty('--switcher-left', rows === 1 ? `${20 + ladder + 8}px` : `${rowInset}px`)
     for (const el of [region, doc.documentElement]) {
       el.classList.remove('rows-1', 'rows-2', 'rows-3')
       el.classList.add(`rows-${rows}`)
     }
+    // The iframe's own pre-parent fallback (syncTopControlsLayout) may have
+    // stamped an inline max-width on the pill row before this ran. Inline
+    // beats the row rules' `max-width: none`, and it was measured without any
+    // knowledge of the switcher or the cog, so leaving it there is what
+    // squeezed the pills until Accum/Radar/Isobars spilled out of the group.
+    const tc = doc.getElementById('top-controls')
+    if (tc && tc.style.maxWidth) tc.style.maxWidth = ''
+    // Row three sits under row two, whatever height row two turned out to be:
+    // on a phone too narrow for the pill group even with the inset squeezed
+    // (below ~350px), the group wraps onto a second line and a constant 112px
+    // put the icon ladder, model switch and cog straight through the pills.
+    // Derived from the same widths the row count came from rather than read
+    // back off the DOM: measuring the rendered height caught the previous
+    // pass's state on the widths where the group wraps by a pixel or two,
+    // which left row three on top of the pills at exactly those widths.
+    // Two sources, take the taller: the estimate covers the case where the
+    // rendered height is a pass out of date (which is what left row three on
+    // top of the pills at the widths where the group wraps by a pixel or
+    // two), and the measurement covers Accum, where the period group can wrap
+    // onto a line of its own and make row two taller than any estimate of the
+    // mode pills alone.
+    const wraps = rows === 3 && pillsRaw > W - 2 * rowInset
+    const measured = rows === 3 && tc ? Math.ceil(tc.getBoundingClientRect().height) : 38
+    const row3 = 66 + Math.max(38, wraps ? 72 : 38, measured) + 8
+    for (const el of [region, doc.documentElement]) el.style.setProperty('--row3-top', `${row3}px`)
   }, [])
   useEffect(() => {
     // Re-measure on anything that changes a cluster's width: the window, the
@@ -4079,8 +4147,18 @@ function ForecastMap3D({ resort, setResort, viewMode, onViewModeChange }) {
     const frame = iframeRef.current
     frame?.addEventListener('load', run)
     window.addEventListener('resize', run)
-    const t = setInterval(run, 1000) // the map page shows/hides controls on its own schedule
-    return () => { frame?.removeEventListener('load', run); window.removeEventListener('resize', run); clearInterval(t) }
+    // The map page tells us the moment it changes a cluster's width (see
+    // notifyTopBarChanged in whakapapa-snow-forecast.html) — that's what makes
+    // the layout land on the change rather than up to a second later.
+    const onFrameMessage = (e) => { if (e.data?.type === 'top-bar-changed') run() }
+    window.addEventListener('message', onFrameMessage)
+    const t = setInterval(run, 1000) // backstop for anything that doesn't announce itself
+    return () => {
+      frame?.removeEventListener('load', run)
+      window.removeEventListener('resize', run)
+      window.removeEventListener('message', onFrameMessage)
+      clearInterval(t)
+    }
   }, [syncTopBarRows, resort, viewMode])
   // The resort value the iframe is currently showing/flying toward — kept in
   // sync from both directions (this component telling the iframe, or the
