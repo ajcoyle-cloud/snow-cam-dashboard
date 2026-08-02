@@ -720,6 +720,34 @@
   box-shadow: 0 4px 24px rgba(0, 0, 0, 0.3);
 }
 
+/* Shown in place of the spinner when the forecast fetch actually failed —
+   see SnowfallForecast's forecastError. A spinner that never stops says
+   "still working"; this says what went wrong and offers another go. */
+.forecast-error {
+  max-width: 460px;
+  margin: 60px auto;
+  padding: 24px 26px;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  text-align: center;
+}
+.forecast-error h3 { margin: 0 0 10px; font-size: 17px; font-weight: 700; }
+.forecast-error p { margin: 0 0 12px; font-size: 14px; line-height: 1.5; color: rgba(255, 255, 255, 0.72); }
+.forecast-error-detail { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; color: rgba(255, 255, 255, 0.4); }
+.forecast-error button {
+  margin-top: 4px;
+  padding: 9px 20px;
+  border-radius: 9999px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  background: rgba(255, 255, 255, 0.08);
+  color: #fff;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.forecast-error button:hover { background: rgba(255, 255, 255, 0.14); }
+
 .forecast-loading {
   display: flex;
   align-items: center;

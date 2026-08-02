@@ -1578,6 +1578,12 @@ function ResortSelector({ resort, setResort }) {
 
 function SnowfallForecast({ resort, setResort, onOpenCompare }) {
   const [forecastData, setForecastData] = useState(null)
+  // A failed fetch used to be a console.error and nothing else, so the view
+  // sat on its spinner forever — indistinguishable from a slow connection.
+  // Hold the failure so it can be shown and retried.
+  const [forecastError, setForecastError] = useState(null)
+  // Bumped by the error card's Retry button to re-run the fetch effect.
+  const [forecastReloadKey, setForecastReloadKey] = useState(0)
   const [ecmwfForecastData, setEcmwfForecastData] = useState(null)
   const [aifsForecastData, setAifsForecastData] = useState(null)
   const [ukmoForecastData, setUkmoForecastData] = useState(null)
@@ -1894,9 +1900,17 @@ function SnowfallForecast({ resort, setResort, onOpenCompare }) {
         }
       } catch (error) {
         console.error('Forecast error:', error)
+        // 429 is the one worth naming: Open-Meteo's free tier counts requests
+        // per IP per day, and every visitor's browser calls it directly, so
+        // this is "this network has had its fill today", not an outage.
+        setForecastError({
+          rateLimited: /=429\b/.test(String(error?.message || '')),
+          message: String(error?.message || error),
+        })
       }
     }
 
+    setForecastError(null)
     setForecastData(null)
     setEcmwfForecastData(null)
     setAifsForecastData(null)
@@ -1907,7 +1921,7 @@ function SnowfallForecast({ resort, setResort, onOpenCompare }) {
     setUkmoFreezingData(null)
     setMetserviceFzl(null)
     fetchForecast()
-  }, [resort])
+  }, [resort, forecastReloadKey])
 
   // Close the model-visibility dropdown on any click outside it.
   useEffect(() => {
