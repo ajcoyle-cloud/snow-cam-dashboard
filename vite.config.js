@@ -181,7 +181,7 @@ export default defineConfig({
       '/api/om': {
         target: 'https://api.open-meteo.com',
         changeOrigin: true,
-        rewrite: (path) => path.replace(/^\/api\/om/, ''),
+        rewrite: (path) => path.replace(/^\/api\/om/, '/v1/forecast'),
       },
       '/ms-api': {
         target: 'https://www.metservice.com',

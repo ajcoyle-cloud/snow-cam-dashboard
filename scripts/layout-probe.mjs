@@ -47,7 +47,7 @@ const page = await browser.newPage();
 // direct host, for any tool still using it) and fulfil with synthetic data —
 // same reasons as before: keep the probe off Open-Meteo's per-IP daily quota
 // and make the layout independent of network latency.
-await page.route('**/api/om/**', (route) => fulfilForecast(route));
+await page.route(/\/api\/om\?/, (route) => fulfilForecast(route));
 await page.route('**://api.open-meteo.com/**', (route) => fulfilForecast(route));
 async function fulfilForecast(route) {
   const url = new URL(route.request().url());
