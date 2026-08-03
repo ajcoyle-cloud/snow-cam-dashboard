@@ -5683,6 +5683,20 @@ function applyWinterSnow(enabled) {
   if (map.getLayer('snow-overlay-layer')) map.setPaintProperty('snow-overlay-layer', 'raster-opacity', snowOverlayParams.opacity);
 }
 
+// True if the view this page is about to land on — the query string, else
+// the remembered mode — is Live. Computed the same way restoreViewMode()
+// decides, but usable from restoreMapSettings() below, which runs on map
+// 'load' and so fires before the weather fetch that restoreViewMode() itself
+// waits on. Without this, a fresh Live load would enable particles here and
+// then immediately disable them once setViewMode('live') runs — a visible
+// on-then-off flash rather than simply never turning on.
+function initialViewModeIsLive() {
+  if (isHighResMode) return false;
+  const requestedView = new URLSearchParams(window.location.search).get('view');
+  if (['live', 'hourly', 'accumulated', 'radar', 'isobars'].includes(requestedView)) return requestedView === 'live';
+  try { return localStorage.getItem('sp-view-mode') === 'live'; } catch (e) { return false; }
+}
+
 // Called once, at the end of map.on('load') in initMap() above — picks up
 // whatever was last saved (by this iframe's own previous session, or by the
 // React-layer settings menu, same key/format either way).
@@ -5696,8 +5710,11 @@ function restoreMapSettings() {
   // matching darkMode's own high-res special-case) — it's a focused,
   // deliberately fixed view (dark relief + Accumulated drape only, no other
   // toggle changes it), and animated snow would just compete with reading
-  // the accumulation colour ramp it exists to show.
-  if (!isHighResMode && settings.snowParticles !== false) setSnowParticlesEnabled(true);
+  // the accumulation colour ramp it exists to show. Live gets the same
+  // treatment, enforced by setViewMode()'s own entry/exit handling below —
+  // this initial-load gate alone would only cover a fresh load, not
+  // switching into Live mid-session.
+  if (!isHighResMode && !initialViewModeIsLive() && settings.snowParticles !== false) setSnowParticlesEnabled(true);
   if (isHighResMode) {
     // Always the dark relief basemap with no contour lines here, regardless
     // of whatever's saved from the regular Map tab's settings cog — a plain
@@ -7590,6 +7607,20 @@ function setViewMode(mode) {
   // restart the same zoom-out animation pointlessly).
   if (mode === 'isobars' && prevMode !== 'isobars') flyToIsobarRegion();
   else if (mode !== 'isobars' && prevMode === 'isobars') flyToResortView();
+
+  // Live defaults to no particles, same idea as High-Res's fixed-off — the
+  // temperature drape is the point here, and falling snow competes with
+  // reading colour against it. Unlike High-Res there's still a settings-cog
+  // toggle reachable from this mode, so a manual "on" while already viewing
+  // Live is honoured (see the apply-settings listener); it's only the
+  // default this suppresses. Leaving Live re-applies whatever the toggle
+  // actually says, so a session that never touched it keeps particles on
+  // in every other mode as before.
+  if (mode === 'live') {
+    if (snowParticlesActive) setSnowParticlesEnabled(false);
+  } else if (prevMode === 'live' && loadMapSettings().snowParticles !== false) {
+    setSnowParticlesEnabled(true);
+  }
 
   if (mode === 'hourly') {
     stopPlay();
