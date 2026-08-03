@@ -3925,7 +3925,7 @@ function createSnowLayer(loc) {
   // the max of "is it snowing now" and "is it about to". The particle field
   // itself does NOT get this treatment — it should show current conditions,
   // not conditions from 2 hours from now.
-  const SKY_LOOKAHEAD_HOURS = 2;
+  const SKY_LOOKAHEAD_HOURS = 4;
   // How long a change in target intensity takes to fully show — smoothed
   // rather than snapping instantly, so scrubbing onto/off a snowy hour reads
   // as the snowfall fading in/out, not the particle field switching on/off.
