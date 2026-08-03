@@ -2530,7 +2530,11 @@ function SnowfallForecast({ resort, setResort, onOpenCompare }) {
   const ecmwfTableData = buildAltTableData(ecmwfForecastData)
   const aifsTableData = buildAltTableData(aifsForecastData)
   const ukmoTableData = buildAltTableData(ukmoForecastData)
-  const averageForecastDataRaw = buildAverageForecastData([forecastData, ecmwfForecastData, aifsForecastData, ukmoForecastData], RESORTS[resort])
+  // AIFS runs consistently high across every metric here (freezing level,
+  // snow line, temp) relative to GFS/ECMWF/UKMO, so it skews the blended
+  // Average row rather than genuinely improving it — excluded from the mix,
+  // though it's still available as its own row via the model dropdown.
+  const averageForecastDataRaw = buildAverageForecastData([forecastData, ecmwfForecastData, ukmoForecastData], RESORTS[resort])
   const averageTableData = buildAltTableData(averageForecastDataRaw)
 
   // Every model that can populate a full table row (temp/precip/snow/wind/freezing),
