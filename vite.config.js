@@ -150,6 +150,16 @@ function editionTitle() {
 }
 
 export default defineConfig({
+  // Build-time constant baked into the bundle (Date.now() runs ONCE here, when
+  // Vite builds, not per page load). Used as the map iframe's ?v= cache-bust —
+  // see IFRAME_CACHE_BUST in src/App.jsx. A per-load value there meant every
+  // visit fetched the large map HTML fresh from origin (it can't be edge-cached
+  // if its URL changes every time), which was burning Vercel's Fast Origin
+  // Transfer allowance; a per-BUILD value changes only on deploy, so the HTML
+  // caches at the edge between deploys and still busts cleanly when one ships.
+  define: {
+    __BUILD_ID__: JSON.stringify(String(Date.now())),
+  },
   plugins: [
     react(),
     editionTitle(),

@@ -26,11 +26,15 @@ const STORM_ARRIVAL_ENABLED = false
 // fetch a fresh copy after a deploy — iOS Safari in particular will happily
 // keep serving an old cached response into a freshly-mounted iframe,
 // producing confusing "my fix isn't live" reports that are actually just a
-// stale cache. Evaluated once when this module loads (a real page load /
-// hard refresh), not per-render, so switching tabs within the app doesn't
-// thrash the iframe with a new URL every time — only an actual fresh load
-// of the outer app changes this and busts the cache.
-const IFRAME_CACHE_BUST = Date.now()
+// stale cache. The ?v= carrying this value is what busts that.
+//
+// A build-time constant (injected by Vite's define — see vite.config.js), NOT
+// Date.now() at load. A per-load value gave every visit a unique ?v=, so the
+// map HTML could never be cached at the edge and was refetched from origin
+// every time — a big chunk of Vercel's Fast Origin Transfer. A per-BUILD value
+// changes only when a new deploy ships, so between deploys every visitor hits
+// the same cached URL, and a deploy still busts it cleanly (new build, new id).
+const IFRAME_CACHE_BUST = __BUILD_ID__
 
 // whakapapa-snow-forecast.html is a static public/ file, so Vite never
 // processes it and import.meta.env doesn't exist in there — the edition has to
@@ -1081,8 +1085,30 @@ function StormArrivalBanner({ resort, onOpenRadar }) {
 
 // Falling snow survives ~300m into air above the freezing level before it
 // melts, so the snow line sits this far below the freezing level rather than
-// exactly at it (matches the rule used by the standalone 3D snowfall map).
+// exactly at it. Only right for one particular humidity, though — it's the
+// fallback for whenever a hour has no wet-bulb reading, not the primary rule
+// (see wetBulbLineElev below, which is what the 3D snowfall map's drape
+// actually paints with).
 const SNOW_LINE_BUFFER_M = 300
+
+// Below this, an hour counts as "not actively snowing" — matches the map
+// drape's own threshold (SNOWFALL_THRESHOLD_MM in whakapapa-snow-forecast.html),
+// so the table's Snow Line row and the map's tint switch over at the same point.
+const SNOWFALL_THRESHOLD_MM = 0.1
+
+// Wet-bulb-derived snow/rain crossing elevation — solves the summit↔base
+// wet-bulb lapse for the elevation where it equals `target`. Open-Meteo
+// downscales wet-bulb to each elevation requested, so a summit and base
+// reading give a real lapse rate to solve, rather than assuming one fixed
+// humidity like SNOW_LINE_BUFFER_M does. Same crossing the 3D snowfall map's
+// drape paints with (wbElevAt in whakapapa-snow-forecast.html) — snow line at
+// WET_BULB_SNOW_MAX_C, rain line (sleet band's lower edge) at
+// WET_BULB_RAIN_MIN_C. Null when there's no wet-bulb for either point or the
+// profile is degenerate (summit and base reading the same), same as there.
+function wetBulbLineElev(baseWB, summitWB, baseElev, summitElev, target) {
+  if (baseWB == null || summitWB == null || summitWB === baseWB) return null
+  return baseElev + (target - baseWB) * (summitElev - baseElev) / (summitWB - baseWB)
+}
 
 // ── Precipitation phase ────────────────────────────────────────────────────
 // Wet-bulb temperature, not dry-bulb, decides whether precipitation reaches the
@@ -1297,6 +1323,8 @@ function buildAltModelData(summitData, baseData, r) {
       time,
       datetime: new Date(time),
       freezingLevel: freezingLevel !== null ? Math.round(freezingLevel / 100) * 100 : null,
+      snowLineWB: wetBulbLineElev(baseWetBulb, summitWetBulb, r.baseElev, r.summitElev, WET_BULB_SNOW_MAX_C),
+      rainLineWB: wetBulbLineElev(baseWetBulb, summitWetBulb, r.baseElev, r.summitElev, WET_BULB_RAIN_MIN_C),
       summit: {
         temp: summitTemp,
         wetBulb: summitWetBulb,
@@ -1371,6 +1399,8 @@ function buildAverageForecastData(sources, r) {
       time: first.time,
       datetime: first.datetime,
       freezingLevel,
+      snowLineWB: wetBulbLineElev(baseWetBulb, summitWetBulb, r.baseElev, r.summitElev, WET_BULB_SNOW_MAX_C),
+      rainLineWB: wetBulbLineElev(baseWetBulb, summitWetBulb, r.baseElev, r.summitElev, WET_BULB_RAIN_MIN_C),
       summit: {
         temp: avg(rows, (d) => d.summit.temp),
         wetBulb: summitWetBulb,
@@ -1755,6 +1785,8 @@ function SnowfallForecast({ resort, setResort, onOpenCompare }) {
             datetime: new Date(time),
             freezingLevel: Math.round(freezingLevel / 100) * 100,
             freezingLevelGFS: gfsFreezingLevel !== null ? Math.round(gfsFreezingLevel / 100) * 100 : null,
+            snowLineWB: wetBulbLineElev(baseWetBulb, summitWetBulb, r.baseElev, r.summitElev, WET_BULB_SNOW_MAX_C),
+            rainLineWB: wetBulbLineElev(baseWetBulb, summitWetBulb, r.baseElev, r.summitElev, WET_BULB_RAIN_MIN_C),
             summit: {
               temp: summitTemp,
               wetBulb: summitWetBulb,
@@ -2407,6 +2439,15 @@ function SnowfallForecast({ resort, setResort, onOpenCompare }) {
     setScrollToHourIndex(dayIndex * FIT_GROUP + 6)
     setViewMode('hourly')
   }
+  // Day-groups an hourly wet-bulb line (snowLineWB/rainLineWB) by averaging the
+  // elevations directly, same treatment as freezingLevel gets a few lines below
+  // — simpler than re-averaging wet-bulb and re-solving per group, and fine at
+  // this granularity since it's one already-picked model's own hours, not a
+  // cross-model blend where that would matter (see buildAverageForecastData).
+  const avgGroupLine = (group, pick) => {
+    const vals = group.map(pick).filter((v) => v != null)
+    return vals.length > 0 ? Math.round(vals.reduce((s, v) => s + v, 0) / vals.length / 100) * 100 : null
+  }
   const tableData = viewMode === 'fit'
     ? Array.from({ length: Math.ceil(activeData.length / FIT_GROUP) }, (_, gi) => {
         const group = activeData.slice(gi * FIT_GROUP, (gi + 1) * FIT_GROUP)
@@ -2424,6 +2465,8 @@ function SnowfallForecast({ resort, setResort, onOpenCompare }) {
           freezingLevelECMWF: avgSlice(ecmwfFreezingData),
           freezingLevelAIFS: avgSlice(aifsFreezingData),
           freezingLevelUKMO: avgSlice(ukmoFreezingData),
+          snowLineWB: avgGroupLine(group, (d) => d.snowLineWB),
+          rainLineWB: avgGroupLine(group, (d) => d.rainLineWB),
           summit: {
             temp: group.reduce((s, d) => s + d.summit.temp, 0) / group.length,
             precipitation: group.reduce((s, d) => s + d.summit.precipitation, 0),
@@ -2460,6 +2503,8 @@ function SnowfallForecast({ resort, setResort, onOpenCompare }) {
         return {
           datetime: group[0].datetime,
           freezingLevel: Math.round(group.reduce((s, d) => s + d.freezingLevel, 0) / group.length / 100) * 100,
+          snowLineWB: avgGroupLine(group, (d) => d.snowLineWB),
+          rainLineWB: avgGroupLine(group, (d) => d.rainLineWB),
           summit: {
             temp: group.reduce((s, d) => s + d.summit.temp, 0) / group.length,
             precipitation: group.reduce((s, d) => s + d.summit.precipitation, 0),
@@ -3359,12 +3404,6 @@ function SnowfallForecast({ resort, setResort, onOpenCompare }) {
                   : `${PHASE_LABEL[phase]}: ${(snowfall / 10).toFixed(1)}cm ${PHASE_ICON[phase]}`}
               </div>
               <div style={{ marginBottom: '6px' }}>Temp: {temp.toFixed(1)}°C</div>
-              {/* Wet-bulb is what actually made the snow/sleet/rain call, so
-                  show it next to the dry-bulb rather than leaving the verdict
-                  looking arbitrary on marginal days. */}
-              {data.wetBulb != null && (
-                <div style={{ marginBottom: '6px', color: '#888' }}>Wet-bulb: {data.wetBulb.toFixed(1)}°C</div>
-              )}
               <div style={{ marginBottom: '6px' }}>Wind: {wind.toFixed(1)} km/h {arrow}</div>
               {showFreezing.gfs && d.freezingLevelGFS !== null && (
                 <div style={{ color: '#3b82f6', marginTop: '4px' }}>
@@ -3481,6 +3520,34 @@ function SnowfallForecast({ resort, setResort, onOpenCompare }) {
                       onClick={viewMode === 'fit' ? () => handleDayTap(i) : undefined}
                       title={viewMode === 'fit' ? 'View hourly detail for this day' : undefined}
                       style={{ width: `${tableCellWidth}px`, color: isAboveSummit ? '#ef4444' : m.color, background: 'rgba(26, 26, 26, 0.15)', cursor: viewMode === 'fit' ? 'pointer' : 'default' }}>{val || '—'}</td>
+                  )
+                })}
+              </tr>
+            ))}
+            {/* Snow line rows — same elevation the 3D snowfall map's drape
+                paints with (buildSnowRamp in whakapapa-snow-forecast.html):
+                the wet-bulb crossing (snowLineWB) when the hour is actively
+                snowing, since that's the real melt boundary for whichever
+                humidity is forecast; SNOW_LINE_BUFFER_M only as a fallback
+                for hours a model has no wet-bulb reading. On a dry hour
+                there's no snow to draw a line for, so — again matching the
+                map — this just shows the freezing level itself. */}
+            {rowsForGroup('snowLine').map((m, idx, rows) => (
+              <tr key={`snowline-${m.key}`} style={{ height: '28px' }}>
+                {labelCell('snowLine', rows, idx, 'Snow Line', '(m)')}
+                {m.data.map((d, i) => {
+                  const freezing = m.getFreezing(d)
+                  const elevData = elevation === 'summit' ? d.summit : d.base
+                  const snowing = elevData.snowfall >= SNOWFALL_THRESHOLD_MM
+                  const val = freezing == null ? null
+                    : !snowing ? freezing
+                    : d.snowLineWB != null ? d.snowLineWB : freezing - SNOW_LINE_BUFFER_M
+                  const isAboveSummit = val != null && val > RESORTS[resort].summitElev
+                  return (
+                    <td key={i}
+                      onClick={viewMode === 'fit' ? () => handleDayTap(i) : undefined}
+                      title={viewMode === 'fit' ? 'View hourly detail for this day' : undefined}
+                      style={{ width: `${tableCellWidth}px`, color: isAboveSummit ? '#ef4444' : m.color, background: 'rgba(26, 26, 26, 0.15)', cursor: viewMode === 'fit' ? 'pointer' : 'default' }}>{val != null ? Math.round(val) : '—'}</td>
                   )
                 })}
               </tr>
