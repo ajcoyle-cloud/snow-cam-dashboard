@@ -3381,70 +3381,69 @@ function SnowfallForecast({ resort, setResort, onOpenCompare }) {
 
           const arrow = getWindArrow(windDir)
 
+          // Compact swatch shared by every model row in the grid below.
+          const swatch = (color) => (
+            <span style={{ display: 'inline-block', width: 8, height: 2, background: color, borderRadius: 1, marginRight: 5, verticalAlign: 'middle' }} />
+          )
+
           return (
             <div
               style={{
                 position: 'absolute',
                 pointerEvents: 'none',
                 left: `${hoverLineX}px`,
-                top: '5px',
+                top: '2px',
                 transform: 'translateX(-50%)',
                 background: 'rgba(0, 0, 0, 0.9)',
-                borderRadius: '12px',
-                padding: '10px',
-                fontSize: '12px',
+                borderRadius: '10px',
+                padding: '8px 12px',
+                fontSize: '11px',
+                lineHeight: 1.5,
                 color: '#fff',
                 zIndex: 10,
-                minWidth: '160px',
+                minWidth: '230px',
                 boxShadow: '0 2px 8px rgba(0,0,0,0.5)',
               }}
             >
-              <div style={{ fontWeight: 'bold', marginBottom: '6px', color: '#888' }}>
-                {d.datetime.toLocaleTimeString('en-NZ', { hour: '2-digit', minute: '2-digit', hour12: false })}
+              {/* Time + snow/rain share a row, temp + wind share the next — packs what
+                  used to be four stacked lines into two, so the card sits shorter and
+                  wider in the blank space above the freezing-level lines instead of
+                  reaching down over them. */}
+              <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: '12px' }}>
+                <span style={{ fontWeight: 'bold', color: '#888' }}>
+                  {d.datetime.toLocaleTimeString('en-NZ', { hour: '2-digit', minute: '2-digit', hour12: false })}
+                </span>
+                <span style={{ color: phase === 'sleet' ? PHASE_COLOR.sleet : '#fff' }}>
+                  {phase === 'rain'
+                    ? `Rain: ${precipDisplay}mm`
+                    : `${PHASE_LABEL[phase]}: ${(snowfall / 10).toFixed(1)}cm ${PHASE_ICON[phase]}`}
+                </span>
               </div>
-              <div style={{ color: phase === 'sleet' ? PHASE_COLOR.sleet : '#fff', marginBottom: '6px' }}>
-                {phase === 'rain'
-                  ? `Rain: ${precipDisplay}mm`
-                  : `${PHASE_LABEL[phase]}: ${(snowfall / 10).toFixed(1)}cm ${PHASE_ICON[phase]}`}
+              <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: '12px', marginBottom: '4px' }}>
+                <span>Temp: {temp.toFixed(1)}°C</span>
+                <span>Wind: {wind.toFixed(1)} km/h {arrow}</span>
               </div>
-              <div style={{ marginBottom: '6px' }}>Temp: {temp.toFixed(1)}°C</div>
-              <div style={{ marginBottom: '6px' }}>Wind: {wind.toFixed(1)} km/h {arrow}</div>
-              {showFreezing.gfs && d.freezingLevelGFS !== null && (
-                <div style={{ color: '#3b82f6', marginTop: '4px' }}>
-                  <span style={{ display: 'inline-block', width: 8, height: 2, background: '#3b82f6', borderRadius: 1, marginRight: 5, verticalAlign: 'middle' }} />
-                  GFS: {d.freezingLevelGFS}m
-                </div>
-              )}
-              {showFreezing.ecmwf && ecmwfFreezingData?.[hoveredIndex] != null && (
-                <div style={{ color: '#10b981', marginTop: '4px' }}>
-                  <span style={{ display: 'inline-block', width: 8, height: 2, background: '#10b981', borderRadius: 1, marginRight: 5, verticalAlign: 'middle' }} />
-                  ECMWF: {ecmwfFreezingData[hoveredIndex]}m
-                </div>
-              )}
-              {showFreezing.aifs && aifsFreezingData?.[hoveredIndex] != null && (
-                <div style={{ color: '#f59e0b', marginTop: '4px' }}>
-                  <span style={{ display: 'inline-block', width: 8, height: 2, background: '#f59e0b', borderRadius: 1, marginRight: 5, verticalAlign: 'middle' }} />
-                  AIFS: {aifsFreezingData[hoveredIndex]}m
-                </div>
-              )}
-              {showFreezing.ukmo && ukmoFreezingData?.[hoveredIndex] != null && (
-                <div style={{ color: '#f472b6', marginTop: '4px' }}>
-                  <span style={{ display: 'inline-block', width: 8, height: 2, background: '#f472b6', borderRadius: 1, marginRight: 5, verticalAlign: 'middle' }} />
-                  UKMO: {ukmoFreezingData[hoveredIndex]}m
-                </div>
-              )}
-              {showFreezing.metservice && metserviceValueAt(d.datetime) != null && (
-                <div style={{ color: '#a855f7', marginTop: '4px' }}>
-                  <span style={{ display: 'inline-block', width: 8, height: 2, background: '#a855f7', borderRadius: 1, marginRight: 5, verticalAlign: 'middle' }} />
-                  MetService: {metserviceValueAt(d.datetime)}m
-                </div>
-              )}
-              {showFreezing.average && averageFreezingData[hoveredIndex] != null && (
-                <div style={{ color: '#e2e8f0', marginTop: '4px' }}>
-                  <span style={{ display: 'inline-block', width: 8, height: 2, background: '#e2e8f0', borderRadius: 1, marginRight: 5, verticalAlign: 'middle' }} />
-                  Average: {averageFreezingData[hoveredIndex]}m
-                </div>
-              )}
+              {/* Model freezing levels in a 2-column grid rather than one-per-line. */}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', columnGap: '10px' }}>
+                {showFreezing.gfs && d.freezingLevelGFS !== null && (
+                  <div style={{ color: '#3b82f6' }}>{swatch('#3b82f6')}GFS: {d.freezingLevelGFS}m</div>
+                )}
+                {showFreezing.ecmwf && ecmwfFreezingData?.[hoveredIndex] != null && (
+                  <div style={{ color: '#10b981' }}>{swatch('#10b981')}ECMWF: {ecmwfFreezingData[hoveredIndex]}m</div>
+                )}
+                {showFreezing.aifs && aifsFreezingData?.[hoveredIndex] != null && (
+                  <div style={{ color: '#f59e0b' }}>{swatch('#f59e0b')}AIFS: {aifsFreezingData[hoveredIndex]}m</div>
+                )}
+                {showFreezing.ukmo && ukmoFreezingData?.[hoveredIndex] != null && (
+                  <div style={{ color: '#f472b6' }}>{swatch('#f472b6')}UKMO: {ukmoFreezingData[hoveredIndex]}m</div>
+                )}
+                {showFreezing.metservice && metserviceValueAt(d.datetime) != null && (
+                  <div style={{ color: '#a855f7' }}>{swatch('#a855f7')}MetService: {metserviceValueAt(d.datetime)}m</div>
+                )}
+                {showFreezing.average && averageFreezingData[hoveredIndex] != null && (
+                  <div style={{ color: '#e2e8f0' }}>{swatch('#e2e8f0')}Average: {averageFreezingData[hoveredIndex]}m</div>
+                )}
+              </div>
             </div>
           )
         })()}
