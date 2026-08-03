@@ -4033,6 +4033,22 @@ function createSnowLayer(loc) {
     return 1 + heavyT * (HEAVY_DENSITY_MULT - 1);
   }
 
+  // Same two-stage ramp as intensityForHour, but keyed off the Accumulated
+  // view's window TOTAL (currentAccumTotalCm, set by renderAccumulatedView)
+  // rather than one hour's rate — a multi-day dump should read as more of
+  // the sky filled with particles, not however heavy the arbitrary hour
+  // forecastHours[currentIndex] happens to be pointing at (Accum has no
+  // "current hour" of its own). Reference points echo DEPTH_BANDS: full
+  // density at a solid 10-15cm dump, capped at the 50cm+ top band.
+  const REF_ACCUM_CM = 15;
+  const HEAVY_ACCUM_CM = 50;
+  function intensityForAccumTotal(totalCm) {
+    if (!totalCm || totalCm <= 0) return 0;
+    if (totalCm <= REF_ACCUM_CM) return totalCm / REF_ACCUM_CM;
+    const heavyT = Math.min(1, (totalCm - REF_ACCUM_CM) / (HEAVY_ACCUM_CM - REF_ACCUM_CM));
+    return 1 + heavyT * (HEAVY_DENSITY_MULT - 1);
+  }
+
   // Real (un-exaggerated) terrain elevation under a spawn point, so this
   // flake fades out at its OWN ground instead of the resort-wide BOTTOM_ALT
   // floor — see the comment on WIND_ANGLE_SCALE above for why that flickered.
@@ -4209,11 +4225,17 @@ function createSnowLayer(loc) {
 
       // Real Open-Meteo snowfall for the selected hour drives how much of the
       // field is actually visible — 0 particles when it isn't snowing. See
-      // intensityForHour above for the two-ramp (normal -> heavy) math.
-      // Smoothed toward the target rather than snapped to it, so scrubbing
-      // across snowfall levels fades the density in/out instead of jumping
-      // straight to it.
-      const targetIntensity = intensityForHour(hour);
+      // intensityForHour above for the two-ramp (normal -> heavy) math. In
+      // Accumulated view there is no "selected hour" to read a rate off —
+      // use the window total instead (intensityForAccumTotal), so a bigger
+      // multi-day dump fills the sky with more flakes rather than tracking
+      // whatever hour forecastHours[currentIndex] happens to be left on from
+      // Hourly. Smoothed toward the target rather than snapped to it, so
+      // scrubbing across snowfall levels (or changing the accum period) fades
+      // the density in/out instead of jumping straight to it.
+      const targetIntensity = viewMode === 'accumulated'
+        ? intensityForAccumTotal(currentAccumTotalCm)
+        : intensityForHour(hour);
       const smoothT = dt > 0 ? Math.min(1, dt / INTENSITY_SMOOTH_S) : 0;
       currentIntensity += (targetIntensity - currentIntensity) * smoothT;
       // BASE_PARTICLE_COUNT, not PARTICLE_COUNT (the allocated pool) — an
@@ -4233,7 +4255,10 @@ function createSnowLayer(loc) {
       // the blend has actually moved a visible amount, rather than every
       // single frame once it's settled.
       let skyTargetIntensity = targetIntensity;
-      if (typeof forecastHours !== 'undefined' && typeof currentIndex !== 'undefined') {
+      // The look-ahead only means anything against a scrubbable hourly
+      // timeline — Accum has no "next hour" to peek at, so it just tracks
+      // the same accumulated-total target as the particle field above.
+      if (viewMode !== 'accumulated' && typeof forecastHours !== 'undefined' && typeof currentIndex !== 'undefined') {
         for (let k = 1; k <= SKY_LOOKAHEAD_HOURS; k++) {
           skyTargetIntensity = Math.max(skyTargetIntensity, intensityForHour(forecastHours[currentIndex + k]));
         }
