@@ -2198,6 +2198,20 @@ function finishResortSwitch(key, newLoc) {
   // the hourly timeline — re-derive its region-based min elevation and
   // regenerate its tiles for the new resort if it's currently switched on.
   if (snowOverlayActive) applyWinterSnow(true);
+  // Snow particles capture `loc` (center/summit/base/topElev) once, inside
+  // createSnowLayer's own closure — they don't read LOC live, so leaving the
+  // existing layer in place after a resort switch would keep spawning flakes
+  // around the OLD resort's coordinates while the camera flies off to a
+  // completely different mountain (this page never reloads on a resort
+  // switch — see switchResort above). Swap in a fresh layer bound to the new
+  // LOC, already reassigned above; setSnowParticlesEnabled itself does this
+  // correctly for a first-ever activation, this just repeats that for an
+  // already-active field. No-op while off — the next time it's turned on,
+  // setSnowParticlesEnabled reads the (by-then current) LOC anyway.
+  if (snowParticlesActive && map.getLayer('snow-particles')) {
+    map.removeLayer('snow-particles');
+    map.addLayer(createSnowLayer(LOC));
+  }
 
   // Rebuilds modelHours/forecastHours/elevationBandHours for the new resort
   // (LOC above is already reassigned, and every fetch/URL builder this reads
