@@ -55,10 +55,10 @@
   .pill-short { display: none; }
   html.rows-3 .pill-long { display: none; }
   html.rows-3 .pill-short { display: inline; }
-  /* Accum's 5/10/15 group rides up onto row one, next to the resort
+  /* Accum's 3/5/7 group rides up onto row one, next to the resort
      switcher, instead of sharing row two with the mode pills. Sharing meant
      both groups were squeezed onto one line and each wrapped internally —
-     "Radar Isobars" on a second line inside their own pill, "15" on a second
+     "Radar Isobars" on a second line inside their own pill, "7" on a second
      line inside its own. Row one has the room (switcher ~130px + this ~110px
      against ~355px), and this keeps Accum to the same three rows as every
      other mode.
@@ -152,7 +152,7 @@
      `@media (max-width:700px)` `#id` rules further down without !important. */
   html.rows-mobile #mode-switch { display: none; }
   html.rows-mobile #mode-dropdown { display: flex; }
-  /* Row two, right end. Accum shows BOTH the 5/10/15 period group and the
+  /* Row two, right end. Accum shows BOTH the 3/5/7 period group and the
      model switch (a per-model accumulation), so they sit as a pair: the model
      switch at the corner, the period group just left of it. #top-controls only
      carries the period group here (the mode pills it also holds are hidden on
@@ -1030,7 +1030,7 @@
        layer). Reserve ~152px on the left for that switcher, and ~46px on the
        right for the React-layer settings cog (.map-settings-menu, also on
        this row — 38px button + 12px margin, see App.css), so neither ever
-       collides. In accumulated mode the extra 5/10/15 period group wraps to a
+       collides. In accumulated mode the extra 3/5/7 period group wraps to a
        second right-aligned row rather than growing left into the switcher. */
     #top-controls {
       top: 14px;
@@ -1367,9 +1367,9 @@
       <button class="pill-btn" data-mode="isobars" onclick="setViewMode('isobars')"><span class="pill-long">Isobars</span><span class="pill-short">Iso</span></button>
     </div>
     <div class="pill-group" id="period-switch">
+      <button class="pill-btn" data-days="3" onclick="setPeriod(3)">3</button>
       <button class="pill-btn active" data-days="5" onclick="setPeriod(5)">5</button>
-      <button class="pill-btn" data-days="10" onclick="setPeriod(10)">10</button>
-      <button class="pill-btn" data-days="15" onclick="setPeriod(15)">15</button>
+      <button class="pill-btn" data-days="7" onclick="setPeriod(7)">7</button>
     </div>
   </div>
 
@@ -2691,7 +2691,7 @@ window.addEventListener('resize', syncTopControlsLayout);
 // Tell the parent the moment anything in here changes the width of a top-bar
 // cluster, so its measuring pass (syncTopBarRows in App.jsx) runs on the
 // change instead of on its next 1s tick. Everything that moves is in this
-// document — the mode pills gaining Accum's 5/10/15 group, the model label
+// document — the mode pills gaining Accum's 3/5/7 group, the model label
 // going from "AIFS" to "ECMWF IFS", Radar's pill disappearing for a resort
 // outside NZ, a trial button appearing in the icon ladder — and the parent
 // has no way to know about any of it. The poll stays as a backstop; this
@@ -6131,7 +6131,7 @@ function stepHour(delta) {
   openMapView(currentIndex + delta);
 }
 
-// ── Accumulated snowfall view — total depth over the next 5/10/15 days ──────
+// ── Accumulated snowfall view — total depth over the next 3/5/7 days ──────
 // The mountain is tinted with all eight depth bands stacked by elevation so the
 // colour key is visible across the terrain; the legend highlights which single
 // band the actual forecast total falls into. Band colours come from DEPTH_BANDS
@@ -6200,8 +6200,8 @@ function renderAccumulatedView() {
   const totalCm = window_.reduce((s, r) => s + r.snowfallMm, 0) / 10;
   // Use the lowest freezing level reached during the window, not the average —
   // averaging dilutes a cold snow event with milder days elsewhere in the same
-  // window, which made a longer period (e.g. 15 Day) show a *higher* snow line
-  // than a shorter one (10 Day) it fully contains. The minimum can only stay
+  // window, which made a longer period (e.g. 7 Day) show a *higher* snow line
+  // than a shorter one (5 Day) it fully contains. The minimum can only stay
   // the same or drop as the window grows, so longer periods never show less
   // low-elevation coverage than the shorter periods nested inside them.
   const minFreezing = Math.min(...window_.map((r) => r.freezingLevel));
@@ -8573,7 +8573,7 @@ function restoreViewMode() {
   const requestedView = new URLSearchParams(window.location.search).get('view');
   if (['live', 'hourly', 'accumulated', 'radar', 'isobars'].includes(requestedView)) saved = requestedView;
   if (saved === 'accumulated') {
-    if ([5, 10, 15].includes(savedDays)) accumDays = savedDays;
+    if ([3, 5, 7].includes(savedDays)) accumDays = savedDays;
     document.querySelectorAll('#period-switch .pill-btn').forEach(b => b.classList.toggle('active', parseInt(b.dataset.days, 10) === accumDays));
     setViewMode('accumulated');
   } else if (saved === 'live') {
