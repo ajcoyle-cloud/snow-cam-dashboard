@@ -3395,7 +3395,13 @@ function buildMapStyle() {
         }
       },
       layers: [
-        { id: 'background', type: 'background', paint: { 'background-color': '#2d5a1b' } },
+        // Shows through wherever the satellite raster hasn't loaded a tile
+        // yet (e.g. the horizon strip at the top of a pitched view while
+        // distant tiles are still streaming in) — a dark neutral matching
+        // the page's own loading-screen gradient (see body{background} above)
+        // so a slow tile reads as "still loading" rather than flashing an
+        // unrelated green "land" fill over the whole strip.
+        { id: 'background', type: 'background', paint: { 'background-color': '#14253e' } },
         { id: 'satellite', type: 'raster', source: 'satellite', paint: { 'raster-opacity': 1, 'raster-saturation': 0.1, 'raster-contrast': 0.05 } },
         {
           id: 'depth-shade', type: 'hillshade', source: 'terrain',
