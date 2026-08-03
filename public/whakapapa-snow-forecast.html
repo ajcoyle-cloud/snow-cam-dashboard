@@ -202,8 +202,8 @@
   html.rows-2 .maplibregl-ctrl-top-right { margin-top: 114px; }
   html.rows-3 .maplibregl-ctrl-top-right { margin-top: calc(var(--row3-top, 112px) + 48px); }
   .maplibregl-ctrl-top-right .maplibregl-ctrl-group {
-    background: rgba(20,20,20,0.78);
-    backdrop-filter: blur(14px);
+    background: rgba(0,0,0,0.6);
+    backdrop-filter: blur(30px); -webkit-backdrop-filter: blur(30px);
     border: none;
     border-radius: 9999px;
     overflow: hidden;
@@ -295,7 +295,7 @@
   .split-pane-swatch { width: 10px; height: 10px; border-radius: 3px; flex-shrink: 0; }
   .split-pane-select {
     appearance: none; -webkit-appearance: none;
-    background: rgba(54,54,62,0.9); backdrop-filter: blur(14px);
+    background: rgba(0,0,0,0.6); backdrop-filter: blur(30px); -webkit-backdrop-filter: blur(30px);
     border: none; border-radius: 999px;
     color: #fff; font-family: inherit; font-size: 0.74rem; font-weight: 700;
     padding: 7px 26px 7px 12px; cursor: pointer;
@@ -482,7 +482,7 @@
 
   #snow-info {
     position: absolute; bottom: 92px; left: 20px; z-index: 10;
-    background: rgba(10,20,36,0.78); backdrop-filter: blur(14px);
+    background: rgba(0,0,0,0.6); backdrop-filter: blur(30px); -webkit-backdrop-filter: blur(30px);
     border-radius: 14px; padding: 16px 20px; min-width: 220px;
     box-shadow: 0 4px 24px rgba(0,0,0,0.3);
   }
@@ -494,7 +494,7 @@
   #speed-select {
     position: absolute; bottom: 92px; right: 20px; z-index: 10;
     display: flex; gap: 4px;
-    background: rgba(10,20,36,0.78); backdrop-filter: blur(14px);
+    background: rgba(0,0,0,0.6); backdrop-filter: blur(30px); -webkit-backdrop-filter: blur(30px);
     border-radius: 999px; padding: 5px;
     box-shadow: 0 4px 24px rgba(0,0,0,0.3);
   }
@@ -504,7 +504,7 @@
     cursor: pointer; transition: all 0.15s; font-family: inherit;
   }
   .speed-btn:hover { color: #fff; }
-  .speed-btn.active { background: #333; color: #fff; }
+  .speed-btn.active { background: rgba(0,0,0,0.6); backdrop-filter: blur(30px); -webkit-backdrop-filter: blur(30px); color: #fff; }
 
   /* Same grey+blur pill language as the top-controls row (pill-group/
      model-switch/resort-switcher/settings cog — all 38px tall). Background
@@ -519,7 +519,7 @@
        lng/lat-anchored, so at some camera angles one projects right under
        this icon row; UI chrome must always win over map content. */
     position: absolute; top: 20px; z-index: 45;
-    background: rgba(54,54,62,0.85); backdrop-filter: blur(14px); color: #fff;
+    background: rgba(0,0,0,0.6); backdrop-filter: blur(30px); -webkit-backdrop-filter: blur(30px); color: #fff;
     border: none;
     width: 38px; height: 38px; border-radius: 50%; font-size: 1.1rem; cursor: pointer;
     transition: background 0.15s;
@@ -527,33 +527,33 @@
     box-shadow: 0 4px 24px rgba(0,0,0,0.3);
   }
   #map-enlarge { left: 20px; }
-  #map-enlarge:hover { background: rgba(70,70,80,0.9); }
+  #map-enlarge:hover { background: rgba(0,0,0,0.72); }
   #obs-toggle { left: 64px; }
-  #obs-toggle.active { background: rgba(92,92,106,0.95); }
-  #obs-toggle:hover { background: rgba(70,70,80,0.9); }
-  #obs-toggle.active:hover { background: rgba(106,106,122,0.95); }
+  #obs-toggle.active { background: rgba(0,0,0,0.82); }
+  #obs-toggle:hover { background: rgba(0,0,0,0.72); }
+  #obs-toggle.active:hover { background: rgba(0,0,0,0.88); }
   #rotate-toggle { left: 108px; }
-  #rotate-toggle.active { background: rgba(92,92,106,0.95); }
-  #rotate-toggle:hover { background: rgba(70,70,80,0.9); }
-  #rotate-toggle.active:hover { background: rgba(106,106,122,0.95); }
+  #rotate-toggle.active { background: rgba(0,0,0,0.82); }
+  #rotate-toggle:hover { background: rgba(0,0,0,0.72); }
+  #rotate-toggle.active:hover { background: rgba(0,0,0,0.88); }
   #snow-toggle { left: 196px; }
-  #snow-toggle.active { background: rgba(92,92,106,0.95); }
-  #snow-toggle:hover { background: rgba(70,70,80,0.9); }
-  #snow-toggle.active:hover { background: rgba(106,106,122,0.95); }
+  #snow-toggle.active { background: rgba(0,0,0,0.82); }
+  #snow-toggle:hover { background: rgba(0,0,0,0.72); }
+  #snow-toggle.active:hover { background: rgba(0,0,0,0.88); }
   #snow-overlay-toggle { left: 240px; font-size: 0.95rem; }
-  #snow-overlay-toggle.active { background: rgba(92,92,106,0.95); }
-  #snow-overlay-toggle:hover { background: rgba(70,70,80,0.9); }
-  #snow-overlay-toggle.active:hover { background: rgba(106,106,122,0.95); }
+  #snow-overlay-toggle.active { background: rgba(0,0,0,0.82); }
+  #snow-overlay-toggle:hover { background: rgba(0,0,0,0.72); }
+  #snow-overlay-toggle.active:hover { background: rgba(0,0,0,0.88); }
   #basemap-toggle { left: 284px; font-size: 0.95rem; }
-  #basemap-toggle.active { background: rgba(92,92,106,0.95); }
-  #basemap-toggle:hover { background: rgba(70,70,80,0.9); }
-  #basemap-toggle.active:hover { background: rgba(106,106,122,0.95); }
+  #basemap-toggle.active { background: rgba(0,0,0,0.82); }
+  #basemap-toggle:hover { background: rgba(0,0,0,0.72); }
+  #basemap-toggle.active:hover { background: rgba(0,0,0,0.88); }
   /* Only meaningful (and only shown — see toggleBasemap()) while the dark
      terrain basemap itself is on, so it sits right after that toggle. */
   #contour-toggle { left: 328px; font-size: 0.95rem; display: none; }
-  #contour-toggle.active { background: rgba(92,92,106,0.95); }
-  #contour-toggle:hover { background: rgba(70,70,80,0.9); }
-  #contour-toggle.active:hover { background: rgba(106,106,122,0.95); }
+  #contour-toggle.active { background: rgba(0,0,0,0.82); }
+  #contour-toggle:hover { background: rgba(0,0,0,0.72); }
+  #contour-toggle.active:hover { background: rgba(0,0,0,0.88); }
   /* Wind-driven orographic snow overlay — real per-pixel DEM gradient x
      current hour's wind, replacing the flat elevation-only tint while
      active. Only High-Res tab (?highres=1, see isHighResMode below), not
@@ -573,12 +573,12 @@
      region, which left the button invisible and unclickable in prod even
      though it rendered fine on the standalone page. Keep it left of ~190px. */
   #split-toggle { left: 152px; }
-  #split-toggle.active { background: rgba(92,92,106,0.95); }
-  #split-toggle:hover { background: rgba(70,70,80,0.9); }
-  #split-toggle.active:hover { background: rgba(106,106,122,0.95); }
-  #orographic-toggle.active { background: rgba(92,92,106,0.95); }
-  #orographic-toggle:hover { background: rgba(70,70,80,0.9); }
-  #orographic-toggle.active:hover { background: rgba(106,106,122,0.95); }
+  #split-toggle.active { background: rgba(0,0,0,0.82); }
+  #split-toggle:hover { background: rgba(0,0,0,0.72); }
+  #split-toggle.active:hover { background: rgba(0,0,0,0.88); }
+  #orographic-toggle.active { background: rgba(0,0,0,0.82); }
+  #orographic-toggle:hover { background: rgba(0,0,0,0.72); }
+  #orographic-toggle.active:hover { background: rgba(0,0,0,0.88); }
 
   /* Tuning panel for the snow-overlay trial — hidden until that toggle is
      on (see toggleSnowOverlay()). Sits below the icon row, clear of
@@ -595,7 +595,7 @@
   #snow-overlay-controls input[type="range"] { width: 100%; accent-color: #4d9fff; }
   #snow-overlay-controls span { color: #9fd3ff; font-variant-numeric: tabular-nums; }
   #map-close { right: 64px; display: none; }
-  #map-close:hover { background: rgba(70,70,80,0.9); }
+  #map-close:hover { background: rgba(0,0,0,0.72); }
   #map-screen.is-fullscreen #map-enlarge { display: none; }
   #map-screen.is-fullscreen #map-close { display: block; }
 
@@ -672,7 +672,7 @@
      across every button for a cleaner look. */
   .pill-group {
     display: flex; gap: 4px; height: 38px; box-sizing: border-box;
-    background: rgba(54,54,62,0.85); backdrop-filter: blur(14px);
+    background: rgba(0,0,0,0.6); backdrop-filter: blur(30px); -webkit-backdrop-filter: blur(30px);
     border: none;
     border-radius: 999px; padding: 4px;
     box-shadow: 0 4px 24px rgba(0,0,0,0.3);
@@ -684,7 +684,7 @@
     cursor: pointer; transition: all 0.15s; font-family: inherit; white-space: nowrap;
   }
   .pill-btn:hover { color: #fff; }
-  .pill-btn.active { background: rgba(92,92,106,0.95); color: #fff; }
+  .pill-btn.active { background: rgba(0,0,0,0.82); color: #fff; }
   #period-switch { display: none; }
   /* #top-controls' flex-wrap only helps when there are two separate items
      (mode-switch, period-switch) to wrap between — on a narrow-enough
@@ -719,7 +719,7 @@
   #mode-dropdown-btn {
     display: flex; align-items: center; gap: 8px;
     height: 38px; box-sizing: border-box;
-    background: rgba(54,54,62,0.85); backdrop-filter: blur(14px);
+    background: rgba(0,0,0,0.6); backdrop-filter: blur(30px); -webkit-backdrop-filter: blur(30px);
     border: none; color: #fff; border-radius: 999px;
     padding: 0 16px; font-size: 0.82rem; font-weight: 700;
     cursor: pointer; font-family: inherit; white-space: nowrap;
@@ -729,7 +729,7 @@
   #mode-dropdown-list {
     display: none;
     position: absolute; top: calc(100% + 8px); left: 0;
-    background: rgba(20,20,20,0.92); backdrop-filter: blur(14px);
+    background: rgba(0,0,0,0.6); backdrop-filter: blur(30px); -webkit-backdrop-filter: blur(30px);
     border: 1px solid rgba(255,255,255,0.1);
     border-radius: 12px; padding: 4px 0; min-width: 168px;
     box-shadow: 0 8px 28px rgba(0,0,0,0.5);
@@ -785,7 +785,7 @@
   #model-switch-btn {
     display: flex; align-items: center; gap: 8px;
     height: 38px; box-sizing: border-box;
-    background: rgba(54,54,62,0.85); backdrop-filter: blur(14px);
+    background: rgba(0,0,0,0.6); backdrop-filter: blur(30px); -webkit-backdrop-filter: blur(30px);
     border: none; color: #fff; border-radius: 999px;
     padding: 0 16px; font-size: 0.78rem; font-weight: 700;
     cursor: pointer; font-family: inherit; white-space: nowrap;
@@ -796,7 +796,7 @@
   #model-switch-list {
     display: none;
     position: absolute; top: calc(100% + 8px); right: 0;
-    background: rgba(20,20,20,0.92); backdrop-filter: blur(14px);
+    background: rgba(0,0,0,0.6); backdrop-filter: blur(30px); -webkit-backdrop-filter: blur(30px);
     border: 1px solid rgba(255,255,255,0.1);
     border-radius: 12px; padding: 4px 0; min-width: 160px;
     box-shadow: 0 8px 28px rgba(0,0,0,0.5);
@@ -3875,36 +3875,150 @@ function initMap() {
 // snowflake button next to the rotate control, not tied to any real
 // forecast/weather data.
 function createSnowLayer(loc) {
-  const PARTICLE_COUNT = 700;
+  // Trail (a fading GL_LINES streak behind each flake) was tried and pulled
+  // back out — kept costing extra per-frame MercatorCoordinate conversions
+  // for a look that wasn't landing. Freed-up budget went into more/bigger
+  // flakes instead.
+  //
+  // This is the CAP, not the count actually drawn every frame — see
+  // targetIntensity in render() below, which scales how many of these
+  // PARTICLE_COUNT slots are actually live based on the selected hour's real
+  // Open-Meteo snowfall rate (0 particles drawn when it isn't snowing).
+  const PARTICLE_COUNT = 2800;
+  // Snowfall rate (mm/hr, same field snowfallMm the forecast/orographic code
+  // already reads off forecastHours[currentIndex]) at which the field is at
+  // full density. Below SNOWFALL_THRESHOLD_MM (defined earlier, 0.1 — same
+  // threshold the map drape uses for "is this hour actually snowing") the
+  // target intensity is exactly 0, not just faint, per request.
+  const REF_SNOWFALL_MM = 3;
+  // How long a change in target intensity takes to fully show — smoothed
+  // rather than snapping instantly, so scrubbing onto/off a snowy hour reads
+  // as the snowfall fading in/out, not the particle field switching on/off.
+  const INTENSITY_SMOOTH_S = 0.4;
   // Spawn area is a rough circle around the resort's own centre — not tied to
   // the actual camera framing, so it reads fine at the default view but may
   // look sparse/dense if you zoom far in or out. (First trial used 0.03/~3km,
   // which was too tight — barely covered the visible frame at the resort's
   // usual wide, pitched establishing shot.)
-  const SPAWN_RADIUS_DEG = 0.08; // ~8km at these latitudes
-  const TOP_ALT = (loc.topElev || loc.summitElev + 200) + 400;
+  const SPAWN_RADIUS_DEG = 0.12; // ~12km at these latitudes (0.08 x 1.5)
+  const TOP_ALT = (loc.topElev || loc.summitElev + 200) + 2700; // 900 x 3
   const BOTTOM_ALT = Math.max(0, loc.baseElev - 300);
-  const FALL_SPEED = 40; // metres/sec — tuned by eye, not physically modelled
+  const FALL_SPEED = 130; // metres/sec — tuned by eye, not physically modelled
+  // New flakes popping in at full brightness the instant they respawn was
+  // the most visible "particle system" tell — ramp opacity in over this many
+  // seconds instead so a respawn reads as continuous snow, not a spawn event.
+  const FADE_IN_S = 0.6;
+  // Symmetric fade-out as a flake nears its floor — without this it fell at
+  // full opacity right up to the frame it respawned, then vanished/reappeared
+  // elsewhere instantly, which read as a flicker rather than a fade. Stateless
+  // (derived from alts[i]/FALL_SPEED each frame, no extra per-particle timer)
+  // since fall speed is constant, so "seconds from the floor" is just
+  // (alts[i] - groundAlts[i]) / FALL_SPEED. That floor is per-flake real
+  // terrain (see realGroundAt below), not this flat BOTTOM_ALT — see the
+  // comment there for why a single global floor still flickered.
+  const FADE_OUT_S = 0.6;
+  const HEAD_SIZE = 4.2; // 3.5 x 1.2
+  // Perspective size scaling — a flake right in front of the camera should
+  // read noticeably bigger than one falling near the summit far off in the
+  // distance, which a flat gl_PointSize never captures. Clip-space w is
+  // already proportional to view-space distance from the camera (a normal
+  // side effect of the perspective matrix multiply the shader was doing
+  // anyway), so this is one extra division per vertex — negligible next to
+  // the MercatorCoordinate conversion already happening in JS for every
+  // point every frame. PERSPECTIVE_REF_W is w at a typical establishing-shot
+  // distance (checked empirically), calibrated so HEAD_SIZE still means
+  // "normal size" at that distance, same as before this was added — closer
+  // flakes scale up from there, farther ones scale down. Clamped so a flake
+  // right on the lens doesn't blow up into a blob and a distant one doesn't
+  // vanish to sub-pixel.
+  const PERSPECTIVE_REF_W = 990;
+  const MIN_PX = 1.5;
+  const MAX_PX = 24; // dialed back from 34 — still noticeably bigger up close, less extreme
+  // Real per-flake ground, not the actual flicker fix below. BOTTOM_ALT is
+  // ONE global floor (the resort's base elevation minus a buffer) but flakes
+  // spawn across an 8km-wide circle that covers the whole mountain, terrain
+  // that ranges from ~1300m valley up to 2700m+ summit — nowhere near flat.
+  // A flake falling toward the summit was still "high up, not fading" by
+  // BOTTOM_ALT's reckoning (it only ramps down in the last 48m above ~1330m)
+  // hundreds of metres after it had already passed the real ground under it,
+  // fully opaque the whole time it was behind/inside the terrain mesh —
+  // exactly where the depth test flickers it on/off as its position wobbles
+  // a pixel either side of the surface. Fading it out before it actually
+  // reaches ITS OWN ground fixes that at the source, rather than only
+  // working near the resort's base. Queried once per respawn (not every
+  // frame — 2800 particles x terrain query per frame would add up for no
+  // visible gain, since lateral drift during one fall is small).
+  const WIND_ANGLE_SCALE = 8; // 8x the real forecast wind's lateral pull, per request
 
   const lngs = new Float64Array(PARTICLE_COUNT);
   const lats = new Float64Array(PARTICLE_COUNT);
   const alts = new Float64Array(PARTICLE_COUNT);
   const phases = new Float32Array(PARTICLE_COUNT);
   const sways = new Float32Array(PARTICLE_COUNT);
-  const verts = new Float32Array(PARTICLE_COUNT * 3);
+  // Every flake wobbling at the same angular speed (only phase offset
+  // varied) made the whole field sway in visible unison despite the random
+  // starting points — like one curtain, not independent snow. A per-particle
+  // speed multiplier desyncs them from each other over time. swaysLat gives
+  // the wobble a second, out-of-phase axis (was longitude-only) so the path
+  // reads as an irregular flutter, not a single side-to-side pendulum.
+  // windGain scales how strongly THIS flake responds to the real wind vector
+  // — real snow doesn't all drift at exactly the same rate even in one
+  // gust — so the field spreads out downwind instead of moving as one rigid
+  // block all sharing an identical drift vector.
+  const swaySpeeds = new Float32Array(PARTICLE_COUNT);
+  const swaysLat = new Float32Array(PARTICLE_COUNT);
+  const windGains = new Float32Array(PARTICLE_COUNT);
+  const groundAlts = new Float64Array(PARTICLE_COUNT);
+  // Per-flake shape variation — a fixed random phase fed into the fragment
+  // shader's angular wobble (see the shader source below) so each flake's
+  // silhouette is a little irregular and different from its neighbours,
+  // rather than every single one being an identical perfect circle. Just a
+  // phase offset, not reassigned on every respawn's actual shape (there's
+  // only one shape function) — enough that a field of thousands doesn't read
+  // as obviously stamped from one sprite.
+  const seeds = new Float32Array(PARTICLE_COUNT);
+  const ages = new Float32Array(PARTICLE_COUNT);
+  const verts = new Float32Array(PARTICLE_COUNT * 6); // x, y, z, fade, size, seed
+
+  // Real (un-exaggerated) terrain elevation under a spawn point, so this
+  // flake fades out at its OWN ground instead of the resort-wide BOTTOM_ALT
+  // floor — see the comment on WIND_ANGLE_SCALE above for why that flickered.
+  // Falls back to BOTTOM_ALT when the query can't answer yet (terrain tiles
+  // not loaded for that spot) or the map/terrain isn't ready.
+  function realGroundAt(lng, lat) {
+    if (!map || !map.queryTerrainElevation) return BOTTOM_ALT;
+    try {
+      const e = map.queryTerrainElevation([lng, lat]);
+      if (e == null || isNaN(e)) return BOTTOM_ALT;
+      const terrain = map.getTerrain();
+      const exaggeration = (terrain && terrain.exaggeration) || 1;
+      // A little below the literal surface so the flake visibly reaches the
+      // ground before it's gone, rather than fading out just above it.
+      return Math.max(0, e / exaggeration - 20);
+    } catch (err) { return BOTTOM_ALT; }
+  }
 
   function respawn(i, randomAltitude) {
     const ang = Math.random() * Math.PI * 2;
     const r = Math.random() * SPAWN_RADIUS_DEG;
     lngs[i] = loc.center[0] + (Math.cos(ang) * r) / Math.cos((loc.center[1] * Math.PI) / 180);
     lats[i] = loc.center[1] + Math.sin(ang) * r;
-    alts[i] = randomAltitude ? BOTTOM_ALT + Math.random() * (TOP_ALT - BOTTOM_ALT) : TOP_ALT;
+    groundAlts[i] = realGroundAt(lngs[i], lats[i]);
+    alts[i] = randomAltitude ? groundAlts[i] + Math.random() * (TOP_ALT - groundAlts[i]) : TOP_ALT;
     phases[i] = Math.random() * Math.PI * 2;
-    sways[i] = 0.00015 + Math.random() * 0.00025; // small side-to-side drift, in degrees of longitude
+    sways[i] = 0.0002 + Math.random() * 0.00045; // side-to-side drift, in degrees of longitude
+    swaysLat[i] = 0.00015 + Math.random() * 0.00035; // second, independent wobble axis
+    swaySpeeds[i] = 0.5 + Math.random() * 1.5; // desyncs flakes from each other over time
+    windGains[i] = 0.6 + Math.random() * 0.8; // 0.6x-1.4x this hour's wind — natural spread, not lockstep
+    seeds[i] = Math.random() * Math.PI * 2;
+    // A freshly-spawned-at-random-altitude flake (the initial fill) starts
+    // fully visible — only flakes that actually respawn mid-fall fade in.
+    ages[i] = randomAltitude ? FADE_IN_S : 0;
   }
   for (let i = 0; i < PARTICLE_COUNT; i++) respawn(i, true);
 
-  let program, buffer, aPos, uMatrix, lastT = null;
+  let program, buffer, aPos, aFade, aSize, aSeed, uMatrix, lastT = null;
+  let currentIntensity = 0; // ramps toward targetIntensity each frame — starts at 0 so it fades IN on first activation too
 
   return {
     id: 'snow-particles',
@@ -3924,25 +4038,58 @@ function createSnowLayer(loc) {
       gl.attachShader(program, compile(gl.VERTEX_SHADER, `
         uniform mat4 u_matrix;
         attribute vec3 a_pos;
+        attribute float a_fade;
+        attribute float a_size;
+        attribute float a_seed;
+        varying float v_fade;
+        varying float v_seed;
+        varying float v_closeness;
         void main() {
           gl_Position = u_matrix * vec4(a_pos, 1.0);
-          gl_PointSize = 7.0;
+          float closeness = ${PERSPECTIVE_REF_W.toFixed(1)} / gl_Position.w;
+          gl_PointSize = clamp(a_size * closeness, ${MIN_PX.toFixed(1)}, ${MAX_PX.toFixed(1)});
+          v_fade = a_fade;
+          v_seed = a_seed;
+          // Unclamped, unlike gl_PointSize above — a flake well inside the
+          // size cap still keeps getting nearer, and should keep softening.
+          v_closeness = closeness;
         }
       `));
       // A pure white dot barely shows up against snow-covered white terrain —
       // first trial's actual failure mode (per a live screenshot: the layer
       // was active but effectively invisible). Gives each flake a soft dark
       // rim around a white core so it reads against light AND dark
-      // backgrounds instead of just one.
+      // backgrounds instead of just one. The angular wobble (dist scaled by a
+      // sine of angle*6 + this flake's own seed) breaks the rim out of a
+      // perfect circle into a soft, irregular 6-pointed silhouette — same
+      // per-pixel cost as before, just one atan/sin more, and v_seed makes
+      // every flake's wobble land at a different phase so the field doesn't
+      // read as one sprite stamped thousands of times.
+      // Quick depth-of-field TEST: not a real blur (a point sprite's fragment
+      // shader only ever sees that one point, never its neighbours, so it
+      // can't actually sample/blur across pixels — true DOF needs a whole
+      // separate offscreen render pass + blur kernel, not attempted here).
+      // This is the cheap approximation: widen the core->rim smoothstep
+      // range for flakes closer than PERSPECTIVE_REF_W (v_closeness > 1),
+      // using the same distance value already driving the perspective size
+      // scaling above — so a near flake reads as a soft, indistinct blob
+      // instead of a crisp dot, and a far one is unchanged. Same per-pixel
+      // cost as before, just non-constant smoothstep edges.
       gl.attachShader(program, compile(gl.FRAGMENT_SHADER, `
         precision mediump float;
+        varying float v_fade;
+        varying float v_seed;
+        varying float v_closeness;
         void main() {
-          float dist = length(gl_PointCoord - vec2(0.5));
+          vec2 p = gl_PointCoord - vec2(0.5);
+          float angle = atan(p.y, p.x);
+          float dist = length(p) * (1.0 + 0.12 * sin(angle * 6.0 + v_seed));
           if (dist > 0.5) discard;
-          float core = 1.0 - smoothstep(0.24, 0.4, dist);
-          float rim = smoothstep(0.24, 0.4, dist) * (1.0 - smoothstep(0.4, 0.5, dist));
+          float blur = clamp((v_closeness - 1.0) * 0.18, 0.0, 0.4);
+          float core = 1.0 - smoothstep(0.24 - blur, 0.4 + blur, dist);
+          float rim = smoothstep(0.24 - blur, 0.4 + blur, dist) * (1.0 - smoothstep(0.4 + blur, 0.5 + blur, dist));
           vec3 color = mix(vec3(0.2, 0.28, 0.4), vec3(1.0), core);
-          gl_FragColor = vec4(color, max(core, rim * 0.7));
+          gl_FragColor = vec4(color, max(core, rim * 0.7) * v_fade);
         }
       `));
       gl.linkProgram(program);
@@ -3950,21 +4097,129 @@ function createSnowLayer(loc) {
         console.error('snow-particles program link error:', gl.getProgramInfoLog(program));
       }
       aPos = gl.getAttribLocation(program, 'a_pos');
+      aFade = gl.getAttribLocation(program, 'a_fade');
+      aSize = gl.getAttribLocation(program, 'a_size');
+      aSeed = gl.getAttribLocation(program, 'a_seed');
       uMatrix = gl.getUniformLocation(program, 'u_matrix');
       buffer = gl.createBuffer();
     },
-    render(gl, matrix) {
+    render(gl, args) {
+      // This map is pinned to MapLibre 5.23 (see demElevationAt's comment),
+      // whose CustomLayerInterface.render signature no longer hands the custom
+      // layer a raw matrix — it's an object now (CustomRenderMethodInput), to
+      // carry the extra per-frame data globe projection needs. The old code
+      // here passed that whole object straight to gl.uniformMatrix4fv, which
+      // needs an actual Float64Array of 16 numbers — silently throwing
+      // "object must have a callable @@iterator property" on literally every
+      // frame (nothing awaits or logs a custom layer's render, so it never
+      // surfaced anywhere), which is why nothing ever reached gl.drawArrays.
+      // defaultProjectionData.mainMatrix is this version's equivalent of the
+      // old `matrix` param for the standard (non-globe) mercator projection
+      // this page uses — modelViewProjectionMatrix looked like the obvious
+      // match by name, but multiplying a known mercator vertex through it
+      // landed far outside the [-1,1] clip volume (NDC x of -2.9); mainMatrix
+      // puts the same vertex correctly inside frame.
+      const matrix = args.defaultProjectionData.mainMatrix;
       const now = performance.now();
       const dt = lastT == null ? 0 : Math.min(0.1, (now - lastT) / 1000);
       lastT = now;
 
+      // MercatorCoordinate.fromLngLat's altitude is real, un-exaggerated metres —
+      // but this map's terrain mesh renders at 1.2x (terrain:{exaggeration:1.2}
+      // in initMap), displacing the actual DEM surface 20% higher in the same
+      // mercator-Z space these particles share. Feeding it real alts[i] put
+      // every flake's world position BELOW where the exaggerated terrain
+      // surface actually sits nearby, so the depth test discarded most of them
+      // on the way down — what little survived read as a flat, squashed sheet
+      // rather than snow falling through open 3D air past the peak. Same
+      // exaggeration gotcha demElevationAt() documents for queryTerrainElevation,
+      // just applied in the opposite direction (real -> displayed, not the
+      // reverse) since alts[i] itself stays in real metres for the fall-speed/
+      // spawn-bounds math below, which is all keyed off loc.summitElev/baseElev.
+      const exaggeration = (map.getTerrain() && map.getTerrain().exaggeration) || 1;
+
+      // Real forecast wind for whichever hour is currently selected, not a
+      // fixed manual angle — same source (forecastHours[currentIndex]) and
+      // the same speed/direction-to-vector conversion the wind-driven
+      // orographic snow overlay already uses (orographicWindVectorsForHour/
+      // orographicWindAtElevation, below), so the two agree with each other.
+      // windDirDeg is "wind FROM" (meteorological convention); those helpers
+      // already rotate it 180° to a travel vector. Degrades to no drift
+      // (just the existing per-particle sway) when there's no forecast hour
+      // yet, e.g. before the fetch resolves.
+      const hour = (typeof forecastHours !== 'undefined' && typeof currentIndex !== 'undefined')
+        ? forecastHours[currentIndex] : null;
+      const windVectors = (hour && hour.windSpeedKmh != null && hour.windDirDeg != null)
+        ? orographicWindVectorsForHour(hour) : null;
+
+      // Real Open-Meteo snowfall for the selected hour drives how much of the
+      // field is actually visible — 0 particles when it isn't snowing
+      // (hour missing, or below the same SNOWFALL_THRESHOLD_MM the map drape
+      // itself uses to decide "is this hour actually snowing"), ramping up to
+      // the full PARTICLE_COUNT cap at REF_SNOWFALL_MM. Smoothed toward that
+      // target rather than snapped to it, so scrubbing onto/off a snowy hour
+      // fades the snowfall in/out instead of switching it on/off.
+      const targetIntensity = (hour && hour.snowfallMm != null && hour.snowfallMm >= SNOWFALL_THRESHOLD_MM)
+        ? Math.min(1, hour.snowfallMm / REF_SNOWFALL_MM) : 0;
+      const smoothT = dt > 0 ? Math.min(1, dt / INTENSITY_SMOOTH_S) : 0;
+      currentIntensity += (targetIntensity - currentIntensity) * smoothT;
+      const activeCount = Math.round(PARTICLE_COUNT * currentIntensity);
+
+      // Where a flake actually dies (respawns): the sleet line — below it
+      // this hour's forecast has it as sleet/rain, not snow, so a flake
+      // shouldn't visually survive past that point even over terrain that's
+      // still far below it. rainLineWB is this file's own "Sleet Line" field
+      // (same one si-sleet/the drape's violet band read off of); falls back
+      // to snowLineWB (the sleet band's upper edge — a bit conservative, dies
+      // slightly higher) or freezingLevel-SNOW_OFFSET when wet-bulb isn't
+      // available this hour, same degradation order used everywhere else in
+      // this file. Still floored against real per-flake ground (groundAlts,
+      // see realGroundAt above) via the max() below — a sleet line sitting
+      // BELOW the actual terrain under a flake (common on cold, all-snow
+      // hours where the sleet line drops to near sea level) must not pull
+      // the death point underground.
+      const sleetLineAlt = hour
+        ? (hour.rainLineWB != null ? hour.rainLineWB
+          : hour.snowLineWB != null ? hour.snowLineWB
+          : hour.freezingLevel != null ? hour.freezingLevel - SNOW_OFFSET
+          : null)
+        : null;
+
       for (let i = 0; i < PARTICLE_COUNT; i++) {
         alts[i] -= FALL_SPEED * dt;
-        phases[i] += dt;
-        if (alts[i] < BOTTOM_ALT) respawn(i, false);
+        phases[i] += dt * swaySpeeds[i];
+        ages[i] += dt;
+        if (alts[i] < (sleetLineAlt != null ? Math.max(groundAlts[i], sleetLineAlt) : groundAlts[i])) respawn(i, false);
+        // Recomputed AFTER the possible respawn above (not reused from the
+        // check just now) since respawn() resets groundAlts[i] to the new
+        // spawn point's own ground — reusing a pre-respawn value here would
+        // fade a freshly-spawned flake against the floor it just left.
+        const dieAlt = sleetLineAlt != null ? Math.max(groundAlts[i], sleetLineAlt) : groundAlts[i];
+        if (windVectors) {
+          const { U, V } = orographicWindAtElevation(windVectors, alts[i]); // m/s: U east, V north
+          lats[i] += (V * WIND_ANGLE_SCALE * windGains[i] * dt) / 111320;
+          lngs[i] += (U * WIND_ANGLE_SCALE * windGains[i] * dt) / (111320 * Math.cos((lats[i] * Math.PI) / 180));
+        }
+        // Physics above still runs for every slot regardless of activeCount
+        // (so a flake already mid-fall, not freshly spawned at the top, is
+        // what appears the instant intensity ramps up and its slot goes
+        // active) — only the comparatively expensive position/vertex work
+        // below is skipped for slots this hour's intensity doesn't need.
+        if (i >= activeCount) continue;
+        // Two independent wobble axes (different frequency multipliers via
+        // the 1.0 vs 1.3 factor) so the path reads as an irregular flutter
+        // rather than one side-to-side pendulum.
         const swayLng = Math.sin(phases[i]) * sways[i];
-        const mc = maplibregl.MercatorCoordinate.fromLngLat([lngs[i] + swayLng, lats[i]], alts[i]);
-        verts[i * 3] = mc.x; verts[i * 3 + 1] = mc.y; verts[i * 3 + 2] = mc.z;
+        const swayLat = Math.cos(phases[i] * 1.3) * swaysLat[i];
+        const headLng = lngs[i] + swayLng, headLat = lats[i] + swayLat;
+        const fadeIn = Math.min(1, ages[i] / FADE_IN_S);
+        const fadeOut = Math.min(1, Math.max(0, (alts[i] - dieAlt) / (FALL_SPEED * FADE_OUT_S)));
+        const fade = Math.min(fadeIn, fadeOut);
+
+        const mc = maplibregl.MercatorCoordinate.fromLngLat([headLng, headLat], alts[i] * exaggeration);
+        const vBase = i * 6;
+        verts[vBase] = mc.x; verts[vBase + 1] = mc.y; verts[vBase + 2] = mc.z;
+        verts[vBase + 3] = fade; verts[vBase + 4] = HEAD_SIZE; verts[vBase + 5] = seeds[i];
       }
 
       gl.useProgram(program);
@@ -3972,7 +4227,13 @@ function createSnowLayer(loc) {
       gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
       gl.bufferData(gl.ARRAY_BUFFER, verts, gl.DYNAMIC_DRAW);
       gl.enableVertexAttribArray(aPos);
-      gl.vertexAttribPointer(aPos, 3, gl.FLOAT, false, 0, 0);
+      gl.vertexAttribPointer(aPos, 3, gl.FLOAT, false, 24, 0);
+      gl.enableVertexAttribArray(aFade);
+      gl.vertexAttribPointer(aFade, 1, gl.FLOAT, false, 24, 12);
+      gl.enableVertexAttribArray(aSize);
+      gl.vertexAttribPointer(aSize, 1, gl.FLOAT, false, 24, 16);
+      gl.enableVertexAttribArray(aSeed);
+      gl.vertexAttribPointer(aSeed, 1, gl.FLOAT, false, 24, 20);
 
       gl.enable(gl.BLEND);
       gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
@@ -3981,7 +4242,8 @@ function createSnowLayer(loc) {
       // only terrain should ever block them — just test against what's
       // already there.
       gl.depthMask(false);
-      gl.drawArrays(gl.POINTS, 0, PARTICLE_COUNT);
+      if (activeCount > 0) gl.drawArrays(gl.POINTS, 0, activeCount);
+
       gl.depthMask(true);
     }
   };
@@ -3989,9 +4251,21 @@ function createSnowLayer(loc) {
 
 let snowParticlesActive = false;
 let snowParticlesAnimHandle = null;
-function toggleSnowParticles() {
+// Idempotent setter (not a strict toggle) — both the raw Snow Test trial
+// button AND the production "Snow particles" settings-cog switch (see
+// restoreMapSettings/the apply-settings listener below) end up calling this
+// same function, so there's exactly one place that actually owns the layer's
+// add/remove + repaint loop regardless of which surface flipped it.
+function setSnowParticlesEnabled(enabled) {
   if (!map) return;
-  snowParticlesActive = !snowParticlesActive;
+  // True no-op when already in this state — both the ?snow=1 auto-enable
+  // and restoreMapSettings' own default-on can each independently decide to
+  // turn this on during the same map.on('load'); without this guard the
+  // second call would start a SECOND requestAnimationFrame repaint loop
+  // (the first keeps running too, since it only stops when snowParticlesActive
+  // goes false, and this would silently leave it true throughout).
+  if (enabled === snowParticlesActive) return;
+  snowParticlesActive = enabled;
   const btn = document.getElementById('snow-toggle');
   if (btn) btn.classList.toggle('active', snowParticlesActive);
   if (snowParticlesActive) {
@@ -4007,6 +4281,9 @@ function toggleSnowParticles() {
     snowParticlesAnimHandle = null;
     if (map.getLayer('snow-particles')) map.removeLayer('snow-particles');
   }
+}
+function toggleSnowParticles() {
+  setSnowParticlesEnabled(!snowParticlesActive);
 }
 
 // ── Trial: slope-aware snow overlay ("world-based angle shader") ───────────
@@ -5318,6 +5595,15 @@ function applyWinterSnow(enabled) {
 function restoreMapSettings() {
   const settings = loadMapSettings();
   if (settings.winterSnow) applyWinterSnow(true);
+  // Only boolean toggle here that defaults ON rather than off — absent key
+  // (first-ever visit) or anything other than an explicit `false` still
+  // enables it, unlike winterSnow/darkMode above which only turn on when the
+  // saved value is truthy. High-Res mode gets no particles (see below,
+  // matching darkMode's own high-res special-case) — it's a focused,
+  // deliberately fixed view (dark relief + Accumulated drape only, no other
+  // toggle changes it), and animated snow would just compete with reading
+  // the accumulation colour ramp it exists to show.
+  if (!isHighResMode && settings.snowParticles !== false) setSnowParticlesEnabled(true);
   if (isHighResMode) {
     // Always the dark relief basemap with no contour lines here, regardless
     // of whatever's saved from the regular Map tab's settings cog — a plain
@@ -5344,6 +5630,9 @@ window.addEventListener('message', (event) => {
   }
   if (typeof event.data.darkMode === 'boolean' && event.data.darkMode !== darkTerrainActive) {
     setDarkMode(event.data.darkMode);
+  }
+  if (typeof event.data.snowParticles === 'boolean' && event.data.snowParticles !== snowParticlesActive) {
+    setSnowParticlesEnabled(event.data.snowParticles);
   }
 });
 

@@ -4041,12 +4041,19 @@ function MapSettingsMenu({ topIframeRef }) {
   const [isOpen, setIsOpen] = useState(false)
   const [winterSnow, setWinterSnow] = useState(false)
   const [darkMode, setDarkMode] = useState(false)
+  // Defaults ON, unlike the two above — initial state here matches what the
+  // effect below settles on for a first-ever visit (no saved key yet) so
+  // there's no on->off flash once localStorage is read.
+  const [snowParticles, setSnowParticles] = useState(true)
   const dropdownRef = useRef(null)
 
   useEffect(() => {
     const saved = loadMapSettings()
     setWinterSnow(!!saved.winterSnow)
     setDarkMode(!!saved.darkMode)
+    // Only an explicit `false` turns this off — absent key (never saved) or
+    // any other value keeps it on, the inverse of winterSnow/darkMode above.
+    setSnowParticles(saved.snowParticles !== false)
   }, [])
 
   useEffect(() => {
@@ -4088,6 +4095,17 @@ function MapSettingsMenu({ topIframeRef }) {
                 type="checkbox"
                 checked={darkMode}
                 onChange={(e) => { setDarkMode(e.target.checked); applyAndSave({ darkMode: e.target.checked }) }}
+              />
+              <span className="map-settings-switch-track"></span>
+            </span>
+          </label>
+          <label className="map-settings-row">
+            <span>Snow particles</span>
+            <span className="map-settings-switch">
+              <input
+                type="checkbox"
+                checked={snowParticles}
+                onChange={(e) => { setSnowParticles(e.target.checked); applyAndSave({ snowParticles: e.target.checked }) }}
               />
               <span className="map-settings-switch-track"></span>
             </span>
