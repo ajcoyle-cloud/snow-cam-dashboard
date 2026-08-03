@@ -3880,17 +3880,27 @@ function createSnowLayer(loc) {
   // for a look that wasn't landing. Freed-up budget went into more/bigger
   // flakes instead.
   //
-  // This is the CAP, not the count actually drawn every frame — see
-  // targetIntensity in render() below, which scales how many of these
-  // PARTICLE_COUNT slots are actually live based on the selected hour's real
+  // BASE_PARTICLE_COUNT is "normal full density" (what REF_SNOWFALL_MM and
+  // below reaches) — the actual allocated pool (PARTICLE_COUNT, below) is
+  // bigger than that, HEAVY_DENSITY_MULT bigger, so there's real headroom
+  // to draw MORE than "full" once snowfall climbs to HEAVY_SNOWFALL_MM.
+  // targetIntensity in render() is what actually decides how many of the
+  // allocated slots are live each frame off the selected hour's real
   // Open-Meteo snowfall rate (0 particles drawn when it isn't snowing).
-  const PARTICLE_COUNT = 2800;
+  const BASE_PARTICLE_COUNT = 2800;
   // Snowfall rate (mm/hr, same field snowfallMm the forecast/orographic code
   // already reads off forecastHours[currentIndex]) at which the field is at
-  // full density. Below SNOWFALL_THRESHOLD_MM (defined earlier, 0.1 — same
-  // threshold the map drape uses for "is this hour actually snowing") the
-  // target intensity is exactly 0, not just faint, per request.
+  // normal full density (intensity 1.0, BASE_PARTICLE_COUNT flakes). Below
+  // SNOWFALL_THRESHOLD_MM (defined earlier, 0.1 — same threshold the map
+  // drape uses for "is this hour actually snowing") the target intensity is
+  // exactly 0, not just faint, per request.
   const REF_SNOWFALL_MM = 3;
+  // Second ramp, above REF_SNOWFALL_MM: by HEAVY_SNOWFALL_MM (10mm/hr =
+  // 1cm/hr) intensity has climbed from 1.0 to HEAVY_DENSITY_MULT (1.4x
+  // BASE_PARTICLE_COUNT), then holds there for anything heavier still.
+  const HEAVY_SNOWFALL_MM = 10;
+  const HEAVY_DENSITY_MULT = 1.4;
+  const PARTICLE_COUNT = Math.round(BASE_PARTICLE_COUNT * HEAVY_DENSITY_MULT); // actual pool size
   // How long a change in target intensity takes to fully show — smoothed
   // rather than snapping instantly, so scrubbing onto/off a snowy hour reads
   // as the snowfall fading in/out, not the particle field switching on/off.
@@ -3903,7 +3913,7 @@ function createSnowLayer(loc) {
   const SPAWN_RADIUS_DEG = 0.12; // ~12km at these latitudes (0.08 x 1.5)
   const TOP_ALT = (loc.topElev || loc.summitElev + 200) + 2700; // 900 x 3
   const BOTTOM_ALT = Math.max(0, loc.baseElev - 300);
-  const FALL_SPEED = 130; // metres/sec — tuned by eye, not physically modelled
+  const FALL_SPEED = 156; // metres/sec — tuned by eye, not physically modelled (130 x 1.2)
   // New flakes popping in at full brightness the instant they respawn was
   // the most visible "particle system" tell — ramp opacity in over this many
   // seconds instead so a respawn reads as continuous snow, not a spawn event.
@@ -4153,17 +4163,30 @@ function createSnowLayer(loc) {
         ? orographicWindVectorsForHour(hour) : null;
 
       // Real Open-Meteo snowfall for the selected hour drives how much of the
-      // field is actually visible — 0 particles when it isn't snowing
-      // (hour missing, or below the same SNOWFALL_THRESHOLD_MM the map drape
-      // itself uses to decide "is this hour actually snowing"), ramping up to
-      // the full PARTICLE_COUNT cap at REF_SNOWFALL_MM. Smoothed toward that
-      // target rather than snapped to it, so scrubbing onto/off a snowy hour
-      // fades the snowfall in/out instead of switching it on/off.
-      const targetIntensity = (hour && hour.snowfallMm != null && hour.snowfallMm >= SNOWFALL_THRESHOLD_MM)
-        ? Math.min(1, hour.snowfallMm / REF_SNOWFALL_MM) : 0;
+      // field is actually visible — 0 particles when it isn't snowing (hour
+      // missing, or below the same SNOWFALL_THRESHOLD_MM the map drape
+      // itself uses to decide "is this hour actually snowing"). Two ramps:
+      // 0->REF_SNOWFALL_MM takes intensity 0->1 (normal full density), then
+      // REF_SNOWFALL_MM->HEAVY_SNOWFALL_MM takes it 1->HEAVY_DENSITY_MULT for
+      // genuinely heavy snow, holding at HEAVY_DENSITY_MULT beyond that.
+      // Smoothed toward whichever target rather than snapped to it, so
+      // scrubbing across snowfall levels fades the density in/out instead of
+      // jumping straight to it.
+      let targetIntensity = 0;
+      if (hour && hour.snowfallMm != null && hour.snowfallMm >= SNOWFALL_THRESHOLD_MM) {
+        if (hour.snowfallMm <= REF_SNOWFALL_MM) {
+          targetIntensity = hour.snowfallMm / REF_SNOWFALL_MM;
+        } else {
+          const heavyT = Math.min(1, (hour.snowfallMm - REF_SNOWFALL_MM) / (HEAVY_SNOWFALL_MM - REF_SNOWFALL_MM));
+          targetIntensity = 1 + heavyT * (HEAVY_DENSITY_MULT - 1);
+        }
+      }
       const smoothT = dt > 0 ? Math.min(1, dt / INTENSITY_SMOOTH_S) : 0;
       currentIntensity += (targetIntensity - currentIntensity) * smoothT;
-      const activeCount = Math.round(PARTICLE_COUNT * currentIntensity);
+      // BASE_PARTICLE_COUNT, not PARTICLE_COUNT (the allocated pool) — an
+      // intensity of 1.4 at BASE_PARTICLE_COUNT x 1.4 is exactly the pool
+      // size, never more, so this can't ask for more slots than exist.
+      const activeCount = Math.round(BASE_PARTICLE_COUNT * currentIntensity);
 
       // Where a flake actually dies (respawns): the sleet line — below it
       // this hour's forecast has it as sleet/rain, not snow, so a flake
