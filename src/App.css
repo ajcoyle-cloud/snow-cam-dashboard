@@ -1307,21 +1307,22 @@
     padding-top: 0 !important;
   }
 
-  /* Same grey+blur pill treatment as the iframe's Live/Hourly/Accum/Radar
-     switcher (.pill-group) — mobile previously left this on the plain
-     .resort-button dark-solid style, unlike the desktop override below. */
+  /* Same black-glass pill treatment as the iframe's Live/Hourly/Accum/Radar
+     switcher and model switch (.pill-group / #mode-dropdown-btn /
+     #model-switch-btn, all rgba(0,0,0,0.6)) — was a lighter mid-grey before,
+     which read as a distinctly different (whiter) pill next to those. */
   .map-resort-switch .resort-button {
     height: 38px;
     box-sizing: border-box;
     padding: 0 16px;
     display: inline-flex;
     align-items: center;
-    background: rgba(54, 54, 62, 0.85);
+    background: rgba(0, 0, 0, 0.6);
     backdrop-filter: blur(14px);
     border: none;
   }
   .map-resort-switch .resort-button:hover {
-    background: rgba(70, 70, 80, 0.9);
+    background: rgba(0, 0, 0, 0.72);
   }
 
   .map-resort-switch .elevation-toggle {
@@ -1639,21 +1640,21 @@
     padding-top: 0 !important;
   }
   /* Match height/background to the iframe's pill-group and model-switch
-     (both 38px tall). Background is a genuine mid-grey (not a darkened
-     black), so the pill still reads clearly against a pure-black dark-mode
-     sky, not just against the map imagery. The faint white hairline border
-     it used to carry is gone — dropped across every button in both the app
-     and the map page for a cleaner look. */
+     (both 38px tall, rgba(0,0,0,0.6)) — same black-glass language as every
+     other button on this row, not a lighter grey standing apart from them.
+     The faint white hairline border it used to carry is gone — dropped
+     across every button in both the app and the map page for a cleaner
+     look. */
   .map-resort-switch .resort-button {
     height: 38px;
     box-sizing: border-box;
-    background: rgba(54, 54, 62, 0.85);
+    background: rgba(0, 0, 0, 0.6);
     backdrop-filter: blur(14px);
     border: none;
     box-shadow: 0 4px 24px rgba(0, 0, 0, 0.3);
   }
   .map-resort-switch .resort-button:hover {
-    background: rgba(70, 70, 80, 0.9);
+    background: rgba(0, 0, 0, 0.72);
   }
 }
 

@@ -2198,6 +2198,20 @@ function finishResortSwitch(key, newLoc) {
   // the hourly timeline — re-derive its region-based min elevation and
   // regenerate its tiles for the new resort if it's currently switched on.
   if (snowOverlayActive) applyWinterSnow(true);
+  // Snow particles capture `loc` (center/summit/base/topElev) once, inside
+  // createSnowLayer's own closure — they don't read LOC live, so leaving the
+  // existing layer in place after a resort switch would keep spawning flakes
+  // around the OLD resort's coordinates while the camera flies off to a
+  // completely different mountain (this page never reloads on a resort
+  // switch — see switchResort above). Swap in a fresh layer bound to the new
+  // LOC, already reassigned above; setSnowParticlesEnabled itself does this
+  // correctly for a first-ever activation, this just repeats that for an
+  // already-active field. No-op while off — the next time it's turned on,
+  // setSnowParticlesEnabled reads the (by-then current) LOC anyway.
+  if (snowParticlesActive && map.getLayer('snow-particles')) {
+    map.removeLayer('snow-particles');
+    map.addLayer(createSnowLayer(LOC));
+  }
 
   // Rebuilds modelHours/forecastHours/elevationBandHours for the new resort
   // (LOC above is already reassigned, and every fetch/URL builder this reads
@@ -3991,6 +4005,18 @@ function createSnowLayer(loc) {
   // frame — 2800 particles x terrain query per frame would add up for no
   // visible gain, since lateral drift during one fall is small).
   const WIND_ANGLE_SCALE = 8; // 8x the real forecast wind's lateral pull, per request
+  // Occasional gust — briefly doubles the wind pull so the drift reads as
+  // real wind surging rather than one constant, mechanical push. Duration
+  // and the gap before the next one are both randomized per-cycle (not a
+  // fixed interval) so it never settles into a visible metronome rhythm.
+  const GUST_MULTIPLIER = 2;
+  const GUST_MIN_DURATION_S = 0.5;
+  const GUST_MAX_DURATION_S = 1;
+  const GUST_MIN_GAP_S = 4;
+  const GUST_MAX_GAP_S = 10;
+  // Eased rather than snapped so the multiplier arrives/leaves as a quick
+  // surge, not a hard one-frame step in drift speed.
+  const GUST_EASE_S = 0.15;
 
   const lngs = new Float64Array(PARTICLE_COUNT);
   const lats = new Float64Array(PARTICLE_COUNT);
@@ -4030,6 +4056,22 @@ function createSnowLayer(loc) {
     if (!h || h.snowfallMm == null || h.snowfallMm < SNOWFALL_THRESHOLD_MM) return 0;
     if (h.snowfallMm <= REF_SNOWFALL_MM) return h.snowfallMm / REF_SNOWFALL_MM;
     const heavyT = Math.min(1, (h.snowfallMm - REF_SNOWFALL_MM) / (HEAVY_SNOWFALL_MM - REF_SNOWFALL_MM));
+    return 1 + heavyT * (HEAVY_DENSITY_MULT - 1);
+  }
+
+  // Same two-stage ramp as intensityForHour, but keyed off the Accumulated
+  // view's window TOTAL (currentAccumTotalCm, set by renderAccumulatedView)
+  // rather than one hour's rate — a multi-day dump should read as more of
+  // the sky filled with particles, not however heavy the arbitrary hour
+  // forecastHours[currentIndex] happens to be pointing at (Accum has no
+  // "current hour" of its own). Reference points echo DEPTH_BANDS: full
+  // density at a solid 10-15cm dump, capped at the 50cm+ top band.
+  const REF_ACCUM_CM = 15;
+  const HEAVY_ACCUM_CM = 50;
+  function intensityForAccumTotal(totalCm) {
+    if (!totalCm || totalCm <= 0) return 0;
+    if (totalCm <= REF_ACCUM_CM) return totalCm / REF_ACCUM_CM;
+    const heavyT = Math.min(1, (totalCm - REF_ACCUM_CM) / (HEAVY_ACCUM_CM - REF_ACCUM_CM));
     return 1 + heavyT * (HEAVY_DENSITY_MULT - 1);
   }
 
@@ -4074,6 +4116,9 @@ function createSnowLayer(loc) {
   let currentIntensity = 0; // ramps toward targetIntensity each frame — starts at 0 so it fades IN on first activation too
   let currentSkyIntensity = 0; // smoothed separately from currentIntensity — see SKY_LOOKAHEAD_HOURS
   let lastAppliedSkyIntensity = -1; // -1 so the very first frame always applies once, regardless of currentSkyIntensity's starting value
+  let currentGustScale = 1; // smoothed multiplier actually applied to the wind pull — see GUST_EASE_S
+  let gustRemaining = 0; // seconds left in the active gust; 0 means calm
+  let nextGustIn = GUST_MIN_GAP_S + Math.random() * (GUST_MAX_GAP_S - GUST_MIN_GAP_S); // countdown to the next one
 
   return {
     id: 'snow-particles',
@@ -4209,11 +4254,17 @@ function createSnowLayer(loc) {
 
       // Real Open-Meteo snowfall for the selected hour drives how much of the
       // field is actually visible — 0 particles when it isn't snowing. See
-      // intensityForHour above for the two-ramp (normal -> heavy) math.
-      // Smoothed toward the target rather than snapped to it, so scrubbing
-      // across snowfall levels fades the density in/out instead of jumping
-      // straight to it.
-      const targetIntensity = intensityForHour(hour);
+      // intensityForHour above for the two-ramp (normal -> heavy) math. In
+      // Accumulated view there is no "selected hour" to read a rate off —
+      // use the window total instead (intensityForAccumTotal), so a bigger
+      // multi-day dump fills the sky with more flakes rather than tracking
+      // whatever hour forecastHours[currentIndex] happens to be left on from
+      // Hourly. Smoothed toward the target rather than snapped to it, so
+      // scrubbing across snowfall levels (or changing the accum period) fades
+      // the density in/out instead of jumping straight to it.
+      const targetIntensity = viewMode === 'accumulated'
+        ? intensityForAccumTotal(currentAccumTotalCm)
+        : intensityForHour(hour);
       const smoothT = dt > 0 ? Math.min(1, dt / INTENSITY_SMOOTH_S) : 0;
       currentIntensity += (targetIntensity - currentIntensity) * smoothT;
       // BASE_PARTICLE_COUNT, not PARTICLE_COUNT (the allocated pool) — an
@@ -4233,7 +4284,10 @@ function createSnowLayer(loc) {
       // the blend has actually moved a visible amount, rather than every
       // single frame once it's settled.
       let skyTargetIntensity = targetIntensity;
-      if (typeof forecastHours !== 'undefined' && typeof currentIndex !== 'undefined') {
+      // The look-ahead only means anything against a scrubbable hourly
+      // timeline — Accum has no "next hour" to peek at, so it just tracks
+      // the same accumulated-total target as the particle field above.
+      if (viewMode !== 'accumulated' && typeof forecastHours !== 'undefined' && typeof currentIndex !== 'undefined') {
         for (let k = 1; k <= SKY_LOOKAHEAD_HOURS; k++) {
           skyTargetIntensity = Math.max(skyTargetIntensity, intensityForHour(forecastHours[currentIndex + k]));
         }
@@ -4258,6 +4312,23 @@ function createSnowLayer(loc) {
         map.setSky(blended);
         lastAppliedSkyIntensity = skyWeight;
       }
+
+      // Gust scheduler — ticks down whichever of the two counters is active
+      // (a live gust, or the calm gap before the next one) and flips between
+      // them when it hits zero, drawing a fresh random length for whichever
+      // state comes next. targetGustScale is then eased toward (see
+      // GUST_EASE_S) rather than applied directly, same smoothing pattern as
+      // currentIntensity/currentSkyIntensity above.
+      if (gustRemaining > 0) {
+        gustRemaining -= dt;
+        if (gustRemaining <= 0) nextGustIn = GUST_MIN_GAP_S + Math.random() * (GUST_MAX_GAP_S - GUST_MIN_GAP_S);
+      } else {
+        nextGustIn -= dt;
+        if (nextGustIn <= 0) gustRemaining = GUST_MIN_DURATION_S + Math.random() * (GUST_MAX_DURATION_S - GUST_MIN_DURATION_S);
+      }
+      const targetGustScale = gustRemaining > 0 ? GUST_MULTIPLIER : 1;
+      const gustSmoothT = dt > 0 ? Math.min(1, dt / GUST_EASE_S) : 0;
+      currentGustScale += (targetGustScale - currentGustScale) * gustSmoothT;
 
       // Where a flake actually dies (respawns): the sleet line — below it
       // this hour's forecast has it as sleet/rain, not snow, so a flake
@@ -4291,8 +4362,8 @@ function createSnowLayer(loc) {
         const dieAlt = sleetLineAlt != null ? Math.max(groundAlts[i], sleetLineAlt) : groundAlts[i];
         if (windVectors) {
           const { U, V } = orographicWindAtElevation(windVectors, alts[i]); // m/s: U east, V north
-          lats[i] += (V * WIND_ANGLE_SCALE * windGains[i] * dt) / 111320;
-          lngs[i] += (U * WIND_ANGLE_SCALE * windGains[i] * dt) / (111320 * Math.cos((lats[i] * Math.PI) / 180));
+          lats[i] += (V * WIND_ANGLE_SCALE * windGains[i] * currentGustScale * dt) / 111320;
+          lngs[i] += (U * WIND_ANGLE_SCALE * windGains[i] * currentGustScale * dt) / (111320 * Math.cos((lats[i] * Math.PI) / 180));
         }
         // Physics above still runs for every slot regardless of activeCount
         // (so a flake already mid-fall, not freshly spawned at the top, is
@@ -5683,6 +5754,28 @@ function applyWinterSnow(enabled) {
   if (map.getLayer('snow-overlay-layer')) map.setPaintProperty('snow-overlay-layer', 'raster-opacity', snowOverlayParams.opacity);
 }
 
+// Views where falling snow competes with what the view is actually for
+// rather than adding atmosphere: Live's temperature drape, Radar's rain
+// composite, and Isobars' pressure/temperature contours all read worse with
+// a few thousand flakes drifting across them. Accumulated and Hourly are
+// the two modes snow visually belongs on, so they're the only ones left out.
+const NO_PARTICLE_MODES = ['live', 'radar', 'isobars'];
+
+// True if the view this page is about to land on — the query string, else
+// the remembered mode — is one of NO_PARTICLE_MODES. Computed the same way
+// restoreViewMode() decides, but usable from restoreMapSettings() below,
+// which runs on map 'load' and so fires before the weather fetch that
+// restoreViewMode() itself waits on. Without this, a fresh load into one of
+// these modes would enable particles here and then immediately disable them
+// once setViewMode() runs — a visible on-then-off flash rather than simply
+// never turning on.
+function initialViewModeHasNoParticles() {
+  if (isHighResMode) return false;
+  const requestedView = new URLSearchParams(window.location.search).get('view');
+  if (['live', 'hourly', 'accumulated', 'radar', 'isobars'].includes(requestedView)) return NO_PARTICLE_MODES.includes(requestedView);
+  try { return NO_PARTICLE_MODES.includes(localStorage.getItem('sp-view-mode')); } catch (e) { return false; }
+}
+
 // Called once, at the end of map.on('load') in initMap() above — picks up
 // whatever was last saved (by this iframe's own previous session, or by the
 // React-layer settings menu, same key/format either way).
@@ -5696,8 +5789,12 @@ function restoreMapSettings() {
   // matching darkMode's own high-res special-case) — it's a focused,
   // deliberately fixed view (dark relief + Accumulated drape only, no other
   // toggle changes it), and animated snow would just compete with reading
-  // the accumulation colour ramp it exists to show.
-  if (!isHighResMode && settings.snowParticles !== false) setSnowParticlesEnabled(true);
+  // the accumulation colour ramp it exists to show. Live/Radar/Isobars (see
+  // NO_PARTICLE_MODES above) get the same treatment, enforced by
+  // setViewMode()'s own entry/exit handling below — this initial-load gate
+  // alone would only cover a fresh load, not switching into one of them
+  // mid-session.
+  if (!isHighResMode && !initialViewModeHasNoParticles() && settings.snowParticles !== false) setSnowParticlesEnabled(true);
   if (isHighResMode) {
     // Always the dark relief basemap with no contour lines here, regardless
     // of whatever's saved from the regular Map tab's settings cog — a plain
@@ -7590,6 +7687,22 @@ function setViewMode(mode) {
   // restart the same zoom-out animation pointlessly).
   if (mode === 'isobars' && prevMode !== 'isobars') flyToIsobarRegion();
   else if (mode !== 'isobars' && prevMode === 'isobars') flyToResortView();
+
+  // Live/Radar/Isobars default to no particles, same idea as High-Res's
+  // fixed-off (see NO_PARTICLE_MODES) — each has its own thing to read
+  // (temperature drape, rain composite, pressure contours) that falling snow
+  // competes with. Unlike High-Res there's still a settings-cog toggle
+  // reachable from these modes, so a manual "on" while already viewing one
+  // of them is honoured (see the apply-settings listener); it's only the
+  // default this suppresses. Leaving for a mode that isn't also in
+  // NO_PARTICLE_MODES re-applies whatever the toggle actually says, so a
+  // session that never touched it keeps particles on in Hourly/Accumulated
+  // as before.
+  if (NO_PARTICLE_MODES.includes(mode)) {
+    if (snowParticlesActive) setSnowParticlesEnabled(false);
+  } else if (NO_PARTICLE_MODES.includes(prevMode) && loadMapSettings().snowParticles !== false) {
+    setSnowParticlesEnabled(true);
+  }
 
   if (mode === 'hourly') {
     stopPlay();
