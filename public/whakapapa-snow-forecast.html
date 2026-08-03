@@ -1764,6 +1764,22 @@ const SKY_NIGHT = {
   'sky-color': '#03050c', 'horizon-color': '#1b2338', 'sky-horizon-blend': 0.7,
   'fog-color': '#000000', 'fog-ground-blend': 1, 'horizon-fog-blend': 1,
 };
+// Storm sky — blended in over SKY_DAY/SKY_NIGHT (whichever is the current
+// base) as real forecast snowfall ramps up, by the snow-particle layer's own
+// render loop (see currentIntensity/applySnowSky in createSnowLayer). Not a
+// swap: a moody dark grey gradient cross-fades in and back out with the same
+// smoothing already driving the particle density, so the two move in lockstep.
+const SKY_SNOW = { 'sky-color': '#3a3d42', 'horizon-color': '#6b6f76', 'sky-horizon-blend': 0.92 };
+
+// Linear-interpolates two '#rrggbb' hex colours. Used to blend SKY_SNOW into
+// whichever base sky (day/night) is currently active, frame by frame.
+function lerpHex(a, b, t) {
+  const pa = parseInt(a.slice(1), 16), pb = parseInt(b.slice(1), 16);
+  const ar = (pa >> 16) & 255, ag = (pa >> 8) & 255, ab = pa & 255;
+  const br = (pb >> 16) & 255, bg = (pb >> 8) & 255, bb = pb & 255;
+  const r = Math.round(ar + (br - ar) * t), g = Math.round(ag + (bg - ag) * t), bl = Math.round(ab + (bb - ab) * t);
+  return '#' + ((1 << 24) + (r << 16) + (g << 8) + bl).toString(16).slice(1);
+}
 
 // ── Other-resort navigation pills (shown when zoomed out) ──────────────────
 // Lets the user jump straight to another resort's map from within the map
@@ -3901,6 +3917,15 @@ function createSnowLayer(loc) {
   const HEAVY_SNOWFALL_MM = 10;
   const HEAVY_DENSITY_MULT = 1.4;
   const PARTICLE_COUNT = Math.round(BASE_PARTICLE_COUNT * HEAVY_DENSITY_MULT); // actual pool size
+  // The sky darkens ahead of the snow, not with it — storm clouds gathering
+  // before the first flake, not a sky that only reacts once it's already
+  // snowing. Looks this many forecast HOURS ahead of whichever hour is
+  // selected (not real seconds — INTENSITY_SMOOTH_S-style smoothing already
+  // makes the visual transition itself near-instant either way) and takes
+  // the max of "is it snowing now" and "is it about to". The particle field
+  // itself does NOT get this treatment — it should show current conditions,
+  // not conditions from 2 hours from now.
+  const SKY_LOOKAHEAD_HOURS = 2;
   // How long a change in target intensity takes to fully show — smoothed
   // rather than snapping instantly, so scrubbing onto/off a snowy hour reads
   // as the snowfall fading in/out, not the particle field switching on/off.
@@ -3990,6 +4015,17 @@ function createSnowLayer(loc) {
   const ages = new Float32Array(PARTICLE_COUNT);
   const verts = new Float32Array(PARTICLE_COUNT * 6); // x, y, z, fade, size, seed
 
+  // Snow-density intensity a given forecast hour asks for, 0..HEAVY_DENSITY_MULT
+  // — pulled out so both the particle field (current hour only) and the sky
+  // (current hour PLUS a look-ahead, see SKY_LOOKAHEAD_HOURS below) can ask
+  // the same question about any hour without duplicating the ramp math.
+  function intensityForHour(h) {
+    if (!h || h.snowfallMm == null || h.snowfallMm < SNOWFALL_THRESHOLD_MM) return 0;
+    if (h.snowfallMm <= REF_SNOWFALL_MM) return h.snowfallMm / REF_SNOWFALL_MM;
+    const heavyT = Math.min(1, (h.snowfallMm - REF_SNOWFALL_MM) / (HEAVY_SNOWFALL_MM - REF_SNOWFALL_MM));
+    return 1 + heavyT * (HEAVY_DENSITY_MULT - 1);
+  }
+
   // Real (un-exaggerated) terrain elevation under a spawn point, so this
   // flake fades out at its OWN ground instead of the resort-wide BOTTOM_ALT
   // floor — see the comment on WIND_ANGLE_SCALE above for why that flickered.
@@ -4029,6 +4065,8 @@ function createSnowLayer(loc) {
 
   let program, buffer, aPos, aFade, aSize, aSeed, uMatrix, lastT = null;
   let currentIntensity = 0; // ramps toward targetIntensity each frame — starts at 0 so it fades IN on first activation too
+  let currentSkyIntensity = 0; // smoothed separately from currentIntensity — see SKY_LOOKAHEAD_HOURS
+  let lastAppliedSkyIntensity = -1; // -1 so the very first frame always applies once, regardless of currentSkyIntensity's starting value
 
   return {
     id: 'snow-particles',
@@ -4163,30 +4201,56 @@ function createSnowLayer(loc) {
         ? orographicWindVectorsForHour(hour) : null;
 
       // Real Open-Meteo snowfall for the selected hour drives how much of the
-      // field is actually visible — 0 particles when it isn't snowing (hour
-      // missing, or below the same SNOWFALL_THRESHOLD_MM the map drape
-      // itself uses to decide "is this hour actually snowing"). Two ramps:
-      // 0->REF_SNOWFALL_MM takes intensity 0->1 (normal full density), then
-      // REF_SNOWFALL_MM->HEAVY_SNOWFALL_MM takes it 1->HEAVY_DENSITY_MULT for
-      // genuinely heavy snow, holding at HEAVY_DENSITY_MULT beyond that.
-      // Smoothed toward whichever target rather than snapped to it, so
-      // scrubbing across snowfall levels fades the density in/out instead of
-      // jumping straight to it.
-      let targetIntensity = 0;
-      if (hour && hour.snowfallMm != null && hour.snowfallMm >= SNOWFALL_THRESHOLD_MM) {
-        if (hour.snowfallMm <= REF_SNOWFALL_MM) {
-          targetIntensity = hour.snowfallMm / REF_SNOWFALL_MM;
-        } else {
-          const heavyT = Math.min(1, (hour.snowfallMm - REF_SNOWFALL_MM) / (HEAVY_SNOWFALL_MM - REF_SNOWFALL_MM));
-          targetIntensity = 1 + heavyT * (HEAVY_DENSITY_MULT - 1);
-        }
-      }
+      // field is actually visible — 0 particles when it isn't snowing. See
+      // intensityForHour above for the two-ramp (normal -> heavy) math.
+      // Smoothed toward the target rather than snapped to it, so scrubbing
+      // across snowfall levels fades the density in/out instead of jumping
+      // straight to it.
+      const targetIntensity = intensityForHour(hour);
       const smoothT = dt > 0 ? Math.min(1, dt / INTENSITY_SMOOTH_S) : 0;
       currentIntensity += (targetIntensity - currentIntensity) * smoothT;
       // BASE_PARTICLE_COUNT, not PARTICLE_COUNT (the allocated pool) — an
       // intensity of 1.4 at BASE_PARTICLE_COUNT x 1.4 is exactly the pool
       // size, never more, so this can't ask for more slots than exist.
       const activeCount = Math.round(BASE_PARTICLE_COUNT * currentIntensity);
+
+      // Storm sky — cross-fades SKY_SNOW into whichever base sky (day/night)
+      // is currently active. Its OWN target looks SKY_LOOKAHEAD_HOURS ahead
+      // of the current hour (max of "now" and every hour in that window), so
+      // it starts darkening before the first flake rather than exactly with
+      // it — deliberately NOT sharing currentIntensity/targetIntensity with
+      // the particle field above, which stays tied to the current hour only.
+      // Capped at 1 even though intensityForHour can return up to
+      // HEAVY_DENSITY_MULT for heavy snow — the sky has nothing sensible to
+      // do past "fully storm-grey". Throttled to only call map.setSky when
+      // the blend has actually moved a visible amount, rather than every
+      // single frame once it's settled.
+      let skyTargetIntensity = targetIntensity;
+      if (typeof forecastHours !== 'undefined' && typeof currentIndex !== 'undefined') {
+        for (let k = 1; k <= SKY_LOOKAHEAD_HOURS; k++) {
+          skyTargetIntensity = Math.max(skyTargetIntensity, intensityForHour(forecastHours[currentIndex + k]));
+        }
+      }
+      currentSkyIntensity += (skyTargetIntensity - currentSkyIntensity) * smoothT;
+      const skyWeight = Math.min(1, currentSkyIntensity);
+      if (Math.abs(skyWeight - lastAppliedSkyIntensity) > 0.004) {
+        const base = darkTerrainActive ? SKY_NIGHT : SKY_DAY;
+        const blended = {
+          'sky-color': lerpHex(base['sky-color'], SKY_SNOW['sky-color'], skyWeight),
+          'horizon-color': lerpHex(base['horizon-color'], SKY_SNOW['horizon-color'], skyWeight),
+          'sky-horizon-blend': base['sky-horizon-blend'] + (SKY_SNOW['sky-horizon-blend'] - base['sky-horizon-blend']) * skyWeight,
+        };
+        // Dark mode's fog properties aren't part of the storm blend (SKY_SNOW
+        // has no opinion on fog) — carry them through unchanged so toggling
+        // dark mode while it's snowing doesn't also silently drop the fog.
+        if (base['fog-color']) {
+          blended['fog-color'] = base['fog-color'];
+          blended['fog-ground-blend'] = base['fog-ground-blend'];
+          blended['horizon-fog-blend'] = base['horizon-fog-blend'];
+        }
+        map.setSky(blended);
+        lastAppliedSkyIntensity = skyWeight;
+      }
 
       // Where a flake actually dies (respawns): the sleet line — below it
       // this hour's forecast has it as sleet/rain, not snow, so a flake
