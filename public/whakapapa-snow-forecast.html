@@ -3414,11 +3414,18 @@ function buildMapStyle() {
         { id: 'background', type: 'background', paint: { 'background-color': '#2d5a1b' } },
         { id: 'satellite', type: 'raster', source: 'satellite', paint: { 'raster-opacity': 1, 'raster-saturation': 0.1, 'raster-contrast': 0.05 } },
         {
+          // Shadow/accent tint deliberately cool (blue), not the warm
+          // brown-black this used to be — the snow-relief drape on top is
+          // semi-transparent white, so whatever shows through as "shadow" IS
+          // the mountain's contour definition. A blue shadow reads as real
+          // snow-shadow (skylight, not just "dark"), and with opacity bumped
+          // up too gives noticeably more contrast/depth to the white than
+          // the old warm, flatter tint did.
           id: 'depth-shade', type: 'hillshade', source: 'terrain',
           paint: {
-            'hillshade-shadow-color': 'rgba(30,20,10,0.45)',
+            'hillshade-shadow-color': 'rgba(15,25,55,0.55)',
             'hillshade-highlight-color': 'rgba(255,255,255,0)',
-            'hillshade-accent-color': 'rgba(80,60,40,0.2)',
+            'hillshade-accent-color': 'rgba(40,55,90,0.22)',
             'hillshade-illumination-direction': 310,
             'hillshade-exaggeration': 0.6
           }
