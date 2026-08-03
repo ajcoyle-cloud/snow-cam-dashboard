@@ -9807,8 +9807,29 @@ function pwFreezingSeries(hours = 6) {
   return out;
 }
 
+// #fl-overlay's CSS `left` runs it edge-to-edge under #snow-info (same
+// #map-screen, both position:absolute), so the chart's earliest data — the
+// current-hour marker included, right when it's actually parked near "now" —
+// sat directly behind the drawer. Rather than guess a fixed offset wide
+// enough for every resort's longest row (temps/times vary in string length),
+// measure the drawer's actual rendered right edge each time and start the
+// chart just past it. offsetLeft/offsetWidth are used (not
+// getBoundingClientRect, which is viewport-relative) since both elements
+// share the same offsetParent, making them directly comparable. A no-op on
+// mobile: the drawer-open state hides #fl-overlay outright there (see the
+// `#snow-info:not(.drawer-min) ~ #fl-overlay` rule), so setting `left` on a
+// display:none element has nothing to affect.
+function pwPositionFreezingOverlay() {
+  const host = document.getElementById('fl-overlay');
+  const panel = document.getElementById('snow-info');
+  if (!host || !panel) return;
+  const clearsPanel = panel.offsetParent != null && getComputedStyle(panel).display !== 'none';
+  host.style.left = clearsPanel ? `${panel.offsetLeft + panel.offsetWidth + 16}px` : '';
+}
+
 function pwRenderFreezingOverlay() {
   const host = document.getElementById('fl-overlay');
+  pwPositionFreezingOverlay();
   // High-Res is a pure snowfall-only feature — the freezing-level sparkline
   // (visible in the regular Map tab's Hourly/Live views) is unrelated
   // clutter here and was covering terrain the colour overlay is meant to
