@@ -1345,7 +1345,8 @@
   .forecast-top-bar {
     display: flex;
     align-items: flex-start;
-    justify-content: space-between;
+    flex-wrap: wrap;
+    row-gap: 6px;
     gap: 8px;
     margin-bottom: 10px;
   }
@@ -1355,6 +1356,23 @@
     display: flex;
     align-items: center;
     gap: 6px;
+  }
+
+  /* Mobile-only: the summit/base elevation toggle lives here instead of its
+     own row below the top bar, sitting in whatever free space is left
+     between the left and right pill groups. auto margins on a flex item
+     (rather than flex-grow, which would force the item to claim ALL leftover
+     space and squash flush against its neighbour on a long resort name) are
+     the standard trick for true centering between two differently-sized
+     siblings: the two margins split the remaining space evenly, and — unlike
+     absolute positioning — they can never go negative, so on a long resort
+     name or a narrow phone the margins just shrink toward 0 instead of
+     forcing an overlap; flex-wrap above is the last-resort fallback if even
+     that isn't enough room, dropping the toggle to its own line. */
+  .forecast-top-bar-center {
+    display: flex;
+    margin: 0 auto;
+    flex-shrink: 0;
   }
 
   /* Three pills now live here (Hour/Day, the compare-resorts list icon,
@@ -1479,13 +1497,12 @@
   }
 
   /* ── Mobile forecast graph + table readability ──────────────────────── */
-  /* Tighten the control cluster so the toggles don't eat vertical space. */
+  /* Every child of the desktop controls row (selector, elevation toggle,
+     Hour/Day, Models) has a mobile-only copy elsewhere now — the elevation
+     toggle moved up into forecast-top-bar-center — so the row itself is
+     always empty here. Hide it outright instead of leaving a blank gap. */
   .forecast-controls-row {
-    gap: 8px;
-    margin-bottom: 8px;
-  }
-  .forecast-controls-toggles {
-    gap: 8px;
+    display: none;
   }
   .forecast-container .toggle-btn {
     padding: 7px 12px;

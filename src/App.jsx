@@ -2865,6 +2865,31 @@ function SnowfallForecast({ resort, setResort, onOpenCompare }) {
     </button>
   )
 
+  // Elevation toggle (summit/base of the mountain) — icon-only. Used twice:
+  // once centered in the desktop controls row, once in the free middle space
+  // of the mobile top bar (see forecast-top-bar-center). Kept as one function
+  // so the two spots can't drift out of sync.
+  const renderElevationToggle = (extraClassName) => (
+    <div className={`elevation-toggle elevation-toggle-icons ${extraClassName || ''}`}>
+      <button
+        className={`toggle-btn toggle-btn-icon ${elevation === 'summit' ? 'active' : ''}`}
+        onClick={() => setElevation('summit')}
+        aria-label={`Summit (${RESORTS[resort].summitElev}m)`}
+        title={`Summit — ${RESORTS[resort].summitElev}m`}
+      >
+        <ArrowUpToLine size={16} />
+      </button>
+      <button
+        className={`toggle-btn toggle-btn-icon ${elevation === 'base' ? 'active' : ''}`}
+        onClick={() => setElevation('base')}
+        aria-label={`Base (${RESORTS[resort].baseElev}m)`}
+        title={`Base — ${RESORTS[resort].baseElev}m`}
+      >
+        <ArrowDownToLine size={16} />
+      </button>
+    </div>
+  )
+
   const renderModelsMenu = (menuRef, className) => (
     <div className={`resort-selector ${className}`} ref={menuRef} style={{ paddingTop: 0 }}>
       <button
@@ -2976,6 +3001,11 @@ function SnowfallForecast({ resort, setResort, onOpenCompare }) {
           <ResortSelector resort={resort} setResort={setResort} />
           {renderCompareButton('ai-summary-toggle-mobile')}
         </div>
+        {/* Sits in the free space between the left and right pill groups —
+            the same summit/base toggle desktop centers in its controls row. */}
+        <div className="forecast-top-bar-center">
+          {renderElevationToggle()}
+        </div>
         <div className="forecast-top-bar-right">
           <div className="elevation-toggle">
             <button
@@ -3011,25 +3041,11 @@ function SnowfallForecast({ resort, setResort, onOpenCompare }) {
         <div className="forecast-controls-toggles">
           {/* Elevation toggle — icon-only (top/bottom of the mountain), not
               the metre numbers themselves; those move to a small caption
-              below the table instead (see forecast-elevation-caption). */}
-          <div className="elevation-toggle elevation-toggle-icons">
-            <button
-              className={`toggle-btn toggle-btn-icon ${elevation === 'summit' ? 'active' : ''}`}
-              onClick={() => setElevation('summit')}
-              aria-label={`Summit (${RESORTS[resort].summitElev}m)`}
-              title={`Summit — ${RESORTS[resort].summitElev}m`}
-            >
-              <ArrowUpToLine size={16} />
-            </button>
-            <button
-              className={`toggle-btn toggle-btn-icon ${elevation === 'base' ? 'active' : ''}`}
-              onClick={() => setElevation('base')}
-              aria-label={`Base (${RESORTS[resort].baseElev}m)`}
-              title={`Base — ${RESORTS[resort].baseElev}m`}
-            >
-              <ArrowDownToLine size={16} />
-            </button>
-          </div>
+              below the table instead (see forecast-elevation-caption).
+              This whole row is desktop-only (.forecast-controls-row is
+              display:none under 700px) — on mobile the toggle moves up into
+              the top bar's free middle space instead (forecast-top-bar-center). */}
+          {renderElevationToggle('elevation-toggle-icons-desktop')}
 
           {/* View mode toggle - hidden on mobile, shown on desktop */}
           <div className="elevation-toggle forecast-view-mode-desktop">
