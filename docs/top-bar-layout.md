@@ -36,11 +36,11 @@ are React, in `src/App.css`. Same origin, so the parent can measure both.
   planned as though Accum's period pills were always present. The reserved
   space is simply empty in the modes that don't use it. Verified by walking
   every mode at each width and comparing the pill group's position.
-- **Two clusters never share a line by squeezing.** In Accum the 5/10/15
+- **Two clusters never share a line by squeezing.** In Accum the 3/5/7
   period group rides up onto row one beside the resort switcher rather than
   sharing row two with the mode pills — sharing meant both were squeezed onto
   one line and each wrapped inside its own pill ("Radar Isobars" on a second
-  line, "15" on a second line). Row one has the room, and Accum stays on the
+  line, "7" on a second line). Row one has the room, and Accum stays on the
   same three rows as every other mode.
 - **The two longest mode labels shorten on the three-row layout only** —
   Accum → Acc, Isobars → Iso (`.pill-long` / `.pill-short`). Both labels are
@@ -92,7 +92,7 @@ Three details make the measurement trustworthy:
   wrap onto two lines, so it measured about half its real width and argued
   itself back onto a row it did not fit.
 - **It measures `#top-controls`, not `#mode-switch`.** Accum mode puts the
-  5/10/15 period group in that same container; measuring only the mode pills
+  3/5/7 period group in that same container; measuring only the mode pills
   left ~120px out of every sum and drove the pills through the switcher.
 - **It measures where the switcher actually lands.** `--switcher-left`
   positions the switcher's wrapper; the button inside sits a further ~12px
