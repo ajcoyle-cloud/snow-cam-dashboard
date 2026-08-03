@@ -3991,6 +3991,18 @@ function createSnowLayer(loc) {
   // frame — 2800 particles x terrain query per frame would add up for no
   // visible gain, since lateral drift during one fall is small).
   const WIND_ANGLE_SCALE = 8; // 8x the real forecast wind's lateral pull, per request
+  // Occasional gust — briefly doubles the wind pull so the drift reads as
+  // real wind surging rather than one constant, mechanical push. Duration
+  // and the gap before the next one are both randomized per-cycle (not a
+  // fixed interval) so it never settles into a visible metronome rhythm.
+  const GUST_MULTIPLIER = 2;
+  const GUST_MIN_DURATION_S = 0.5;
+  const GUST_MAX_DURATION_S = 1;
+  const GUST_MIN_GAP_S = 4;
+  const GUST_MAX_GAP_S = 10;
+  // Eased rather than snapped so the multiplier arrives/leaves as a quick
+  // surge, not a hard one-frame step in drift speed.
+  const GUST_EASE_S = 0.15;
 
   const lngs = new Float64Array(PARTICLE_COUNT);
   const lats = new Float64Array(PARTICLE_COUNT);
@@ -4090,6 +4102,9 @@ function createSnowLayer(loc) {
   let currentIntensity = 0; // ramps toward targetIntensity each frame — starts at 0 so it fades IN on first activation too
   let currentSkyIntensity = 0; // smoothed separately from currentIntensity — see SKY_LOOKAHEAD_HOURS
   let lastAppliedSkyIntensity = -1; // -1 so the very first frame always applies once, regardless of currentSkyIntensity's starting value
+  let currentGustScale = 1; // smoothed multiplier actually applied to the wind pull — see GUST_EASE_S
+  let gustRemaining = 0; // seconds left in the active gust; 0 means calm
+  let nextGustIn = GUST_MIN_GAP_S + Math.random() * (GUST_MAX_GAP_S - GUST_MIN_GAP_S); // countdown to the next one
 
   return {
     id: 'snow-particles',
@@ -4284,6 +4299,23 @@ function createSnowLayer(loc) {
         lastAppliedSkyIntensity = skyWeight;
       }
 
+      // Gust scheduler — ticks down whichever of the two counters is active
+      // (a live gust, or the calm gap before the next one) and flips between
+      // them when it hits zero, drawing a fresh random length for whichever
+      // state comes next. targetGustScale is then eased toward (see
+      // GUST_EASE_S) rather than applied directly, same smoothing pattern as
+      // currentIntensity/currentSkyIntensity above.
+      if (gustRemaining > 0) {
+        gustRemaining -= dt;
+        if (gustRemaining <= 0) nextGustIn = GUST_MIN_GAP_S + Math.random() * (GUST_MAX_GAP_S - GUST_MIN_GAP_S);
+      } else {
+        nextGustIn -= dt;
+        if (nextGustIn <= 0) gustRemaining = GUST_MIN_DURATION_S + Math.random() * (GUST_MAX_DURATION_S - GUST_MIN_DURATION_S);
+      }
+      const targetGustScale = gustRemaining > 0 ? GUST_MULTIPLIER : 1;
+      const gustSmoothT = dt > 0 ? Math.min(1, dt / GUST_EASE_S) : 0;
+      currentGustScale += (targetGustScale - currentGustScale) * gustSmoothT;
+
       // Where a flake actually dies (respawns): the sleet line — below it
       // this hour's forecast has it as sleet/rain, not snow, so a flake
       // shouldn't visually survive past that point even over terrain that's
@@ -4316,8 +4348,8 @@ function createSnowLayer(loc) {
         const dieAlt = sleetLineAlt != null ? Math.max(groundAlts[i], sleetLineAlt) : groundAlts[i];
         if (windVectors) {
           const { U, V } = orographicWindAtElevation(windVectors, alts[i]); // m/s: U east, V north
-          lats[i] += (V * WIND_ANGLE_SCALE * windGains[i] * dt) / 111320;
-          lngs[i] += (U * WIND_ANGLE_SCALE * windGains[i] * dt) / (111320 * Math.cos((lats[i] * Math.PI) / 180));
+          lats[i] += (V * WIND_ANGLE_SCALE * windGains[i] * currentGustScale * dt) / 111320;
+          lngs[i] += (U * WIND_ANGLE_SCALE * windGains[i] * currentGustScale * dt) / (111320 * Math.cos((lats[i] * Math.PI) / 180));
         }
         // Physics above still runs for every slot regardless of activeCount
         // (so a flake already mid-fall, not freshly spawned at the top, is
