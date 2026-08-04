@@ -9,10 +9,10 @@ import './App.css'
 
 const METEOBLUE_API_KEY = import.meta.env.VITE_METEOBLUE_API_KEY || 'DEMO'
 
-// Forecast tab's "AI summary" icon button — temporarily hidden (Gemini's
-// free-tier daily request quota kept getting exhausted during testing).
-// Flip to true to bring it back; no other change needed.
-const AI_SUMMARY_ENABLED = false
+// Forecast tab's "AI summary" icon button — spoken 7-day forecast summary
+// (Gemini text + ElevenLabs voice, falling back to the browser's built-in
+// speech synthesis).
+const AI_SUMMARY_ENABLED = true
 
 // Storm-arrival banner (StormArrivalBanner below) — off in both editions.
 // It was only ever wired up for Mt Lyford as a demo, and it sat on the
@@ -2832,10 +2832,6 @@ function SnowfallForecast({ resort, setResort, onOpenCompare }) {
   // generate+speak a fresh summary; speaking -> stop; loading -> disabled
   // spinner.
   const renderAiSummaryButton = (extraClassName) => {
-    // Hidden for now — Gemini's free-tier daily request quota kept getting
-    // exhausted during testing. Flip AI_SUMMARY_ENABLED back to true (below,
-    // near the top of the file) to bring the button back; nothing else needs
-    // to change.
     if (!AI_SUMMARY_ENABLED) return null
     const busy = aiLoading || ttsLoading
     const label = isSpeaking ? 'Stop reading forecast summary' : 'AI summary of the next 7 days, read aloud'

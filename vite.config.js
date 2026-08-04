@@ -179,7 +179,7 @@ export default defineConfig({
     snowReportDev('/ohau-report', resolveOhauReport),
   ],
   server: {
-    port: 5173,
+    port: Number(process.env.PORT) || 5173,
     // MetService's public webdata API only allows its own origin (CORS), so the
     // browser can't fetch it directly. Proxy it through the dev server instead:
     // /ms-api/<path>  ->  https://www.metservice.com/publicData/webdata/<path>
