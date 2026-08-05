@@ -1,6 +1,21 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
+<!-- This page is a standalone radar viewer, not linked from anywhere in the
+     app itself, but still deployed and reachable if someone requests the URL
+     directly. It shows the same scraped, unlicensed MetService composite as
+     the app's own Radar mode (gated for the public edition in
+     updateRadarAvailability, public/whakapapa-snow-forecast.html) -- not
+     something to expose on the public build. Unlike that mode, this page has
+     no query-param/edition flag passed to it (nothing in the app links here
+     to pass one), so the public build is instead recognised by hostname.
+     Matches both the production domain and this Vercel project's preview
+     URLs (which all contain "mountainlab"); update this if a custom domain
+     is ever added for the public site. Redirects before anything else on
+     the page loads, rather than hiding UI after the fact. -->
+<script>
+  if (location.hostname.includes('mountainlab')) location.replace('/');
+</script>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>NZ Rain Radar — 3D</title>
