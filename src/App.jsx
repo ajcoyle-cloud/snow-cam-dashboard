@@ -9,6 +9,13 @@ import './App.css'
 
 const METEOBLUE_API_KEY = import.meta.env.VITE_METEOBLUE_API_KEY || 'DEMO'
 
+// Dev-only test flag: ?mb=1 in the URL adds MeteoBlue as its own line/row in
+// the forecast chart and table, alongside GFS/ECMWF/AIFS/UKMO. Deliberately
+// NOT a normal Models-dropdown option for every visitor — MeteoBlue's free
+// tier is 50 calls/day shared across every visitor via one embedded key, so
+// both the extra fetch and the UI entry stay gated behind this flag.
+const MB_TEST_ENABLED = typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('mb') === '1'
+
 // Forecast tab's "AI summary" icon button — spoken 7-day forecast summary
 // (Gemini text + ElevenLabs voice, falling back to the browser's built-in
 // speech synthesis).
@@ -1626,6 +1633,7 @@ function SnowfallForecast({ resort, setResort, onOpenCompare }) {
   const [aifsForecastData, setAifsForecastData] = useState(null)
   const [ukmoForecastData, setUkmoForecastData] = useState(null)
   const [meteoBlueData, setMeteoBlueData] = useState(null)
+  const [meteoBlueFreezingData, setMeteoBlueFreezingData] = useState(null)
   const [ecmwfFreezingData, setEcmwfFreezingData] = useState(null)
   const [aifsFreezingData, setAifsFreezingData] = useState(null)
   const [ukmoFreezingData, setUkmoFreezingData] = useState(null)
@@ -1650,7 +1658,7 @@ function SnowfallForecast({ resort, setResort, onOpenCompare }) {
   const audioUrlRef = useRef(null)
   // Default to GFS/ECMWF/AIFS on the chart; once the user ticks/unticks anything
   // in the Models dropdown, remember their choice for next visit.
-  const DEFAULT_SHOW_FREEZING = { gfs: true, ecmwf: true, aifs: true, ukmo: false, metservice: false, average: false }
+  const DEFAULT_SHOW_FREEZING = { gfs: true, ecmwf: true, aifs: true, ukmo: false, metservice: false, meteoblue: false, average: false }
   const [showFreezing, setShowFreezing] = useState(() => {
     try {
       const stored = JSON.parse(localStorage.getItem('sc-freezing-models'))
@@ -1824,9 +1832,11 @@ function SnowfallForecast({ resort, setResort, onOpenCompare }) {
           }
         })
 
-        // Optionally fetch MeteoBlue for comparison
+        // Optionally fetch MeteoBlue for comparison — only under the ?mb=1
+        // test flag (see MB_TEST_ENABLED above); otherwise every visitor's
+        // page load would spend two calls against the shared 50/day quota.
         let meteoBlueComparison = null
-        if (METEOBLUE_API_KEY !== 'DEMO') {
+        if (MB_TEST_ENABLED && METEOBLUE_API_KEY !== 'DEMO') {
           try {
             const mbSummitUrl = `https://my.meteoblue.com/packagesV2/basic-1h?lat=${r.lat}&lon=${r.lon}&asl=${r.summitElev}&format=json&apikey=${METEOBLUE_API_KEY}`
             const mbBaseUrl = `https://my.meteoblue.com/packagesV2/basic-1h?lat=${r.lat}&lon=${r.lon}&asl=${r.baseElev}&format=json&apikey=${METEOBLUE_API_KEY}`
@@ -1898,6 +1908,7 @@ function SnowfallForecast({ resort, setResort, onOpenCompare }) {
             }
           })
           setMeteoBlueForecastData(mbHours)
+          setMeteoBlueFreezingData(mbHours.map((d) => d.freezingLevel))
         }
         const ecmwfResult = buildAltModelData(ecmwfSummitData, ecmwfBaseData, r)
         if (ecmwfResult) {
@@ -1956,6 +1967,7 @@ function SnowfallForecast({ resort, setResort, onOpenCompare }) {
     setAifsForecastData(null)
     setUkmoForecastData(null)
     setMeteoBlueForecastData(null)
+    setMeteoBlueFreezingData(null)
     setEcmwfFreezingData(null)
     setAifsFreezingData(null)
     setUkmoFreezingData(null)
@@ -2538,6 +2550,9 @@ function SnowfallForecast({ resort, setResort, onOpenCompare }) {
   const ecmwfTableData = buildAltTableData(ecmwfForecastData)
   const aifsTableData = buildAltTableData(aifsForecastData)
   const ukmoTableData = buildAltTableData(ukmoForecastData)
+  // ?mb=1 only (see MB_TEST_ENABLED) — MeteoBlue's own hours already carry
+  // the same shape buildAltTableData expects (freezingLevel/summit/base).
+  const meteoBlueTableData = MB_TEST_ENABLED ? buildAltTableData(meteoBlueForecastData) : []
   // AIFS runs consistently high across every metric here (freezing level,
   // snow line, temp) relative to GFS/ECMWF/UKMO, so it skews the blended
   // Average row rather than genuinely improving it — excluded from the mix,
@@ -2559,6 +2574,10 @@ function SnowfallForecast({ resort, setResort, onOpenCompare }) {
     { key: 'ecmwf', label: 'ECMWF', color: '#10b981', rgb: '16, 185, 129', available: !!ecmwfForecastData, data: ecmwfTableData, getFreezing: (d) => d.freezingLevel, getPrecipFreezing: (d) => d.freezingLevel },
     { key: 'aifs', label: 'AIFS', color: '#f59e0b', rgb: '245, 158, 11', available: !!aifsForecastData, data: aifsTableData, getFreezing: (d) => d.freezingLevel, getPrecipFreezing: (d) => d.freezingLevel },
     { key: 'ukmo', label: 'UKMO', color: '#f472b6', rgb: '244, 114, 182', available: !!ukmoForecastData, data: ukmoTableData, getFreezing: (d) => d.freezingLevel, getPrecipFreezing: (d) => d.freezingLevel },
+    ...(MB_TEST_ENABLED ? [{
+      key: 'meteoblue', label: 'MeteoBlue', color: '#facc15', rgb: '250, 204, 21', available: !!meteoBlueForecastData, data: meteoBlueTableData,
+      getFreezing: (d) => d.freezingLevel, getPrecipFreezing: (d) => d.freezingLevel,
+    }] : []),
     { key: 'average', label: 'Average', color: '#e2e8f0', rgb: '226, 232, 240', available: !!averageForecastDataRaw, data: averageTableData, getFreezing: (d) => d.freezingLevel, getPrecipFreezing: (d) => d.freezingLevel },
   ]
   const averageModel = tableModels.find((m) => m.key === 'average')
@@ -2829,6 +2848,7 @@ function SnowfallForecast({ resort, setResort, onOpenCompare }) {
     { key: 'aifs', label: 'AIFS', color: '#f59e0b', available: !!aifsFreezingData },
     { key: 'ukmo', label: 'UKMO', color: '#f472b6', available: !!ukmoFreezingData },
     { key: 'metservice', label: 'MetService', color: '#a855f7', available: !!metserviceFzl },
+    ...(MB_TEST_ENABLED ? [{ key: 'meteoblue', label: 'MeteoBlue', color: '#facc15', available: !!meteoBlueFreezingData }] : []),
     { key: 'average', label: 'Average', color: '#e2e8f0', available: true },
   ]
 
@@ -3228,6 +3248,7 @@ function SnowfallForecast({ resort, setResort, onOpenCompare }) {
           {showFreezing.ecmwf && freezingLine('ecmwf', compressFreezingSpread(ecmwfFreezingData), '#10b981')}
           {showFreezing.aifs && freezingLine('aifs', compressFreezingSpread(aifsFreezingData), '#f59e0b')}
           {showFreezing.ukmo && freezingLine('ukmo', compressFreezingSpread(ukmoFreezingData), '#f472b6')}
+          {MB_TEST_ENABLED && showFreezing.meteoblue && freezingLine('meteoblue', compressFreezingSpread(meteoBlueFreezingData), '#facc15')}
           {showFreezing.average && freezingLine('average', averageFreezingData, '#e2e8f0')}
 
           {/* MetService meteorologist freezing level — purple stepped daily line */}
@@ -3443,6 +3464,9 @@ function SnowfallForecast({ resort, setResort, onOpenCompare }) {
                 )}
                 {showFreezing.metservice && metserviceValueAt(d.datetime) != null && (
                   <div style={{ color: '#a855f7' }}>{swatch('#a855f7')}MetService: {metserviceValueAt(d.datetime)}m</div>
+                )}
+                {MB_TEST_ENABLED && showFreezing.meteoblue && meteoBlueFreezingData?.[hoveredIndex] != null && (
+                  <div style={{ color: '#facc15' }}>{swatch('#facc15')}MeteoBlue: {meteoBlueFreezingData[hoveredIndex]}m</div>
                 )}
                 {showFreezing.average && averageFreezingData[hoveredIndex] != null && (
                   <div style={{ color: '#e2e8f0' }}>{swatch('#e2e8f0')}Average: {averageFreezingData[hoveredIndex]}m</div>
