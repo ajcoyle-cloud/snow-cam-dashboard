@@ -685,6 +685,13 @@
   }
   .pill-btn:hover { color: #fff; }
   .pill-btn.active { background: rgba(0,0,0,0.82); color: #fff; }
+  /* Accum's 3/5/7 window pills only ever hold a single digit, so the shared
+     .pill-btn padding (tuned for longer labels like "Hourly"/"Isobars") reads
+     cramped here. Widen just this group's buttons — left/right only, so the
+     height/vertical rhythm every breakpoint already sets stays untouched —
+     via an ID selector so it wins over both the desktop rule above and the
+     narrower mobile paddings below without needing !important. */
+  #period-switch .pill-btn { padding-left: 20px; padding-right: 20px; }
   #period-switch { display: none; }
   /* #top-controls' flex-wrap only helps when there are two separate items
      (mode-switch, period-switch) to wrap between — on a narrow-enough
