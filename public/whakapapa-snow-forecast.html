@@ -3252,7 +3252,9 @@ function fmtClock(d) {
 }
 function fmtTime(iso) {
   const d = new Date(iso);
-  const datePart = d.toLocaleDateString('en-NZ', { weekday: 'short', day: 'numeric', month: 'short' });
+  // No month — the timeline never spans far enough into the future for the
+  // day number alone to be ambiguous, and dropping it keeps the pill short.
+  const datePart = d.toLocaleDateString('en-NZ', { weekday: 'short', day: 'numeric' });
   return `${datePart} ${fmtClock(d)}`;
 }
 
