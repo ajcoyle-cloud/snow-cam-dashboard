@@ -4,7 +4,7 @@ import { Camera, LineChart, Map as MapIcon, Snowflake, Settings, MountainSnow, N
 import { computeStormArrival, STORM_BAND_LABELS } from './stormArrival'
 import { subscribeRuapehuProfile } from './pwObs'
 import TrackingPage from './TrackingPage'
-import { HAS_WEBCAMS, HAS_SNOW_REPORTS, IS_PUBLIC } from './edition'
+import { HAS_WEBCAMS, HAS_SNOW_REPORTS, HAS_AI_SUMMARY, IS_PUBLIC } from './edition'
 import './App.css'
 
 const METEOBLUE_API_KEY = import.meta.env.VITE_METEOBLUE_API_KEY || 'DEMO'
@@ -18,8 +18,8 @@ const MB_TEST_ENABLED = typeof window !== 'undefined' && new URLSearchParams(win
 
 // Forecast tab's "AI summary" icon button — spoken 7-day forecast summary
 // (Gemini text + ElevenLabs voice, falling back to the browser's built-in
-// speech synthesis).
-const AI_SUMMARY_ENABLED = true
+// speech synthesis). Hidden on the public edition — see HAS_AI_SUMMARY.
+const AI_SUMMARY_ENABLED = HAS_AI_SUMMARY
 
 // Storm-arrival banner (StormArrivalBanner below) — off in both editions.
 // It was only ever wired up for Mt Lyford as a demo, and it sat on the

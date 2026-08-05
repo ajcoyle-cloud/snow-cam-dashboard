@@ -26,3 +26,7 @@ export const IS_PUBLIC = EDITION === 'public'
 // are ever sliced differently.
 export const HAS_WEBCAMS = !IS_PUBLIC
 export const HAS_SNOW_REPORTS = !IS_PUBLIC
+// The AI summary button calls two paid-tier-adjacent APIs (Gemini, ElevenLabs)
+// from every click — fine for the friends-and-family audience, not something
+// to expose to a public Facebook-group-sized crowd.
+export const HAS_AI_SUMMARY = !IS_PUBLIC
