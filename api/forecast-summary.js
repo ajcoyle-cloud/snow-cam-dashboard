@@ -17,6 +17,14 @@
 
 const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-flash-latest';
 
+// Gemini 3 replaced the old thinkingBudget knob (a token count, 0 = off)
+// with a coarse thinkingLevel enum ("low"/"high") and rejects requests that
+// carry the old field with a bare "Request contains an invalid argument" —
+// this is what broke once the "gemini-flash-latest" alias rolled forward
+// from 2.5 to a 3.x model. Only an explicitly pinned 1.x/2.x model (via
+// GEMINI_MODEL) still expects thinkingBudget.
+const usesLegacyThinkingBudget = /^gemini-[12]\b/.test(GEMINI_MODEL);
+
 export default async function handler(req, res) {
   res.setHeader('Cache-Control', 'no-store, max-age=0');
 
@@ -61,13 +69,15 @@ export default async function handler(req, res) {
         contents: [{ parts: [{ text: prompt }] }],
         generationConfig: {
           temperature: 0.4,
-          // gemini-flash-latest is a "thinking" model — it spends invisible
-          // reasoning tokens before the visible answer, and those come out of
-          // the same maxOutputTokens budget. A weather-summary rewrite needs no
-          // reasoning, so thinking is disabled outright; maxOutputTokens is set
-          // generously as a safety margin rather than a tight cap.
-          thinkingConfig: { thinkingBudget: 0 },
-          maxOutputTokens: 1024,
+          // The model spends invisible reasoning tokens before the visible
+          // answer, and those come out of the same maxOutputTokens budget. A
+          // weather-summary rewrite needs no reasoning, so thinking is kept
+          // to a minimum (see usesLegacyThinkingBudget above); maxOutputTokens
+          // is set generously as a safety margin rather than a tight cap.
+          thinkingConfig: usesLegacyThinkingBudget
+            ? { thinkingBudget: 0 }
+            : { thinkingLevel: 'low' },
+          maxOutputTokens: 2048,
         },
       }),
     });
