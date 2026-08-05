@@ -125,16 +125,24 @@ const getWeatherConditionIcon = (wmoCode) => {
   return '—'
 }
 
+// `degrees` is the standard meteorological bearing — the direction the wind
+// is blowing FROM (Open-Meteo's winddirection field, same convention as
+// MetService/METAR/everyone else). The octant boundaries below are still
+// keyed off that FROM bearing, but each one returns the glyph for the
+// OPPOSITE compass point, so the arrow itself points where the wind is
+// blowing TOWARD (downwind) — the Windy.com/Apple Weather convention, which
+// reads as "this is the way the air is moving" rather than the older
+// synoptic-chart convention of pointing the shaft into the wind's source.
 const getWindArrow = (degrees) => {
-  if (degrees > 337.5 || degrees <= 22.5) return '↑'
-  if (degrees > 22.5 && degrees <= 67.5) return '↗'
-  if (degrees > 67.5 && degrees <= 112.5) return '→'
-  if (degrees > 112.5 && degrees <= 157.5) return '↘'
-  if (degrees > 157.5 && degrees <= 202.5) return '↓'
-  if (degrees > 202.5 && degrees <= 247.5) return '↙'
-  if (degrees > 247.5 && degrees <= 292.5) return '←'
-  if (degrees > 292.5 && degrees <= 337.5) return '↖'
-  return '↑'
+  if (degrees > 337.5 || degrees <= 22.5) return '↓'
+  if (degrees > 22.5 && degrees <= 67.5) return '↙'
+  if (degrees > 67.5 && degrees <= 112.5) return '←'
+  if (degrees > 112.5 && degrees <= 157.5) return '↖'
+  if (degrees > 157.5 && degrees <= 202.5) return '↑'
+  if (degrees > 202.5 && degrees <= 247.5) return '↗'
+  if (degrees > 247.5 && degrees <= 292.5) return '→'
+  if (degrees > 292.5 && degrees <= 337.5) return '↘'
+  return '↓'
 }
 
 const NORTH_ISLAND = [
