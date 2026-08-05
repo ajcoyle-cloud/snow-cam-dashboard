@@ -6078,10 +6078,29 @@ function buildSnowRamp(hour) {
     // entirely against the near-black terrain — bumped back up so it's
     // still visibly darker/less saturated than daytime, just not invisible.
     const color = darkTerrainActive ? 'rgba(35,85,180,0.35)' : 'rgba(60,130,255,0.2)';
+    // A dry hour has no snow line to mark a boundary with (that's the
+    // snowing branch's sleet-band edge, below) — so the freezing level
+    // itself, the drape's whole lower edge, is otherwise just a soft fade
+    // with nothing to say "the line is exactly here". A brighter, fully
+    // distinct blue held FLAT for a few metres — then cut sharply back to
+    // the normal fill, rather than blended/eased into it — reads as an
+    // actual stroke hugging the terrain at that elevation. (An earlier
+    // version linearly blended the two blues over 25m, which at any real
+    // camera distance just looked like a second, wider tint region stacked
+    // under the first — not a line.)
+    const strokeColor = darkTerrainActive ? 'rgba(100,190,255,0.95)' : 'rgba(80,180,255,0.95)';
+    // line is already clamped to TOP_ELEV - 2 by the caller, so there's only
+    // ~2m of headroom to work with in the worst case — clamp the hold/cut
+    // points down to fit inside that instead of assuming room for a full
+    // 4m-wide line.
+    const strokeEnd = Math.min(line + 4, TOP_ELEV - 1);
+    const cutoff = Math.min(strokeEnd + 0.5, TOP_ELEV - 0.5);
     return [
       'interpolate', ['linear'], ['elevation'],
       line - 1, 'rgba(255,255,255,0)',
-      line, color,
+      line, strokeColor,
+      strokeEnd, strokeColor,
+      cutoff, color,
       TOP_ELEV, color
     ];
   }

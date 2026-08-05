@@ -20,14 +20,19 @@ const DEFAULT_MODEL_ID = 'eleven_turbo_v2_5';
 // There is no universal "default voice ID" that works for every account: the
 // text-to-speech API rejects Voice Library voices for free-tier accounts with
 // 402 "Free users cannot use library voices via the API" — and this holds
-// even for a library voice the account has saved to "My Voices"; the API
-// still reports it as category "premade" and still refuses it. The only
-// voices actually usable via the API on a free plan are ones the account
-// made itself — a clone (recorded) or a Voice Design voice (generated from a
-// text description, no recording needed, free tier includes it) — which come
-// back as category "cloned"/"generated"/"professional". So: ask the account
-// what voices it has, skip anything "premade", and use the first of the
-// rest. ELEVENLABS_VOICE_ID still short-circuits this if set.
+// even for a library voice the account has saved to "My Voices". category
+// "premade" catches most of these, but a voice someone else designed and
+// published to the library, then you saved to your account, can still come
+// back as category "generated" (indistinguishable from a voice you made
+// yourself by category alone) and still gets the same 402 — confirmed
+// against a real account where the sole saved voice ("Ember", a Voice
+// Library pick) tripped exactly this, category filter notwithstanding. The
+// extra tell is the "sharing" object: present/non-null means the voice is
+// *linked* to a library original rather than made in this account, so skip
+// those too. The only voices genuinely exempt from the 402 are ones the
+// account made itself — a clone (recorded) or a Voice Design voice
+// (generated from a text description, no recording needed, free tier
+// includes it). ELEVENLABS_VOICE_ID still short-circuits this if set.
 async function resolveVoiceId(apiKey) {
   if (process.env.ELEVENLABS_VOICE_ID) return process.env.ELEVENLABS_VOICE_ID;
   const res = await fetch('https://api.elevenlabs.io/v1/voices', {
@@ -35,7 +40,7 @@ async function resolveVoiceId(apiKey) {
   });
   if (!res.ok) return null;
   const data = await res.json().catch(() => null);
-  const usable = data?.voices?.find((v) => v.category !== 'premade');
+  const usable = data?.voices?.find((v) => v.category !== 'premade' && !v.sharing);
   return usable?.voice_id || null;
 }
 
