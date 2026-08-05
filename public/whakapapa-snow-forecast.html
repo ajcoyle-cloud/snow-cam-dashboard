@@ -140,6 +140,12 @@
 
   html.public-edition #mode-switch [data-mode="live"] { display: none; }
   html.public-edition #mode-dropdown-list [data-mode="live"] { display: none; }
+  /* Live radar is MetService's own scraped composite (see updateRadarAvailability
+     below for the JS-side gate, which also handles ?view=radar deep links) —
+     this CSS rule just removes the same flash-of-visible-then-hidden-pill risk
+     that html.public-edition's "live" rule above already avoids. */
+  html.public-edition #mode-switch [data-mode="radar"] { display: none; }
+  html.public-edition #mode-dropdown-list [data-mode="radar"] { display: none; }
 
   /* ── Mobile top bar (html.rows-mobile) ─────────────────────────────────
      Set by syncTopBarRows() on ≤700px instead of rows-1/2/3. The five mode
@@ -2161,7 +2167,13 @@ function updatePwConfigFor(key) {
 }
 
 function updateRadarAvailability(key) {
-  RADAR_AVAILABLE = RESORT_COUNTRY_ISO3[key] === 'NZL';
+  // Live radar is MetService's own composite, scraped from an unlisted S3
+  // bucket rather than a licensed feed (see radarFeed.js) — fine for the
+  // friends-and-family build, not for the public one. Folded into the same
+  // per-resort gate rather than a parallel check, so every consumer below
+  // (the pill, the mobile dropdown, the ?view= deep-link fallback at
+  // setViewMode) stays correct for free.
+  RADAR_AVAILABLE = RESORT_COUNTRY_ISO3[key] === 'NZL' && !isPublicEdition;
   const btn = document.querySelector('#mode-switch [data-mode="radar"]');
   if (btn) btn.style.display = RADAR_AVAILABLE ? '' : 'none';
   // Keep the mobile dropdown's options in step with the pills' radar gating.
