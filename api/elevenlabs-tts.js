@@ -18,13 +18,16 @@
 const DEFAULT_MODEL_ID = 'eleven_turbo_v2_5';
 
 // There is no universal "default voice ID" that works for every account: the
-// text-to-speech API rejects Voice Library voices (e.g. the well-known
-// "Rachel" premade voice) for free-tier accounts with 402 "Free users cannot
-// use library voices via the API" — free accounts can only use voices that
-// are actually saved to *their own* "My Voices" list, which varies per
-// account. Rather than hardcode an ID that may not exist/be usable in the
-// caller's account, ask the account what voices it actually has and use the
-// first one. ELEVENLABS_VOICE_ID still short-circuits this if set.
+// text-to-speech API rejects Voice Library voices for free-tier accounts with
+// 402 "Free users cannot use library voices via the API" — and this holds
+// even for a library voice the account has saved to "My Voices"; the API
+// still reports it as category "premade" and still refuses it. The only
+// voices actually usable via the API on a free plan are ones the account
+// made itself — a clone (recorded) or a Voice Design voice (generated from a
+// text description, no recording needed, free tier includes it) — which come
+// back as category "cloned"/"generated"/"professional". So: ask the account
+// what voices it has, skip anything "premade", and use the first of the
+// rest. ELEVENLABS_VOICE_ID still short-circuits this if set.
 async function resolveVoiceId(apiKey) {
   if (process.env.ELEVENLABS_VOICE_ID) return process.env.ELEVENLABS_VOICE_ID;
   const res = await fetch('https://api.elevenlabs.io/v1/voices', {
@@ -32,7 +35,8 @@ async function resolveVoiceId(apiKey) {
   });
   if (!res.ok) return null;
   const data = await res.json().catch(() => null);
-  return data?.voices?.[0]?.voice_id || null;
+  const usable = data?.voices?.find((v) => v.category !== 'premade');
+  return usable?.voice_id || null;
 }
 
 // Sanity cap — the forecast summary is ~130 words (~800 characters); this
@@ -78,7 +82,7 @@ export default async function handler(req, res) {
     if (!voiceId) {
       res.status(502).json({
         error: 'no_voice_available',
-        detail: 'No usable voice found in your ElevenLabs account. In the ElevenLabs dashboard, go to Voices → Voice Library and click "Add to My Voices" on any voice, then try again — or set ELEVENLABS_VOICE_ID to a specific voice ID from My Voices.',
+        detail: 'No usable voice found in your ElevenLabs account — saving a Voice Library voice to "My Voices" doesn\'t count, the free-tier API still rejects it. In the ElevenLabs dashboard, go to Voices → Voice Design and generate a voice from a text description (free, no recording needed), then try again — or set ELEVENLABS_VOICE_ID to that voice\'s ID.',
       });
       return;
     }
