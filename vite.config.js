@@ -1,5 +1,8 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
+import { readFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
+import { dirname, join } from 'node:path'
 import { resolveLyfordCam } from './api/lyford-cam.js'
 import { resolveRainbowCam } from './api/rainbow-cam.js'
 import { resolveOhauCam } from './api/ohau-cam.js'
@@ -132,6 +135,26 @@ function snowReportDev(path, resolver) {
   }
 }
 
+// Dev parity for the /tracks route. In prod, vercel.json rewrites the
+// extensionless "/tracks" to the static public/tracks.html (Vercel serves that
+// directly, no function involved); the Vite dev server has no rewrite engine
+// of its own, so this middleware does the same — read the file and serve it
+// under the clean path, matching how it'll actually be linked/shared.
+function tracksPageDev() {
+  const dir = dirname(fileURLToPath(import.meta.url))
+  return {
+    name: 'tracks-page-dev',
+    configureServer(server) {
+      server.middlewares.use((req, res, next) => {
+        const path = req.url.split('?')[0]
+        if (path !== '/tracks') return next()
+        res.setHeader('Content-Type', 'text/html')
+        res.end(readFileSync(join(dir, 'public', 'tracks.html')))
+      })
+    },
+  }
+}
+
 // The browser tab title, per edition. index.html is the Vite entry (not a
 // static public/ file), so this is a build-time substitution — the tag is
 // already correct in the served HTML. Setting document.title from JS instead
@@ -163,6 +186,7 @@ export default defineConfig({
   plugins: [
     react(),
     editionTitle(),
+    tracksPageDev(),
     lyfordCamDev(),
     ohauCamDev(),
     rainbowCamDev(),

@@ -111,7 +111,11 @@
       "destination": "/api/report?resort=ohau"
     },
     {
-      "source": "/((?!whakapapa-snow-forecast\\.html|radar-map\\.html|radar-accum\\.js|radar-test|assets|api).*)",
+      "source": "/tracks",
+      "destination": "/tracks.html"
+    },
+    {
+      "source": "/((?!whakapapa-snow-forecast\\.html|radar-map\\.html|radar-accum\\.js|radar-test|tracks\\.html|doc-huts\\.json|doc-tracks\\.json|assets|api).*)",
       "destination": "/index.html"
     }
   ]

@@ -1,0 +1,326 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+<title>NZ Huts & Tracks — MountainLab</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/maplibre-gl@5.23.0/dist/maplibre-gl.min.css" />
+<script src="https://cdn.jsdelivr.net/npm/maplibre-gl@5.23.0/dist/maplibre-gl.js"></script>
+<style>
+  html, body { margin: 0; padding: 0; height: 100%; background: #0f1c30; overflow: hidden; }
+  #map { position: absolute; inset: 0; }
+  * { box-sizing: border-box; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; }
+
+  /* Top bar: back link + title on the left, layer toggles on the right —
+     same dark-glass pill language as the main forecast map
+     (public/whakapapa-snow-forecast.html's .pill-group/.pill-btn) so this
+     page reads as part of the same app, not a bolted-on tool. */
+  #top-bar {
+    position: absolute; top: 16px; left: 16px; right: 16px; z-index: 10;
+    display: flex; justify-content: space-between; align-items: flex-start;
+    gap: 8px; flex-wrap: wrap; pointer-events: none;
+  }
+  #top-bar > * { pointer-events: auto; }
+  #back-link {
+    display: flex; align-items: center; gap: 8px; height: 38px; padding: 0 16px;
+    background: rgba(0,0,0,0.6); backdrop-filter: blur(30px); -webkit-backdrop-filter: blur(30px);
+    border-radius: 999px; box-shadow: 0 4px 24px rgba(0,0,0,0.3);
+    color: #fff; text-decoration: none; font-size: 0.82rem; font-weight: 700;
+  }
+  #back-link:hover { color: #9fd3ff; }
+  #title-wrap { display: flex; flex-direction: column; gap: 2px; }
+  #title-count {
+    color: rgba(255,255,255,0.55); font-size: 0.72rem; font-weight: 600;
+    padding-left: 4px; text-shadow: 0 1px 4px rgba(0,0,0,0.6);
+  }
+  .pill-group {
+    display: flex; gap: 4px; height: 38px; box-sizing: border-box;
+    background: rgba(0,0,0,0.6); backdrop-filter: blur(30px); -webkit-backdrop-filter: blur(30px);
+    border: none; border-radius: 999px; padding: 4px;
+    box-shadow: 0 4px 24px rgba(0,0,0,0.3);
+  }
+  .pill-btn {
+    display: flex; align-items: center; gap: 6px; justify-content: center;
+    background: transparent; color: rgba(255,255,255,0.65); border: none;
+    padding: 0 14px; border-radius: 999px; font-size: 0.78rem; font-weight: 700;
+    cursor: pointer; transition: all 0.15s; font-family: inherit; white-space: nowrap;
+  }
+  .pill-btn:hover { color: #fff; }
+  .pill-btn.active { background: rgba(0,0,0,0.82); color: #fff; }
+  .pill-dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+
+  #loading {
+    position: absolute; inset: 0; z-index: 20; display: flex; align-items: center;
+    justify-content: center; background: #0f1c30; color: rgba(255,255,255,0.7);
+    font-size: 0.9rem; font-weight: 600; transition: opacity 0.3s;
+  }
+  #loading.hidden { opacity: 0; pointer-events: none; }
+
+  #error-banner {
+    position: absolute; top: 70px; left: 16px; right: 16px; z-index: 15;
+    background: rgba(120,20,20,0.85); backdrop-filter: blur(20px); color: #fff;
+    padding: 10px 16px; border-radius: 12px; font-size: 0.8rem; display: none;
+    box-shadow: 0 4px 24px rgba(0,0,0,0.3);
+  }
+
+  /* Popups — small pill (name only) vs a fuller card (name + stats), per
+     asset: whichever fields DOC actually returned decides the shape. */
+  .maplibregl-popup-content {
+    background: rgba(15,28,48,0.92); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
+    color: #fff; border-radius: 14px; padding: 12px 14px; box-shadow: 0 8px 32px rgba(0,0,0,0.45);
+    font-size: 0.82rem; max-width: 240px;
+  }
+  .maplibregl-popup-tip { display: none; }
+  .maplibregl-popup-close-button { color: rgba(255,255,255,0.6); font-size: 1rem; padding: 4px 8px; }
+  .maplibregl-popup-close-button:hover { color: #fff; background: transparent; }
+  .poi-name { font-weight: 800; font-size: 0.92rem; line-height: 1.25; margin: 0 0 2px; }
+  .poi-name.pill-only { margin: 0; }
+  .poi-stats { display: flex; flex-wrap: wrap; gap: 5px 8px; margin: 6px 0 0; color: rgba(255,255,255,0.85); }
+  .poi-stat { display: flex; align-items: center; gap: 4px; font-size: 0.76rem; font-weight: 600; white-space: nowrap; }
+  .poi-region { margin: 6px 0 0; font-size: 0.72rem; color: rgba(255,255,255,0.5); }
+  .poi-facilities { display: flex; flex-wrap: wrap; gap: 4px; margin: 8px 0 0; }
+  .poi-chip {
+    background: rgba(255,255,255,0.1); color: rgba(255,255,255,0.75); font-size: 0.68rem;
+    font-weight: 600; padding: 3px 8px; border-radius: 999px; white-space: nowrap;
+  }
+  .poi-status { display: inline-block; font-size: 0.68rem; font-weight: 800; letter-spacing: 0.03em;
+    padding: 2px 8px; border-radius: 999px; margin: 0 0 6px; }
+  .poi-status.OPEN { background: rgba(60,180,100,0.25); color: #7ee8a4; }
+  .poi-status.CLOSED { background: rgba(200,60,60,0.25); color: #ff9d9d; }
+</style>
+</head>
+<body>
+  <div id="map"></div>
+  <div id="loading">Loading huts &amp; tracks…</div>
+  <div id="error-banner"></div>
+
+  <div id="top-bar">
+    <div id="title-wrap">
+      <a id="back-link" href="/">← MountainLab</a>
+    </div>
+    <div class="pill-group">
+      <button class="pill-btn active" id="toggle-huts" data-layer="huts">
+        <span class="pill-dot" style="background:#ffb347"></span>Huts
+      </button>
+      <button class="pill-btn active" id="toggle-tracks" data-layer="tracks">
+        <span class="pill-dot" style="background:#4fc3f7"></span>Tracks
+      </button>
+    </div>
+  </div>
+
+<script>
+// Standalone NZ-wide map of Department of Conservation huts and tracks,
+// served at /tracks (see vercel.json's rewrite to this file, and the
+// tracksPageDev plugin in vite.config.js for the same in local dev).
+//
+// Data: public/doc-huts.json and public/doc-tracks.json, pre-baked from the
+// DOC API by scripts/bake-doc.mjs — see that file for why this is baked
+// rather than fetched live (no secret key shipped to the browser, no
+// per-visit DOC calls). Both are committed static assets served straight
+// from the CDN.
+//
+// Deliberately not integrated into the main app's React shell/tab system —
+// this is its own lightweight page (own <html>, own MapLibre instance),
+// styled to match the main forecast map's dark-glass pill language but
+// otherwise independent, so it can be linked/shared/bookmarked on its own
+// and never pulls in the rest of the app's bundle.
+
+const NZ_BOUNDS = [[166.0, -47.5], [179.0, -34.0]];
+
+const map = new maplibregl.Map({
+  container: 'map',
+  style: {
+    version: 8,
+    sources: {
+      terrain: { type: 'raster-dem', url: 'https://tiles.mapterhorn.com/tilejson.json', tileSize: 512 },
+      satellite: {
+        type: 'raster',
+        tiles: ['https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'],
+        tileSize: 256,
+        attribution: 'Tiles &copy; Esri — Source: Esri, Maxar, Earthstar Geographics'
+      }
+    },
+    layers: [
+      { id: 'background', type: 'background', paint: { 'background-color': '#0f1c30' } },
+      { id: 'satellite', type: 'raster', source: 'satellite', paint: { 'raster-opacity': 1, 'raster-saturation': -0.15, 'raster-contrast': 0.05, 'raster-brightness-max': 0.75 } },
+      {
+        id: 'depth-shade', type: 'hillshade', source: 'terrain',
+        paint: {
+          'hillshade-shadow-color': 'rgba(10,18,40,0.6)',
+          'hillshade-highlight-color': 'rgba(255,255,255,0)',
+          'hillshade-accent-color': 'rgba(30,45,80,0.25)',
+          'hillshade-illumination-direction': 310,
+          'hillshade-exaggeration': 0.6
+        }
+      }
+    ]
+  },
+  bounds: NZ_BOUNDS,
+  fitBoundsOptions: { padding: 40 },
+  attributionControl: { compact: true },
+  maxPitch: 0 // flat top-down — this page is a country-wide directory, not a fly-through
+});
+map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'top-right');
+map.dragRotate.disable();
+map.touchZoomRotate.disableRotation();
+
+let popup = null;
+// Looked up by asset id when a marker/line is tapped, so the popup can use
+// every field DOC gave us (including arrays like facilities) rather than
+// whatever survives being flattened into GeoJSON feature properties.
+let hutsById = new Map();
+let tracksById = new Map();
+
+function esc(s) { return String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
+
+function statChip(icon, text) {
+  return `<span class="poi-stat">${icon} ${esc(text)}</span>`;
+}
+
+function hutPopupHTML(h) {
+  const extras = h.category || h.bunks != null || (h.facilities && h.facilities.length) || h.place;
+  if (!extras) {
+    return `<div class="poi-name pill-only">🏠 ${esc(h.name || 'Hut')}</div>`;
+  }
+  let html = '';
+  if (h.status && h.status !== 'OPEN') html += `<span class="poi-status ${esc(h.status)}">${esc(h.status)}</span>`;
+  html += `<div class="poi-name">${esc(h.name || 'Hut')}</div>`;
+  const stats = [];
+  if (h.bunks != null) stats.push(statChip('🛏️', `${h.bunks} bunk${h.bunks === 1 ? '' : 's'}`));
+  if (h.category) stats.push(statChip('🏔️', h.category));
+  if (stats.length) html += `<div class="poi-stats">${stats.join('')}</div>`;
+  if (h.place) html += `<div class="poi-region">${esc(h.place)}${h.region ? ' · ' + esc(h.region) : ''}</div>`;
+  else if (h.region) html += `<div class="poi-region">${esc(h.region)}</div>`;
+  if (h.facilities && h.facilities.length) {
+    html += `<div class="poi-facilities">${h.facilities.map((f) => `<span class="poi-chip">${esc(f)}</span>`).join('')}</div>`;
+  }
+  return html;
+}
+
+function trackPopupHTML(t) {
+  const extras = t.distance || t.duration || t.grade;
+  if (!extras) {
+    return `<div class="poi-name pill-only">🥾 ${esc(t.name || 'Track')}</div>`;
+  }
+  let html = `<div class="poi-name">${esc(t.name || 'Track')}</div>`;
+  const stats = [];
+  if (t.distance) stats.push(statChip('📏', t.distance));
+  if (t.duration) stats.push(statChip('⏱️', t.duration));
+  if (t.grade) stats.push(statChip('⛰️', t.grade));
+  if (stats.length) html += `<div class="poi-stats">${stats.join('')}</div>`;
+  if (t.region) html += `<div class="poi-region">${esc(t.region)}</div>`;
+  return html;
+}
+
+function showPopup(lngLat, html) {
+  if (popup) popup.remove();
+  popup = new maplibregl.Popup({ closeButton: true, maxWidth: '260px' })
+    .setLngLat(lngLat)
+    .setHTML(html)
+    .addTo(map);
+}
+
+function showError(msg) {
+  const el = document.getElementById('error-banner');
+  el.textContent = msg;
+  el.style.display = 'block';
+}
+
+Promise.all([
+  fetch('/doc-huts.json').then((r) => { if (!r.ok) throw new Error('huts ' + r.status); return r.json(); }),
+  fetch('/doc-tracks.json').then((r) => { if (!r.ok) throw new Error('tracks ' + r.status); return r.json(); }),
+]).then(([huts, tracks]) => {
+  hutsById = new Map(huts.map((h) => [h.id, h]));
+  tracksById = new Map(tracks.map((t) => [t.id, t]));
+
+  const hutsGeoJSON = {
+    type: 'FeatureCollection',
+    features: huts.map((h) => ({
+      type: 'Feature',
+      geometry: { type: 'Point', coordinates: [h.lon, h.lat] },
+      properties: { id: h.id },
+    })),
+  };
+  const tracksGeoJSON = {
+    type: 'FeatureCollection',
+    features: tracks.map((t) => ({
+      type: 'Feature',
+      geometry: { type: 'MultiLineString', coordinates: t.line },
+      properties: { id: t.id },
+    })),
+  };
+
+  function addLayers() {
+    map.addSource('huts', { type: 'geojson', data: hutsGeoJSON });
+    map.addSource('tracks', { type: 'geojson', data: tracksGeoJSON });
+
+    // Wide, invisible line beneath the visible one — the real tap/click
+    // target on mobile, where a 2px line is nearly impossible to hit.
+    map.addLayer({
+      id: 'tracks-hit', type: 'line', source: 'tracks',
+      paint: { 'line-color': '#000', 'line-opacity': 0, 'line-width': 16 },
+    });
+    map.addLayer({
+      id: 'tracks-line', type: 'line', source: 'tracks',
+      layout: { 'line-join': 'round', 'line-cap': 'round' },
+      paint: {
+        'line-color': '#4fc3f7',
+        'line-width': ['interpolate', ['linear'], ['zoom'], 6, 1, 12, 2.5, 16, 4],
+        'line-opacity': 0.85,
+      },
+    });
+
+    map.addLayer({
+      id: 'huts-hit', type: 'circle', source: 'huts',
+      paint: { 'circle-radius': 14, 'circle-color': '#000', 'circle-opacity': 0 },
+    });
+    map.addLayer({
+      id: 'huts-circle', type: 'circle', source: 'huts',
+      paint: {
+        'circle-radius': ['interpolate', ['linear'], ['zoom'], 6, 3, 12, 5, 16, 8],
+        'circle-color': '#ffb347',
+        'circle-stroke-color': '#0f1c30',
+        'circle-stroke-width': 1.5,
+      },
+    });
+
+    for (const id of ['tracks-hit', 'huts-hit']) {
+      map.on('mouseenter', id, () => { map.getCanvas().style.cursor = 'pointer'; });
+      map.on('mouseleave', id, () => { map.getCanvas().style.cursor = ''; });
+    }
+    map.on('click', 'huts-hit', (e) => {
+      const h = hutsById.get(e.features[0].properties.id);
+      if (h) showPopup(e.lngLat, hutPopupHTML(h));
+    });
+    map.on('click', 'tracks-hit', (e) => {
+      const t = tracksById.get(e.features[0].properties.id);
+      if (t) showPopup(e.lngLat, trackPopupHTML(t));
+    });
+
+    document.getElementById('loading').classList.add('hidden');
+  }
+
+  if (map.isStyleLoaded()) addLayers();
+  else map.on('load', addLayers);
+}).catch((e) => {
+  document.getElementById('loading').classList.add('hidden');
+  showError('Could not load DOC huts/tracks data — try reloading.');
+  console.error(e);
+});
+
+// Layer toggles (Huts / Tracks pills, top-right).
+document.querySelectorAll('.pill-btn[data-layer]').forEach((btn) => {
+  btn.addEventListener('click', () => {
+    const layer = btn.dataset.layer;
+    const nowActive = !btn.classList.contains('active');
+    btn.classList.toggle('active', nowActive);
+    const vis = nowActive ? 'visible' : 'none';
+    const ids = layer === 'huts' ? ['huts-circle', 'huts-hit'] : ['tracks-line', 'tracks-hit'];
+    for (const id of ids) {
+      if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', vis);
+    }
+  });
+});
+</script>
+</body>
+</html>
