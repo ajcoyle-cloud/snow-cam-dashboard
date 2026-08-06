@@ -1206,44 +1206,45 @@ const RESORTS = {
   // lat/lon is the Sky Waka gondola's base terminal (Top o' the Bruce), not the
   // rounded -39.28/175.57 that was here — that sat 3.5km SE, up towards the
   // crater rather than on the ski field.
-  ruapehu: { name: 'Whakapapa', lat: -39.237191, lon: 175.557730, summitElev: 2300, baseElev: 1630, timezone: 'Pacific/Auckland', metservicePath: 'mountains-and-parks/national-parks/tongariro' },
+  ruapehu: { name: 'Whakapapa', region: 'NZ', lat: -39.237191, lon: 175.557730, summitElev: 2300, baseElev: 1630, timezone: 'Pacific/Auckland', metservicePath: 'mountains-and-parks/national-parks/tongariro' },
   // lat/lon is the ski field's base area (car park end of McDougall's
   // Chondola, from OSM aerialway data), not the rounded -44.76/169.0 that
   // was here — that sat ~12km NNE out on the Criffel Range, so every forecast
   // for Cardrona was sampled off the field.
-  cardrona: { name: 'Cardrona', lat: -44.872168, lon: 168.948496, summitElev: 1860, baseElev: 1640, timezone: 'Pacific/Auckland', metservicePath: 'mountains-and-parks/ski-fields/cardrona' },
+  cardrona: { name: 'Cardrona', region: 'NZ', lat: -44.872168, lon: 168.948496, summitElev: 1860, baseElev: 1640, timezone: 'Pacific/Auckland', metservicePath: 'mountains-and-parks/ski-fields/cardrona' },
   // Base area, matching RESORT_CONFIG.loveland on the map page — was
-  // 39.65/-105.49, ~35km east of the ski area.
-  loveland: { name: 'Loveland', lat: 39.6803, lon: -105.8989, summitElev: 3500, baseElev: 3100, timezone: 'America/Denver' },
-  mtlyford: { name: 'Mt Lyford', lat: -42.446503, lon: 173.143418, summitElev: 1800, baseElev: 1340, timezone: 'Pacific/Auckland', metservicePath: 'mountains-and-parks/ski-fields/mount-lyford' },
-  roundhill: { name: 'Roundhill', lat: -43.825421, lon: 170.656220, summitElev: 2170, baseElev: 1800, timezone: 'Pacific/Auckland', metservicePath: 'mountains-and-parks/ski-fields/roundhill', pwObsStations: ['tekapo-balmoral', 'clayton', 'burkes-pass'] },
-  mtvernon: { name: 'Mt Vernon', lat: 39.72011925175132, lon: -105.26872905339022, summitElev: 2190, baseElev: 1800, timezone: 'America/Denver', pwObsStations: ['bjc', 'c99', '0co'] },
-  treblecone: { name: 'Treble Cone', lat: -44.633063, lon: 168.896105, summitElev: 2088, baseElev: 1260, timezone: 'Pacific/Auckland', metservicePath: 'mountains-and-parks/ski-fields/treble-cone', pwObsStations: ['pub-corner', 'treble-cone'] },
+  // 39.65/-105.49, ~35km east of the ski area. Grouped into OTHER (with
+  // mtvernon and hakuba) rather than its own US section per direct request.
+  loveland: { name: 'Loveland', region: 'OTHER', lat: 39.6803, lon: -105.8989, summitElev: 3500, baseElev: 3100, timezone: 'America/Denver' },
+  mtlyford: { name: 'Mt Lyford', region: 'NZ', lat: -42.446503, lon: 173.143418, summitElev: 1800, baseElev: 1340, timezone: 'Pacific/Auckland', metservicePath: 'mountains-and-parks/ski-fields/mount-lyford' },
+  roundhill: { name: 'Roundhill', region: 'NZ', lat: -43.825421, lon: 170.656220, summitElev: 2170, baseElev: 1800, timezone: 'Pacific/Auckland', metservicePath: 'mountains-and-parks/ski-fields/roundhill', pwObsStations: ['tekapo-balmoral', 'clayton', 'burkes-pass'] },
+  mtvernon: { name: 'Mt Vernon', region: 'OTHER', lat: 39.72011925175132, lon: -105.26872905339022, summitElev: 2190, baseElev: 1800, timezone: 'America/Denver', pwObsStations: ['bjc', 'c99', '0co'] },
+  treblecone: { name: 'Treble Cone', region: 'NZ', lat: -44.633063, lon: 168.896105, summitElev: 2088, baseElev: 1260, timezone: 'Pacific/Auckland', metservicePath: 'mountains-and-parks/ski-fields/treble-cone', pwObsStations: ['pub-corner', 'treble-cone'] },
   // Base coords are the car park; top/bottom lift elevations and the
   // MetService path (which covers the whole Canterbury High Country region,
   // not a Mt Hutt-specific ski-field page — unlike Cardrona/Treble Cone/etc.)
   // all confirmed directly. baseElev picks the low end of the stated
   // 1400-1438m car park range.
-  mthutt: { name: 'Mt Hutt', lat: -43.4956, lon: 171.539722, summitElev: 2086, baseElev: 1400, timezone: 'Pacific/Auckland', metservicePath: 'mountains-and-parks/national-parks/canterbury-high-country' },
+  mthutt: { name: 'Mt Hutt', region: 'NZ', lat: -43.4956, lon: 171.539722, summitElev: 2086, baseElev: 1400, timezone: 'Pacific/Auckland', metservicePath: 'mountains-and-parks/national-parks/canterbury-high-country' },
   // NZSki resort (same operator as Coronet Peak/Mt Hutt) — no PredictWind
   // station coverage there, so no pwObsStations (matches cardrona/mthutt,
   // which also go without). lat/lon is the ski field's base area (NZ Topo
   // Map); summit/base elevations and the MetService slug confirmed via
   // multiple independent sources.
-  remarkables: { name: 'The Remarkables', lat: -45.052892, lon: 168.815148, summitElev: 1943, baseElev: 1622, timezone: 'Pacific/Auckland', metservicePath: 'mountains-and-parks/ski-fields/remarkables' },
+  remarkables: { name: 'The Remarkables', region: 'NZ', lat: -45.052892, lon: 168.815148, summitElev: 1943, baseElev: 1622, timezone: 'Pacific/Auckland', metservicePath: 'mountains-and-parks/ski-fields/remarkables' },
   // Small club-adjacent field in the St Arnaud Range, Nelson Lakes — not
   // NZSki, no PredictWind coverage (no pwObsStations, same as cardrona/
   // mthutt/remarkables). lat/lon is the ski field itself (NZ Topo Map);
   // base/summit elevations and the MetService slug ('rainbow-valley', not
   // just 'rainbow') confirmed via its own official site's stats.
-  rainbow: { name: 'Rainbow', lat: -41.871435, lon: 172.860638, summitElev: 1758, baseElev: 1540, timezone: 'Pacific/Auckland', metservicePath: 'mountains-and-parks/ski-fields/rainbow-valley' },
+  rainbow: { name: 'Rainbow', region: 'NZ', lat: -41.871435, lon: 172.860638, summitElev: 1758, baseElev: 1540, timezone: 'Pacific/Auckland', metservicePath: 'mountains-and-parks/ski-fields/rainbow-valley' },
   // Ōhau Snow Fields, above Lake Ōhau in the Mackenzie. lat/lon is OSM's own
   // point for the field (DEM there reads 1717m — mid-way up the lift band,
   // confirming it's the field and not the lakeside lodge at ~520m).
   // summit/base are the field's published highest-lift (1825m) and lift-base
   // (1425m) figures, which match their stated 400m vertical. No pwObsStations:
   // PredictWind has no station near here, so it runs forecast-only.
-  ohau: { name: 'Ōhau', lat: -44.220277, lon: 169.773604, summitElev: 1825, baseElev: 1425, timezone: 'Pacific/Auckland', metservicePath: 'mountains-and-parks/ski-fields/ohau' },
+  ohau: { name: 'Ōhau', region: 'NZ', lat: -44.220277, lon: 169.773604, summitElev: 1825, baseElev: 1425, timezone: 'Pacific/Auckland', metservicePath: 'mountains-and-parks/ski-fields/ohau' },
   // Same volcano as ruapehu/Whakapapa (Tongariro National Park), southwest
   // flank. lat/lon is real OSM lift data's own lowest-elevation point (see
   // whakapapa-snow-forecast.html's TUROA_LIFTS comment for how the shared
@@ -1252,13 +1253,42 @@ const RESORTS = {
   // published Turoa stats (NZ's biggest lift-served vertical) — moderate
   // confidence, not independently reconfirmed here. No pwObsStations (not
   // sourced, same as cardrona/mthutt/remarkables/rainbow).
-  turoa: { name: 'Turoa', lat: -39.3062323, lon: 175.5269647, summitElev: 2322, baseElev: 1600, timezone: 'Pacific/Auckland', metservicePath: 'mountains-and-parks/national-parks/tongariro' },
+  turoa: { name: 'Turoa', region: 'NZ', lat: -39.3062323, lon: 175.5269647, summitElev: 2322, baseElev: 1600, timezone: 'Pacific/Auckland', metservicePath: 'mountains-and-parks/national-parks/tongariro' },
   // Same volcano, eastern flank — small club field (Tukino Alpine Sports
   // Club). lat/lon is real OSM lift data's own lowest-elevation point, same
   // sourcing as turoa above. summitElev/baseElev confirmed directly (2000m
   // top / 1680m base). No pwObsStations.
-  tukino: { name: 'Tukino', lat: -39.2794225, lon: 175.6117867, summitElev: 2000, baseElev: 1680, timezone: 'Pacific/Auckland', metservicePath: 'mountains-and-parks/national-parks/tongariro' },
+  tukino: { name: 'Tukino', region: 'NZ', lat: -39.2794225, lon: 175.6117867, summitElev: 2000, baseElev: 1680, timezone: 'Pacific/Auckland', metservicePath: 'mountains-and-parks/national-parks/tongariro' },
+  // Bulk-added below via OSM aerialway data (Overpass) for lift geometry and
+  // base/summit elevation (lowest/highest lift endpoint), Open-Elevation for
+  // the DEM lookups, cross-checked against published stats. No metservicePath
+  // (NZ) since the exact MetService slug wasn't verified per-field, and no
+  // pwObsStations (none have PredictWind coverage sourced) - same treatment
+  // cardrona/mthutt/remarkables/rainbow already get. See the human-review
+  // notes for flagged low-confidence figures (templebasin overridden from OSM
+  // due to a 413m disagreement; manganui/hakuba anchor-point caveats).
+  templebasin: { name: 'Temple Basin', region: 'NZ', lat: -42.909644, lon: 171.582207, summitElev: 1753, baseElev: 1326, timezone: 'Pacific/Auckland' },
+  porterheights: { name: 'Porters', region: 'NZ', lat: -43.2715156, lon: 171.6348666, summitElev: 1928, baseElev: 1308, timezone: 'Pacific/Auckland' },
+  mtdobson: { name: 'Mt Dobson', region: 'NZ', lat: -43.9436727, lon: 170.6639995, summitElev: 2009, baseElev: 1736, timezone: 'Pacific/Auckland' },
+  brokenriver: { name: 'Broken River', region: 'NZ', lat: -43.1214627, lon: 171.6838939, summitElev: 1803, baseElev: 1375, timezone: 'Pacific/Auckland' },
+  craigieburn: { name: 'Craigieburn Valley', region: 'NZ', lat: -43.1110422, lon: 171.6987284, summitElev: 1798, baseElev: 1321, timezone: 'Pacific/Auckland' },
+  manganui: { name: 'Manganui', region: 'NZ', lat: -39.308927, lon: 174.0975901, summitElev: 1646, baseElev: 1195, timezone: 'Pacific/Auckland' },
+  mtolympus: { name: 'Mt Olympus', region: 'NZ', lat: -43.1934625, lon: 171.6051568, summitElev: 1859, baseElev: 1487, timezone: 'Pacific/Auckland' },
+  mtcheeseman: { name: 'Mt Cheeseman', region: 'NZ', lat: -43.1546089, lon: 171.6652036, summitElev: 1849, baseElev: 1577, timezone: 'Pacific/Auckland' },
+  hanmersprings: { name: 'Hanmer Springs', region: 'NZ', lat: -42.4421821, lon: 172.7308729, summitElev: 1721, baseElev: 1470, timezone: 'Pacific/Auckland' },
+  perisher: { name: 'Perisher', region: 'AUS', lat: -36.3961667, lon: 148.408582, summitElev: 2046, baseElev: 1609, timezone: 'Australia/Sydney' },
+  mtbuller: { name: 'Mt Buller', region: 'AUS', lat: -37.1481104, lon: 146.4384243, summitElev: 1770, baseElev: 1375, timezone: 'Australia/Melbourne' },
+  fallscreek: { name: 'Falls Creek', region: 'AUS', lat: -36.878683, lon: 147.2441791, summitElev: 1773, baseElev: 1522, timezone: 'Australia/Melbourne' },
+  thredbo: { name: 'Thredbo', region: 'AUS', lat: -36.5047751, lon: 148.3057091, summitElev: 2017, baseElev: 1359, timezone: 'Australia/Sydney' },
+  hotham: { name: 'Mt Hotham', region: 'AUS', lat: -36.9752998, lon: 147.1280943, summitElev: 1851, baseElev: 1478, timezone: 'Australia/Melbourne' },
+  mtbawbaw: { name: 'Mt Baw Baw', region: 'AUS', lat: -37.8395353, lon: 146.2758765, summitElev: 1557, baseElev: 1457, timezone: 'Australia/Melbourne' },
+  charlottepass: { name: 'Charlotte Pass', region: 'AUS', lat: -36.4354695, lon: 148.332161, summitElev: 1936, baseElev: 1761, timezone: 'Australia/Sydney' },
+  hakuba: { name: 'Hakuba Happo-One', region: 'OTHER', lat: 36.7035607, lon: 137.8226173, summitElev: 1840, baseElev: 745, timezone: 'Asia/Tokyo' },
 }
+
+// Fixed section order for the resort dropdown's NZ/AUS/OTHER grouping (see
+// ResortSelector) — RESORTS itself stays insertion-ordered within a region.
+const RESORT_REGION_ORDER = ['NZ', 'AUS', 'OTHER']
 
 // --- MetService freezing-level helpers ---------------------------------------
 // MetService publishes a human-written "freezing level" statement per day in its
@@ -1607,18 +1637,27 @@ function ResortSelector({ resort, setResort }) {
       </button>
       {isOpen && (
         <div className="resort-dropdown">
-          {Object.entries(RESORTS).map(([key, r]) => (
-            <button
-              key={key}
-              className={`resort-option ${resort === key ? 'active' : ''}`}
-              onClick={() => {
-                setResort(key)
-                setIsOpen(false)
-              }}
-            >
-              {r.name}
-            </button>
-          ))}
+          {RESORT_REGION_ORDER.map((region) => {
+            const entries = Object.entries(RESORTS).filter(([, r]) => r.region === region)
+            if (!entries.length) return null
+            return (
+              <div key={region}>
+                <div className="resort-section-label">{region}</div>
+                {entries.map(([key, r]) => (
+                  <button
+                    key={key}
+                    className={`resort-option ${resort === key ? 'active' : ''}`}
+                    onClick={() => {
+                      setResort(key)
+                      setIsOpen(false)
+                    }}
+                  >
+                    {r.name}
+                  </button>
+                ))}
+              </div>
+            )
+          })}
         </div>
       )}
     </div>

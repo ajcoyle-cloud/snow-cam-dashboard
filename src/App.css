@@ -938,6 +938,48 @@
   margin-top: 8px;
   z-index: 1000;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+  /* The list grew from ~11 resorts to ~28 with the NZ/AUS/OTHER bulk add —
+     unbounded height ran the dropdown off the bottom of the screen. */
+  max-height: min(420px, 70vh);
+  overflow-y: auto;
+  /* Firefox: thin thumb, transparent track (no visible background fill). */
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.18) transparent;
+}
+
+/* Chromium/Safari scrollbar — kept as subtle as the box-shadow around it:
+   a narrow, faint thumb with no track fill, rather than the default thick
+   grey bar that otherwise dominates a 150px-wide dropdown. */
+.resort-dropdown::-webkit-scrollbar {
+  width: 5px;
+}
+.resort-dropdown::-webkit-scrollbar-track {
+  background: transparent;
+}
+.resort-dropdown::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.18);
+  border-radius: 4px;
+}
+.resort-dropdown::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.32);
+}
+
+/* Section headers (NZ / AUS / OTHER) grouping the resort list — not
+   clickable, just a label, so it gets its own class rather than reusing
+   .resort-option. */
+.resort-section-label {
+  padding: 8px 16px 4px;
+  font-size: 0.7em;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: #777;
+  text-transform: uppercase;
+}
+
+.resort-section-label:not(:first-child) {
+  margin-top: 4px;
+  border-top: 1px solid #2a2a2a;
+  padding-top: 10px;
 }
 
 .resort-option {
