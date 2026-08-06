@@ -1099,6 +1099,17 @@ function StormArrivalBanner({ resort, onOpenRadar }) {
 // actually paints with).
 const SNOW_LINE_BUFFER_M = 300
 
+// Freezing level, snow line and sleet line are all solved by linearly
+// extrapolating a temperature/wet-bulb lapse out to the elevation where it
+// crosses a target value. In genuinely cold profiles that crossing can fall
+// below sea level (or SNOW_LINE_BUFFER_M can push an already-low freezing
+// level below it) — mathematically fine, but there's no terrain down there
+// for a snow/sleet line to mean anything, so every displayed elevation
+// figure bottoms out here rather than reading e.g. "-220m". Matches
+// clampElev in whakapapa-snow-forecast.html, which the map applies the same
+// floor with.
+const clampElev = (v) => v == null ? v : Math.max(0, v)
+
 // Below this, an hour counts as "not actively snowing" — matches the map
 // drape's own threshold (SNOWFALL_THRESHOLD_MM in whakapapa-snow-forecast.html),
 // so the table's Snow Line row and the map's tint switch over at the same point.
@@ -1115,7 +1126,7 @@ const SNOWFALL_THRESHOLD_MM = 0.1
 // profile is degenerate (summit and base reading the same), same as there.
 function wetBulbLineElev(baseWB, summitWB, baseElev, summitElev, target) {
   if (baseWB == null || summitWB == null || summitWB === baseWB) return null
-  return baseElev + (target - baseWB) * (summitElev - baseElev) / (summitWB - baseWB)
+  return clampElev(baseElev + (target - baseWB) * (summitElev - baseElev) / (summitWB - baseWB))
 }
 
 // ── Precipitation phase ────────────────────────────────────────────────────
@@ -1302,7 +1313,7 @@ function buildAltModelData(summitData, baseData, r) {
 
   const freezingAt = (summitTemp, baseTemp) => {
     if (summitTemp == null || baseTemp == null) return null
-    if (summitTemp !== baseTemp) return r.baseElev + (baseTemp * (r.summitElev - r.baseElev)) / (baseTemp - summitTemp)
+    if (summitTemp !== baseTemp) return clampElev(r.baseElev + (baseTemp * (r.summitElev - r.baseElev)) / (baseTemp - summitTemp))
     return baseTemp > 0 ? 3600 : 0
   }
 
@@ -1791,8 +1802,8 @@ function SnowfallForecast({ resort, setResort, onOpenCompare }) {
           return {
             time,
             datetime: new Date(time),
-            freezingLevel: Math.round(freezingLevel / 100) * 100,
-            freezingLevelGFS: gfsFreezingLevel !== null ? Math.round(gfsFreezingLevel / 100) * 100 : null,
+            freezingLevel: clampElev(Math.round(freezingLevel / 100) * 100),
+            freezingLevelGFS: gfsFreezingLevel !== null ? clampElev(Math.round(gfsFreezingLevel / 100) * 100) : null,
             snowLineWB: wetBulbLineElev(baseWetBulb, summitWetBulb, r.baseElev, r.summitElev, WET_BULB_SNOW_MAX_C),
             rainLineWB: wetBulbLineElev(baseWetBulb, summitWetBulb, r.baseElev, r.summitElev, WET_BULB_RAIN_MIN_C),
             summit: {
@@ -1871,7 +1882,7 @@ function SnowfallForecast({ resort, setResort, onOpenCompare }) {
             return {
               time,
               datetime: new Date(time),
-              freezingLevel: Math.round(freezingLevel / 100) * 100,
+              freezingLevel: clampElev(Math.round(freezingLevel / 100) * 100),
               freezingLevelGFS: null,
               summit: {
                 temp: summitTemp,
@@ -3548,7 +3559,7 @@ function SnowfallForecast({ resort, setResort, onOpenCompare }) {
                   const snowing = elevData.snowfall >= SNOWFALL_THRESHOLD_MM
                   const val = freezing == null ? null
                     : !snowing ? freezing
-                    : d.snowLineWB != null ? d.snowLineWB : freezing - SNOW_LINE_BUFFER_M
+                    : d.snowLineWB != null ? d.snowLineWB : clampElev(freezing - SNOW_LINE_BUFFER_M)
                   const isAboveSummit = val != null && val > RESORTS[resort].summitElev
                   return (
                     <td key={i}
@@ -3758,7 +3769,7 @@ function useResortComparisonData() {
           const summitPrecip = summit.hourly.precipitation[i] || 0
           let summitSnowfall = (summit.hourly.snowfall[i] || 0) * 10 // cm -> mm
           if (summitTemp < 0 && summitPrecip > 0 && summitSnowfall === 0) summitSnowfall = summitPrecip * 7
-          return { datetime: new Date(time), freezingLevel, snowCm: summitSnowfall / 10 }
+          return { datetime: new Date(time), freezingLevel: clampElev(freezingLevel), snowCm: summitSnowfall / 10 }
         })
 
         const gfsPoints = pointsFor(gfsSummit, gfsBase)

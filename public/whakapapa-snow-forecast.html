@@ -1862,6 +1862,20 @@ const MTHUTT_LIFTS ={"type":"FeatureCollection","features":[{"type":"Feature","g
 let TOP_ELEV = LOC.topElev;
 const SNOW_OFFSET = 300; // snow falls to 300m below the freezing level
 
+// Elevation floor: freezing level, snow line and sleet line are all solved by
+// linearly extrapolating a temperature/wet-bulb lapse out to the elevation
+// where it crosses a target value. In genuinely cold profiles that crossing
+// can fall below sea level (or SNOW_OFFSET can push an already-low freezing
+// level below it) — mathematically fine, but there's no terrain down there
+// for a snow/sleet line to mean anything, so every elevation figure bottoms
+// out here rather than reading e.g. "-220m" to a user.
+const clampElev = (v) => v == null ? v : Math.max(0, v);
+// The SNOW_OFFSET fallback (used whenever an hour has no wet-bulb-derived
+// snowLineWB) subtracts a flat 300m from the freezing level, which can push
+// an already-low freezing level below 0 — same floor as clampElev, applied
+// at every one of this fallback's call sites.
+const snowLineFallback = (freezingLevel) => freezingLevel == null ? null : clampElev(freezingLevel - SNOW_OFFSET);
+
 // Wet-bulb thresholds for the precipitation phase, matching the main dashboard
 // (see precipPhase in src/App.jsx). Snow at or below WET_BULB_SNOW_MAX_C, all
 // rain at or above WET_BULB_RAIN_MIN_C, sleet in between. Wet-bulb is what
@@ -2388,6 +2402,7 @@ function buildModelHours(summit, base, gfs, gfsBaseHourly) {
     if (fl == null && baseT != null && summitT != null && baseT !== summitT) {
       fl = LOC.baseElev + (baseT * (LOC.summitElev - LOC.baseElev)) / (baseT - summitT);
     }
+    fl = clampElev(fl);
     let snowMm = summit.snowfall?.[i] != null
       ? Math.min(summit.snowfall[i] * 10, MAX_HOURLY_SNOWFALL_MM)
       : null;
@@ -2416,7 +2431,7 @@ function buildModelHours(summit, base, gfs, gfsBaseHourly) {
     const baseWB = base?.wet_bulb_temperature_2m?.[i] ?? null;
     const wbElevAt = (target) => {
       if (summitWB == null || baseWB == null || summitWB === baseWB) return null;
-      return LOC.baseElev + (target - baseWB) * (LOC.summitElev - LOC.baseElev) / (summitWB - baseWB);
+      return clampElev(LOC.baseElev + (target - baseWB) * (LOC.summitElev - LOC.baseElev) / (summitWB - baseWB));
     };
     const snowLineWB = wbElevAt(WET_BULB_SNOW_MAX_C);
     const rainLineWB = wbElevAt(WET_BULB_RAIN_MIN_C);
@@ -2477,7 +2492,7 @@ function buildAverageHours(sources) {
     const baseWB = avg(r => r.baseWetBulb);
     const wbElevAt = (target) => (summitWB == null || baseWB == null || summitWB === baseWB)
       ? null
-      : LOC.baseElev + (target - baseWB) * (LOC.summitElev - LOC.baseElev) / (summitWB - baseWB);
+      : clampElev(LOC.baseElev + (target - baseWB) * (LOC.summitElev - LOC.baseElev) / (summitWB - baseWB));
     return {
       time: first.time,
       temp: avg(r => r.temp),
@@ -2925,7 +2940,7 @@ function splitPaneStats(hour) {
   if (!hour) return '—';
   const snowing = hour.snowfallMm >= SNOWFALL_THRESHOLD_MM;
   const line = snowing
-    ? (hour.snowLineWB != null ? hour.snowLineWB : hour.freezingLevel - SNOW_OFFSET)
+    ? (hour.snowLineWB != null ? hour.snowLineWB : snowLineFallback(hour.freezingLevel))
     : hour.freezingLevel;
   return `${Math.round(line)}m · ${(hour.snowfallMm / 10).toFixed(2)}cm/hr`;
 }
@@ -2950,7 +2965,7 @@ function renderSplitDelta() {
   }
 
   const snowLineOf = (h) => (h.snowfallMm >= SNOWFALL_THRESHOLD_MM)
-    ? (h.snowLineWB != null ? h.snowLineWB : h.freezingLevel - SNOW_OFFSET)
+    ? (h.snowLineWB != null ? h.snowLineWB : snowLineFallback(h.freezingLevel))
     : h.freezingLevel;
   const dFreeze = aHour.freezingLevel - bHour.freezingLevel;
   const dSnowLine = snowLineOf(aHour) - snowLineOf(bHour);
@@ -4351,7 +4366,7 @@ function createSnowLayer(loc) {
       const sleetLineAlt = hour
         ? (hour.rainLineWB != null ? hour.rainLineWB
           : hour.snowLineWB != null ? hour.snowLineWB
-          : hour.freezingLevel != null ? hour.freezingLevel - SNOW_OFFSET
+          : hour.freezingLevel != null ? snowLineFallback(hour.freezingLevel)
           : null)
         : null;
 
@@ -4920,7 +4935,7 @@ function orographicPrecomputeHours(hours) {
     if (hour.snowfallMm == null || hour.snowfallMm < SNOWFALL_THRESHOLD_MM) continue;
     if (hour.freezingLevel == null || hour.windSpeedKmh == null || hour.windDirDeg == null) continue;
     out.push({
-      boundary: hour.freezingLevel - SNOW_OFFSET,
+      boundary: snowLineFallback(hour.freezingLevel),
       snowCm: hour.snowfallMm / 10,
       vectors: orographicWindVectorsForHour(hour),
     });
@@ -5074,7 +5089,7 @@ function registerOrographicSnowProtocol() {
 
     if (validHour) {
       const snowing = hour.snowfallMm >= SNOWFALL_THRESHOLD_MM;
-      const boundary = snowing ? hour.freezingLevel - SNOW_OFFSET : hour.freezingLevel;
+      const boundary = snowing ? snowLineFallback(hour.freezingLevel) : hour.freezingLevel;
       const metersPerPixel = (156543.03392 * Math.cos(tileCenterLatRad(y, z))) / Math.pow(2, z) * (256 / size);
 
       // Wind vectors (summit/base) and the fixed multiplier normalisation —
@@ -6058,7 +6073,7 @@ function buildSnowRamp(hour) {
   //    which is the same crossing assumed at one fixed humidity.
   const snowLine = (snowing && hour.snowLineWB != null)
     ? hour.snowLineWB
-    : hour.freezingLevel - SNOW_OFFSET;
+    : snowLineFallback(hour.freezingLevel);
   const boundary = snowing ? snowLine : hour.freezingLevel;
 
   // Nothing to draw when the boundary is above the entire displayed terrain —
@@ -6270,7 +6285,7 @@ function openMapView(index) {
   // non-zero snowfall for an area showing no shading at all.
   const hourSnowing = hour.snowfallMm >= SNOWFALL_THRESHOLD_MM;
   currentSnowLine = hourSnowing
-    ? (hour.snowLineWB != null ? hour.snowLineWB : hour.freezingLevel - SNOW_OFFSET)
+    ? (hour.snowLineWB != null ? hour.snowLineWB : snowLineFallback(hour.freezingLevel))
     : hour.freezingLevel;
   currentHourCm = hourSnowing ? hour.snowfallMm / 10 : 0;
   // Real per-elevation rate for this exact hour (see computeElevationBandRates)
@@ -6300,7 +6315,7 @@ function openMapView(index) {
   // alongside it so the violet zone on the map has a number attached.
   document.getElementById('si-sl').textContent = hour.snowLineWB != null
     ? Math.round(hour.snowLineWB) + ' m'
-    : Math.round(hour.freezingLevel - SNOW_OFFSET) + ' m';
+    : Math.round(snowLineFallback(hour.freezingLevel)) + ' m';
   const sleetEl = document.getElementById('si-sleet');
   if (sleetEl) {
     const showSleet = hour.snowLineWB != null && hour.rainLineWB != null
@@ -6422,7 +6437,7 @@ function renderAccumulatedView() {
   const minFreezing = Math.min(...window_.map((r) => r.freezingLevel));
   // Clamp below TOP_ELEV — see buildSnowRamp for why (freezing level can
   // forecast above the resort's summit in its off-season).
-  const snowLine = Math.min(minFreezing - SNOW_OFFSET, TOP_ELEV - 2);
+  const snowLine = Math.max(0, Math.min(minFreezing - SNOW_OFFSET, TOP_ELEV - 2));
 
   const bandIndex = DEPTH_BANDS.findIndex(b => totalCm <= b.max);
   const band = bandIndex === -1 ? DEPTH_BANDS[DEPTH_BANDS.length - 1] : DEPTH_BANDS[bandIndex];
@@ -8715,7 +8730,7 @@ function startPlay() {
     // hour the ramp above was built from, not the hour tick's raw values.
     currentSleetBand = sleetBandFor(blended);
     currentSnowLine = blendedSnowing
-      ? (blended.snowLineWB != null ? blended.snowLineWB : blended.freezingLevel - SNOW_OFFSET)
+      ? (blended.snowLineWB != null ? blended.snowLineWB : snowLineFallback(blended.freezingLevel))
       : blended.freezingLevel;
     currentHourCm = blendedSnowing ? blended.snowfallMm / 10 : 0;
     showSnowfallMarker(blendedSnowing ? `❄ ${(blended.snowfallMm / 10).toFixed(2)} cm/hr` : '');
@@ -9726,7 +9741,7 @@ function renderLivePanel() {
   }
   // Compact summary only — individual station rows removed to save map space.
   const lapse = (-pwProfile.b * 1000).toFixed(1);          // °C per 1000 m (positive = cooling with height)
-  const freezeElev = pwProfile.b < 0 ? Math.round(-pwProfile.a / pwProfile.b) : null;
+  const freezeElev = pwProfile.b < 0 ? clampElev(Math.round(-pwProfile.a / pwProfile.b)) : null;
   const summitT = pwTempAt(TOP_ELEV);
   document.getElementById('live-rows').innerHTML = `
     <div class="live-stat"><span>Lapse rate</span><b>${lapse}°C / 1000m</b></div>
@@ -9887,7 +9902,7 @@ function pwProjectedFreezing(fl) {
   slope = Math.max(-MAX_SLOPE, Math.min(MAX_SLOPE, slope));
   const MAX_HORIZON = 30 * 60;    // never extrapolate more than 30 min past last obs
   const horizon = Math.min(now - last.ts, MAX_HORIZON);
-  return { lastTs: last.ts, lastFl: last.fl, nowTs: last.ts + horizon, projFl: last.fl + slope * horizon };
+  return { lastTs: last.ts, lastFl: last.fl, nowTs: last.ts + horizon, projFl: clampElev(last.fl + slope * horizon) };
 }
 
 function pwStartNowcast() {
@@ -9938,7 +9953,7 @@ function pwFreezingSeries(hours = 6) {
     if (pts.length < 2) continue;
     const fit = pwLapseProfile(pts) || pwWeightedFitStations(pts);
     if (fit && fit.b < 0) {
-      out.push({ ts: t, fl: -fit.a / fit.b });
+      out.push({ ts: t, fl: clampElev(-fit.a / fit.b) });
     }
   }
   return out;
@@ -10018,6 +10033,7 @@ function pwRenderFreezingOverlay() {
             const stdLapse = -0.0065;
             freezeElev = (0 - summitTemp) / stdLapse + LOC.summitElev;
           }
+          freezeElev = clampElev(freezeElev);
         }
 
         return freezeElev != null ? { ts: idx, fl: freezeElev } : null;
@@ -10089,6 +10105,7 @@ function pwRenderFreezingOverlay() {
           const stdLapse = -0.0065;
           flValue = (0 - summitTemp) / stdLapse + LOC.summitElev;
         }
+        flValue = clampElev(flValue);
       }
     }
     if (flValue == null) flValue = lo + (hi - lo) / 2;
