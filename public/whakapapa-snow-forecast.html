@@ -1735,9 +1735,13 @@ const RESORT_CONFIG = {
   },
   fallscreek: {
     name: 'Falls Creek',
-    lat: -36.878683, lon: 147.2441791, summitElev: 1773, baseElev: 1522, timezone: 'Australia/Melbourne',
+    // Old point (147.2441791, -36.878683) sat ~2.6km west of the lift
+    // network, off the mountain — the summit pill and camera both landed on
+    // empty terrain beside the resort instead of on it. Re-anchored on the
+    // lift network's own bounding-box centroid (see FALLSCREEK_LIFTS below).
+    lat: -36.8702999, lon: 147.2737331, summitElev: 1773, baseElev: 1522, timezone: 'Australia/Melbourne',
     topElev: 1873, // ring-sampled nearby terrain max 1776m + margin
-    center: [147.2441791, -36.878683], zoom: 13.2, pitch: 62, bearing: 0
+    center: [147.2737331, -36.8702999], zoom: 13.2, pitch: 62, bearing: 0
   },
   thredbo: {
     name: 'Thredbo',

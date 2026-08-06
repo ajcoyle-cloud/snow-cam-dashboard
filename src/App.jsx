@@ -1278,7 +1278,7 @@ const RESORTS = {
   hanmersprings: { name: 'Hanmer Springs', region: 'NZ', lat: -42.4421821, lon: 172.7308729, summitElev: 1721, baseElev: 1470, timezone: 'Pacific/Auckland' },
   perisher: { name: 'Perisher', region: 'AUS', lat: -36.3961667, lon: 148.408582, summitElev: 2046, baseElev: 1609, timezone: 'Australia/Sydney' },
   mtbuller: { name: 'Mt Buller', region: 'AUS', lat: -37.1481104, lon: 146.4384243, summitElev: 1770, baseElev: 1375, timezone: 'Australia/Melbourne' },
-  fallscreek: { name: 'Falls Creek', region: 'AUS', lat: -36.878683, lon: 147.2441791, summitElev: 1773, baseElev: 1522, timezone: 'Australia/Melbourne' },
+  fallscreek: { name: 'Falls Creek', region: 'AUS', lat: -36.8702999, lon: 147.2737331, summitElev: 1773, baseElev: 1522, timezone: 'Australia/Melbourne' },
   thredbo: { name: 'Thredbo', region: 'AUS', lat: -36.5047751, lon: 148.3057091, summitElev: 2017, baseElev: 1359, timezone: 'Australia/Sydney' },
   hotham: { name: 'Mt Hotham', region: 'AUS', lat: -36.9752998, lon: 147.1280943, summitElev: 1851, baseElev: 1478, timezone: 'Australia/Melbourne' },
   mtbawbaw: { name: 'Mt Baw Baw', region: 'AUS', lat: -37.8395353, lon: 146.2758765, summitElev: 1557, baseElev: 1457, timezone: 'Australia/Melbourne' },
