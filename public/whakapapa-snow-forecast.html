@@ -140,6 +140,8 @@
 
   html.public-edition #mode-switch [data-mode="live"] { display: none; }
   html.public-edition #mode-dropdown-list [data-mode="live"] { display: none; }
+  html.public-edition #mode-switch [data-mode="radar"] { display: none; }
+  html.public-edition #mode-dropdown-list [data-mode="radar"] { display: none; }
 
   /* ── Mobile top bar (html.rows-mobile) ─────────────────────────────────
      Set by syncTopBarRows() on ≤700px instead of rows-1/2/3. The five mode
@@ -2351,10 +2353,13 @@ function updatePwConfigFor(key) {
 function updateRadarAvailability(key) {
   RADAR_AVAILABLE = RESORT_COUNTRY_ISO3[key] === 'NZL';
   const btn = document.querySelector('#mode-switch [data-mode="radar"]');
-  if (btn) btn.style.display = RADAR_AVAILABLE ? '' : 'none';
+  // Radar is off entirely on the public build (see html.public-edition rule
+  // above) — leave that inline style unset rather than clobbering it back to
+  // visible for an NZ resort.
+  if (btn && !isPublicEdition) btn.style.display = RADAR_AVAILABLE ? '' : 'none';
   // Keep the mobile dropdown's options in step with the pills' radar gating.
   buildModeDropdown();
-  if (!RADAR_AVAILABLE && viewMode === 'radar') setViewMode('hourly');
+  if ((!RADAR_AVAILABLE || isPublicEdition) && viewMode === 'radar') setViewMode('hourly');
 }
 
 // Everything that must be re-applied once the camera actually lands on the
@@ -3362,7 +3367,7 @@ function buildModeDropdown() {
   if (!list) return;
   const modes = Object.keys(MODE_LABELS).filter((m) => {
     if (m === 'live' && isPublicEdition) return false;
-    if (m === 'radar' && !RADAR_AVAILABLE) return false;
+    if (m === 'radar' && (isPublicEdition || !RADAR_AVAILABLE)) return false;
     return true;
   });
   list.innerHTML = modes.map((m) =>
@@ -7803,6 +7808,9 @@ function setViewMode(mode) {
   // Public build has no Live — fall back to Hourly rather than to a blank
   // pill row, so an old bookmark or a remembered mode still lands somewhere.
   if (isPublicEdition && mode === 'live') mode = 'hourly';
+  // Radar is switched off on the public build entirely (not just where NZ
+  // radar coverage is missing) — same fallback treatment as Live above.
+  if (isPublicEdition && mode === 'radar') mode = 'hourly';
   const prevMode = viewMode;
   // No NZ radar coverage for this resort (the US ones) — fall back rather
   // than entering a mode that can never load anything.
