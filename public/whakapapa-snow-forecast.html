@@ -1115,6 +1115,11 @@
        !important beats the inline display:block). */
     #fl-overlay { left: 12px; right: 12px; bottom: 112px; height: 96px; }
     #snow-info:not(.drawer-min) ~ #fl-overlay { display: none !important; }
+    /* "Freezing Level" caption dropped on mobile — the sparkline sits low
+       enough here that the label reads as a stray title in the bottom-right
+       corner rather than a chart heading. The marker + value text on the
+       line itself already say what it is. */
+    #fl-caption { display: none; }
 
     /* Launcher to reopen the drawer once it's hidden: bottom-left, above the
        timeslider. Only shown while the drawer is hidden (.drawer-min).
